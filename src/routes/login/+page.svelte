@@ -22,7 +22,7 @@
 
 <div class="h-screen flex flex-col items-center justify-center bg-ios-bg p-4">
   <div class="w-full max-w-sm bg-ios-card border border-ios-separator rounded-2xl p-8 text-center shadow-2xl">
-    <div class="w-24 h-24 mx-auto mb-6">
+    <div class="w-80 h-80 mx-auto mb-6">
       <img src="/2.svg" alt="FacturAI Logo" class="w-full h-full object-contain" />
     </div>
     

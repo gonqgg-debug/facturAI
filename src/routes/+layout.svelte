@@ -52,8 +52,8 @@
 
   <!-- Tablet/Desktop Sidebar -->
   <aside class="hidden md:flex flex-col fixed left-0 top-0 bottom-0 w-64 bg-ios-card border-r border-ios-separator p-4">
-    <div class="mb-8 px-2">
-      <img src="/2.svg" alt="FacturAI" class="h-12 w-auto" />
+    <div class="mb-8 px-2 flex justify-center">
+      <img src="/2.svg" alt="FacturAI" class="h-32 w-auto" />
     </div>
     <nav class="space-y-2">
       {#each tabs as tab}
