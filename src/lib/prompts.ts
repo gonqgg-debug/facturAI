@@ -77,6 +77,7 @@ export function generateSystemPrompt(globalContextItems: GlobalContextItem[], hi
 
     Extract the following JSON structure:
     {
+      "reasoning": "Concise step-by-step explanation of how you found the total, tax status, and items. Mention any corrections made.",
       "providerName": "string",
       "providerRnc": "string",
       "clientName": "string",

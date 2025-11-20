@@ -5,7 +5,7 @@
   import { db } from '$lib/db';
   import { recalculateInvoice, validateNcf, getNcfType, recalculateFromTotal } from '$lib/tax';
   import { parseInvoiceWithGrok } from '$lib/grok';
-  import { Save, RefreshCw, AlertTriangle, Check, TrendingUp, TrendingDown } from 'lucide-svelte';
+  import { Save, RefreshCw, AlertTriangle, Check, TrendingUp, TrendingDown, Brain } from 'lucide-svelte';
   import type { Supplier, Product } from '$lib/types';
 
   let invoice = $currentInvoice;
@@ -14,6 +14,7 @@
   let products: Product[] = [];
   let priceAlerts: Record<number, { type: 'up' | 'down', diff: number, lastPrice: number, lastDate: string }> = {};
   let isSaving = false;
+  let showReasoning = false;
 
   onMount(async () => {
     if (!invoice) {
@@ -354,6 +355,15 @@
             <RefreshCw size={16} class={$isProcessing ? 'animate-spin' : ''} />
             <span class="hidden sm:inline text-sm">Re-Analyze</span>
           </button>
+          {#if invoice.reasoning}
+            <button 
+              class="bg-ios-card border border-ios-separator text-ios-blue px-3 py-2 rounded-lg flex items-center space-x-2 hover:bg-white/5"
+              on:click={() => showReasoning = !showReasoning}
+            >
+              <Brain size={16} />
+              <span class="hidden sm:inline text-sm">AI Logic</span>
+            </button>
+          {/if}
           <button 
             class="bg-ios-green text-white px-4 py-2 rounded-lg flex items-center space-x-2 font-bold shadow-lg shadow-green-900/20"
             on:click={handleSave}
@@ -396,6 +406,18 @@
             </div>
           </div>
         </div>
+
+      {#if showReasoning && invoice.reasoning}
+        <div class="mb-6 bg-ios-card border border-ios-blue/30 rounded-xl p-4 text-sm text-gray-300 shadow-lg relative overflow-hidden">
+          <div class="absolute top-0 left-0 w-1 h-full bg-ios-blue"></div>
+          <div class="flex items-start space-x-3">
+            <Brain size={20} class="text-ios-blue mt-1 flex-shrink-0" />
+            <div class="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+              {invoice.reasoning}
+            </div>
+          </div>
+        </div>
+      {/if}
 
         <!-- Invoice Details -->
         <div class="bg-ios-card p-4 rounded-xl border border-ios-separator">

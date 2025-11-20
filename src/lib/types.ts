@@ -39,6 +39,9 @@ export interface Invoice {
     securityCode?: string; // QR Code content
     isEcf?: boolean;
     qrUrl?: string;
+
+    // AI Insights
+    reasoning?: string;
 }
 
 export interface Supplier {
