@@ -34,28 +34,35 @@ export function generateSystemPrompt(globalContextItems: GlobalContextItem[], hi
 
     ${hintsContext}
     
-    CRITICAL INSTRUCTIONS FOR ACCURACY:
-    1. **Unit Conversion**: The user wants EVERYTHING in INDIVIDUAL UNITS.
-       - If an item is "1 Caja" (Box) but the description says "12x1" or "12u", the Quantity is 12.
-       - If the Global Context defines a pack size (e.g., "Jabón comes in boxes of 24"), use that to convert "1 Box" to "24 Units".
-       - If you convert units, calculate the "Unit Price" by dividing the Total Value by the new Quantity.
+    CRITICAL INSTRUCTIONS FOR ACCURACY (TOTAL-DRIVEN APPROACH):
     
-    2. **Mathematical Validation**:
-       - ALWAYS check: Quantity * Unit Price = Value.
-       - If the OCR text says "Quantity: 7" but the math implies "1", it's likely an OCR error (7 vs 1). Trust the math.
-       - If "ITBIS" is missing, calculate it (usually 18% of Value).
-       
-    3. **Description Cleanup**:
-       - Remove "12x1", "Caja", "Bulto" from the description if you successfully converted it to units.
-       - Keep the description clean and concise.
+    1. **Find the Hard Truths First**:
+       - **Step 1**: Locate the **GRAND TOTAL** of the invoice. This is your anchor.
+       - **Step 2**: Locate the **ITBIS TOTAL** and **SUBTOTAL**.
+       - **Step 3**: For each line item, locate the **LINE TOTAL** (Amount) and **QUANTITY**. These are usually the most reliable numbers.
+    
+    2. **Work Backwards to Solve for Price**:
+       - Do NOT blindly trust the OCR'd Unit Price if it conflicts with the Total.
+       - **Calculate**: `Unit Price = Line Total / Quantity`.
+       - Use this calculated Unit Price if the OCR text is messy or ambiguous.
+    
+    3. **Infer Tax Status (Tax Included vs Excluded)**:
+       - Check the math: `Sum(Line Totals)`.
+       - **Scenario A**: If `Sum(Line Totals) ≈ Grand Total`, then the Line Totals **INCLUDE TAX**.
+         - Set `"priceIncludesTax": true`.
+         - The Unit Price you calculated is the Tax-Included Price.
+       - **Scenario B**: If `Sum(Line Totals) ≈ Subtotal` (and `Subtotal + Tax = Grand Total`), then the Line Totals **EXCLUDE TAX**.
+         - Set `"priceIncludesTax": false`.
+         - The Unit Price you calculated is the Base Price.
+    
+    4. **Unit Conversion**:
+       - The user wants INDIVIDUAL UNITS.
+       - If description says "12x1" but Qty is 1, change Qty to 12.
+       - **Recalculate**: `New Unit Price = Line Total / New Quantity`.
+       - The `Line Total` NEVER changes during conversion, only Qty and Unit Price.
 
-    4. **Categorization**:
-       - Assign a category based on the items and supplier:
-       - "Inventory": Products for resale (food, drinks, etc.).
-       - "Utilities": Electricity, Water, Internet, Phone.
-       - "Maintenance": Cleaning supplies, repairs, equipment.
-       - "Payroll": Salaries, labor.
-       - "Other": Anything else.
+    5. **Categorization**:
+       - Assign a category based on the items and supplier (Inventory, Utilities, Maintenance, Payroll, Other).
 
     Extract the following JSON structure:
     {
@@ -86,16 +93,11 @@ export function generateSystemPrompt(globalContextItems: GlobalContextItem[], hi
     }
     
     RULES:
-    1. ITBIS is usually 18%. If missing, calculate it.
-    2. **Tax Included Inference (CRITICAL)**: Do not just look for words. **Do the math**:
-       - Calculate `Sum = Σ(Quantity * Unit Price)` for all items.
-       - If `Sum` ≈ `Grand Total`, then **Unit Prices INCLUDE Tax**. Set `"priceIncludesTax": true`.
-       - If `Sum` ≈ `Subtotal` (and `Subtotal + Tax = Grand Total`), then **Unit Prices EXCLUDE Tax**. Set `"priceIncludesTax": false`.
-       - If specific lines have explicit "Tax Inc" markers, respect those.
-    3. NCF must be 11 or 13 characters (e.g., B01..., E31...).
-    4. Round all numbers to 2 decimals.
-    5. If text is unclear, infer from context or math.
-    6. Return ONLY raw JSON, no markdown.
+    1. **Trust the Totals**: If `Qty * Price != Line Total`, trust the `Line Total` and adjust the Price.
+    2. **Trust the Grand Total**: The sum of your extracted items MUST match the Grand Total.
+    3. ITBIS is usually 18%.
+    4. NCF must be 11 or 13 characters.
+    5. Return ONLY raw JSON.
   `;
 }
 
