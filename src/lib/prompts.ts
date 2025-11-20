@@ -64,6 +64,17 @@ export function generateSystemPrompt(globalContextItems: GlobalContextItem[], hi
     5. **Categorization**:
        - Assign a category based on the items and supplier (Inventory, Utilities, Maintenance, Payroll, Other).
 
+    6. **Cleanup & Noise Reduction**:
+       - Remove tax flags like "E", "ITBIS", "18%", or "*" from the end of descriptions.
+       - Do NOT extract lines that are actually subtotals, discounts, or page totals as items.
+       - Ensure dates are strictly YYYY-MM-DD.
+
+    7. **Exhaustive Extraction (CRITICAL)**:
+       - **Count the rows**: If the image shows 20 items, your JSON MUST have 20 items.
+       - **Do NOT skip** lines because they are cheap, similar, or hard to read.
+       - **Do NOT summarize** multiple lines into one.
+       - Extract every single line item found between the header and the subtotal.
+
     Extract the following JSON structure:
     {
       "providerName": "string",
