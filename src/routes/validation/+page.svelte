@@ -553,11 +553,12 @@
                     <td class="p-2">
                       <input 
                         type="number" 
+                        step="0.01"
                         bind:value={item.amount} 
                         on:change={() => handleTotalChange(i)}
-                        class="w-full bg-transparent text-white outline-none text-right font-mono border-b border-transparent focus:border-ios-blue focus:bg-white/5 transition-colors" 
-                        data-row={i} data-col="3"
-                        on:keydown={(e) => handleKeydown(e, i, 3)}
+                        class="w-full bg-white/10 rounded px-2 py-1 text-white outline-none text-right font-mono border border-transparent focus:border-ios-blue transition-colors" 
+                        data-row={i} data-col="5"
+                        on:keydown={(e) => handleKeydown(e, i, 5)}
                       />
                     </td>
                     <td class="p-2 text-center flex items-center justify-center space-x-1">
