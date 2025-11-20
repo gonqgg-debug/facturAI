@@ -43,23 +43,23 @@ export function generateSystemPrompt(globalContextItems: GlobalContextItem[], hi
     
     2. **Work Backwards to Solve for Price**:
        - Do NOT blindly trust the OCR'd Unit Price if it conflicts with the Total.
-       - **Calculate**: \`Unit Price = Line Total / Quantity\`.
+       - **Calculate**: 'Unit Price = Line Total / Quantity'.
        - Use this calculated Unit Price if the OCR text is messy or ambiguous.
     
     3. **Infer Tax Status (Tax Included vs Excluded)**:
-       - Check the math: \`Sum(Line Totals)\`.
-       - **Scenario A**: If \`Sum(Line Totals) ≈ Grand Total\`, then the Line Totals **INCLUDE TAX**.
-         - Set \`"priceIncludesTax": true\`.
+       - Check the math: 'Sum(Line Totals)'.
+       - **Scenario A**: If 'Sum(Line Totals) ≈ Grand Total', then the Line Totals **INCLUDE TAX**.
+         - Set "priceIncludesTax": true.
          - The Unit Price you calculated is the Tax-Included Price.
-       - **Scenario B**: If \`Sum(Line Totals) ≈ Subtotal\` (and \`Subtotal + Tax = Grand Total\`), then the Line Totals **EXCLUDE TAX**.
-         - Set \`"priceIncludesTax": false\`.
+       - **Scenario B**: If 'Sum(Line Totals) ≈ Subtotal' (and 'Subtotal + Tax = Grand Total'), then the Line Totals **EXCLUDE TAX**.
+         - Set "priceIncludesTax": false.
          - The Unit Price you calculated is the Base Price.
     
     4. **Unit Conversion**:
        - The user wants INDIVIDUAL UNITS.
        - If description says "12x1" but Qty is 1, change Qty to 12.
-       - **Recalculate**: \`New Unit Price = Line Total / New Quantity\`.
-       - The \`Line Total\` NEVER changes during conversion, only Qty and Unit Price.
+       - **Recalculate**: 'New Unit Price = Line Total / New Quantity'.
+       - The 'Line Total' NEVER changes during conversion, only Qty and Unit Price.
 
     5. **Categorization**:
        - Assign a category based on the items and supplier (Inventory, Utilities, Maintenance, Payroll, Other).
@@ -93,7 +93,7 @@ export function generateSystemPrompt(globalContextItems: GlobalContextItem[], hi
     }
     
     RULES:
-    1. **Trust the Totals**: If `Qty * Price != Line Total`, trust the `Line Total` and adjust the Price.
+    1. **Trust the Totals**: If 'Qty * Price != Line Total', trust the 'Line Total' and adjust the Price.
     2. **Trust the Grand Total**: The sum of your extracted items MUST match the Grand Total.
     3. ITBIS is usually 18%.
     4. NCF must be 11 or 13 characters.
