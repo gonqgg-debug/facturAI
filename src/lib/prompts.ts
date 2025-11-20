@@ -73,6 +73,7 @@ export function generateSystemPrompt(globalContextItems: GlobalContextItem[], hi
           "description": "string",
           "quantity": number,
           "unitPrice": number,
+          "priceIncludesTax": boolean,
           "value": number,
           "itbis": number,
           "amount": number
@@ -86,10 +87,11 @@ export function generateSystemPrompt(globalContextItems: GlobalContextItem[], hi
     
     RULES:
     1. ITBIS is usually 18%. If missing, calculate it.
-    2. NCF must be 11 or 13 characters (e.g., B01..., E31...).
-    3. Round all numbers to 2 decimals.
-    4. If text is unclear, infer from context or math.
-    5. Return ONLY raw JSON, no markdown.
+    2. **Tax Included Check**: Look for headers like "ITBIS Incluido", "Precio Final", or "Precio con Impuesto". If found, set "priceIncludesTax": true for those items.
+    3. NCF must be 11 or 13 characters (e.g., B01..., E31...).
+    4. Round all numbers to 2 decimals.
+    5. If text is unclear, infer from context or math.
+    6. Return ONLY raw JSON, no markdown.
   `;
 }
 

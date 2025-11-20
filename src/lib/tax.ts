@@ -63,9 +63,25 @@ export function recalculateInvoice(invoice: Invoice): Invoice {
         // Calculate ITBIS based on rate
         // Default to 18% if not set, or use 0 if explicitly 0
         const rate = item.taxRate !== undefined ? item.taxRate : 0.18;
-        item.itbis = Number((item.value * rate).toFixed(2));
 
-        item.amount = Number((item.value + item.itbis).toFixed(2));
+        if (item.priceIncludesTax) {
+            // Back-calculate base value
+            // Unit Price is the final price per unit
+            const totalAmount = item.quantity * item.unitPrice;
+
+            // Net = Total / (1 + rate)
+            const netValue = totalAmount / (1 + rate);
+
+            item.value = Number(netValue.toFixed(2));
+            item.itbis = Number((totalAmount - netValue).toFixed(2));
+            item.amount = Number(totalAmount.toFixed(2));
+        } else {
+            // Standard calculation (Tax Excluded)
+            // Simple logic: Value = Qty * UnitPrice
+            item.value = Number((item.quantity * item.unitPrice).toFixed(2));
+            item.itbis = Number((item.value * rate).toFixed(2));
+            item.amount = Number((item.value + item.itbis).toFixed(2));
+        }
 
         subtotal += item.value;
         itbisTotal += item.itbis;

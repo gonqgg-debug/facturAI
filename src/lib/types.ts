@@ -3,6 +3,7 @@ export interface InvoiceItem {
     quantity: number;
     unitPrice: number;
     taxRate?: number; // 0.18, 0.16, 0
+    priceIncludesTax?: boolean;
     value: number;
     itbis: number;
     amount: number;

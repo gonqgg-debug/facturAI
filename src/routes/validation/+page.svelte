@@ -184,6 +184,7 @@
       description: '',
       quantity: 1,
       unitPrice: 0,
+      priceIncludesTax: false,
       taxRate: 0.18,
       value: 0,
       itbis: 0,
@@ -463,6 +464,7 @@
                   <th class="p-3 font-medium">Desc</th>
                   <th class="p-3 font-medium w-14 text-center">Qty</th>
                   <th class="p-3 font-medium w-20 text-right">Price</th>
+                  <th class="p-3 font-medium w-16 text-center">Tax Inc</th>
                   <th class="p-3 font-medium w-20 text-center">Tax</th>
                   <th class="p-3 font-medium w-20 text-right">Total</th>
                   <th class="p-3 w-8"></th>
@@ -520,6 +522,14 @@
                           </div>
                         {/if}
                       </div>
+                    </td>
+                    <td class="p-2 text-center">
+                      <input 
+                        type="checkbox" 
+                        bind:checked={item.priceIncludesTax} 
+                        on:change={handleRecalc}
+                        class="w-4 h-4 rounded border-gray-600 bg-black/50 text-ios-blue focus:ring-ios-blue"
+                      />
                     </td>
                     <td class="p-2">
                       <select 
