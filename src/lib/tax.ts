@@ -100,3 +100,34 @@ export function recalculateInvoice(invoice: Invoice): Invoice {
 
     return invoice;
 }
+
+export function recalculateFromTotal(item: InvoiceItem): InvoiceItem {
+    // Ensure numbers
+    item.quantity = Number(item.quantity) || 1; // Avoid div by zero
+    item.amount = Number(item.amount) || 0;
+    const rate = item.taxRate !== undefined ? item.taxRate : 0.18;
+
+    // We have Total (Amount) and Qty. We need Unit Price.
+
+    if (item.priceIncludesTax) {
+        // If Price Includes Tax, then Unit Price is simply Total / Qty
+        // Example: Total 118, Qty 1, Tax 18%. Unit Price (Inc Tax) = 118.
+        item.unitPrice = Number((item.amount / item.quantity).toFixed(2));
+
+        // Now derive the breakdown
+        const netValue = item.amount / (1 + rate);
+        item.value = Number(netValue.toFixed(2));
+        item.itbis = Number((item.amount - netValue).toFixed(2));
+    } else {
+        // If Price Excludes Tax, then Unit Price is the Base Price.
+        // Total = (Base * Qty) * (1 + Rate)
+        // Base = Total / (1 + Rate) / Qty
+        const totalNet = item.amount / (1 + rate);
+        item.unitPrice = Number((totalNet / item.quantity).toFixed(2));
+
+        item.value = Number(totalNet.toFixed(2));
+        item.itbis = Number((item.amount - totalNet).toFixed(2));
+    }
+
+    return item;
+}

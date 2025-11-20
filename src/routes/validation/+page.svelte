@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { currentInvoice, apiKey, isProcessing } from '$lib/stores';
   import { db } from '$lib/db';
-  import { recalculateInvoice, validateNcf, getNcfType } from '$lib/tax';
+  import { recalculateInvoice, validateNcf, getNcfType, recalculateFromTotal } from '$lib/tax';
   import { parseInvoiceWithGrok } from '$lib/grok';
   import { Save, RefreshCw, AlertTriangle, Check, TrendingUp, TrendingDown } from 'lucide-svelte';
   import type { Supplier, Product } from '$lib/types';
@@ -77,6 +77,14 @@
       currentInvoice.set(invoice);
       checkPrices();
     }
+  }
+
+  function handleTotalChange(index: number) {
+    if (!invoice || !invoice.items) return;
+    // Recalculate this specific item from its total
+    invoice.items[index] = recalculateFromTotal(invoice.items[index]);
+    // Then update the global totals
+    handleRecalc();
   }
 
   async function handleSave() {
@@ -542,8 +550,15 @@
                         <option value={0}>0%</option>
                       </select>
                     </td>
-                    <td class="p-2 text-right font-mono text-gray-300">
-                      {item.amount?.toFixed(2)}
+                    <td class="p-2">
+                      <input 
+                        type="number" 
+                        bind:value={item.amount} 
+                        on:input={() => handleTotalChange(i)}
+                        class="w-full bg-transparent text-white outline-none text-right font-mono" 
+                        data-row={i} data-col="3"
+                        on:keydown={(e) => handleKeydown(e, i, 3)}
+                      />
                     </td>
                     <td class="p-2 text-center flex items-center justify-center space-x-1">
                       <button 
