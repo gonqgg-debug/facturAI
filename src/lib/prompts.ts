@@ -84,16 +84,16 @@ export function generateSystemPrompt(globalContextItems: GlobalContextItem[], hi
 }
 
 export function generateUserPrompt(ocrText: string, supplier?: Supplier): string {
-  let userPrompt = `Extract data from this OCR text:\n\n${ocrText}`;
+  let userPrompt = `RAW OCR TEXT:\n\n${ocrText}\n\n----------------\n\nBased on the above text, generate the JSON output following the "Total is King" strategy.`;
 
   // Few-shot prompting if supplier exists
   if (supplier && supplier.examples && supplier.examples.length > 0) {
     const examples = supplier.examples.slice(-3).map(ex => JSON.stringify(ex)).join('\n---\n');
-    userPrompt = `Here are previous examples for this supplier:\n${examples}\n\n` + userPrompt;
+    userPrompt = `REFERENCE EXAMPLES (Previous invoices from this supplier):\n${examples}\n\n` + userPrompt;
   }
 
   if (supplier && supplier.customRules) {
-    userPrompt = `Custom Rules for this supplier:\n${supplier.customRules}\n\n` + userPrompt;
+    userPrompt = `CUSTOM RULES FOR THIS SUPPLIER:\n${supplier.customRules}\n\n` + userPrompt;
   }
 
   return userPrompt;
