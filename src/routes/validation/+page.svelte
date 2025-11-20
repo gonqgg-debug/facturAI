@@ -535,7 +535,7 @@
                       <input 
                         type="checkbox" 
                         bind:checked={item.priceIncludesTax} 
-                        on:change={handleRecalc}
+                        on:change={() => handleTotalChange(i)}
                         class="w-4 h-4 rounded border-gray-600 bg-black/50 text-ios-blue focus:ring-ios-blue"
                       />
                     </td>
