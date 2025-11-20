@@ -29,15 +29,13 @@
     itbis: ''
   };
 
-  let hasApiKey = false;
+  // Reactive check for API Key
+  $: hasApiKey = !!$apiKey;
 
   onMount(async () => {
     const storedKey = localStorage.getItem('xai_api_key');
     if (storedKey) {
       apiKey.set(storedKey);
-      hasApiKey = true;
-    } else {
-      hasApiKey = false;
     }
   });
 

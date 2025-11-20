@@ -8,6 +8,7 @@
 
   function saveKey() {
     apiKey.set(keyInput);
+    localStorage.setItem('xai_api_key', keyInput);
     showSaveSuccess = true;
     setTimeout(() => showSaveSuccess = false, 2000);
   }
