@@ -474,7 +474,7 @@
                   <th class="p-3 font-medium w-20 text-right">Price</th>
                   <th class="p-3 font-medium w-16 text-center">Tax Inc</th>
                   <th class="p-3 font-medium w-20 text-center">Tax</th>
-                  <th class="p-3 font-medium w-20 text-right">Total</th>
+                  <th class="p-3 font-medium w-32 text-right">Total</th>
                   <th class="p-3 w-8"></th>
                 </tr>
               </thead>
@@ -494,8 +494,8 @@
                       <input 
                         type="number" 
                         bind:value={item.quantity} 
-                        on:input={handleRecalc} 
-                        class="w-full bg-transparent text-white outline-none text-center" 
+                        on:change={() => handleTotalChange(i)} 
+                        class="w-full bg-transparent text-white outline-none text-center border-b border-transparent focus:border-ios-blue focus:bg-white/5 transition-colors" 
                         data-row={i} data-col="1"
                         on:keydown={(e) => handleKeydown(e, i, 1)}
                       />
