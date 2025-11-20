@@ -506,7 +506,7 @@
                           type="number" 
                           bind:value={item.unitPrice} 
                           on:input={handleRecalc} 
-                          class="w-full bg-transparent text-white outline-none text-right {priceAlerts[i] ? (priceAlerts[i].type === 'up' ? 'text-red-400' : 'text-green-400') : ''}" 
+                          class="w-full bg-transparent text-white outline-none text-right border-b border-transparent focus:border-ios-blue focus:bg-white/5 transition-colors {priceAlerts[i] ? (priceAlerts[i].type === 'up' ? 'text-red-400' : 'text-green-400') : ''}" 
                           data-row={i} data-col="2"
                           on:keydown={(e) => handleKeydown(e, i, 2)}
                         />
@@ -554,8 +554,8 @@
                       <input 
                         type="number" 
                         bind:value={item.amount} 
-                        on:input={() => handleTotalChange(i)}
-                        class="w-full bg-transparent text-white outline-none text-right font-mono" 
+                        on:change={() => handleTotalChange(i)}
+                        class="w-full bg-transparent text-white outline-none text-right font-mono border-b border-transparent focus:border-ios-blue focus:bg-white/5 transition-colors" 
                         data-row={i} data-col="3"
                         on:keydown={(e) => handleKeydown(e, i, 3)}
                       />
