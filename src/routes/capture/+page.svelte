@@ -29,12 +29,15 @@
     itbis: ''
   };
 
+  let hasApiKey = false;
+
   onMount(async () => {
     const storedKey = localStorage.getItem('xai_api_key');
     if (storedKey) {
       apiKey.set(storedKey);
+      hasApiKey = true;
     } else {
-      goto('/settings');
+      hasApiKey = false;
     }
   });
 
@@ -352,6 +355,23 @@
           on:click={captureAndProcess}
         >
           <div class="h-16 w-16 rounded-full bg-white"></div>
+        </button>
+      </div>
+
+    {:else if !hasApiKey}
+      <!-- No API Key State -->
+      <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-6 bg-ios-bg text-center">
+        <div class="w-20 h-20 rounded-full bg-yellow-500/10 flex items-center justify-center mb-4">
+          <Settings size={40} class="text-yellow-500" />
+        </div>
+        <h1 class="text-2xl font-bold text-white">Setup Required</h1>
+        <p class="text-gray-400 max-w-xs">To start scanning invoices, you need to configure your AI API Key.</p>
+        
+        <button 
+          class="bg-ios-blue text-white font-bold py-3 px-8 rounded-xl hover:bg-blue-600 transition-colors"
+          on:click={() => goto('/settings')}
+        >
+          Go to Settings
         </button>
       </div>
 
