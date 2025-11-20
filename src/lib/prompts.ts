@@ -59,7 +59,7 @@ export function generateSystemPrompt(globalContextItems: GlobalContextItem[], hi
        - The user wants INDIVIDUAL UNITS.
        - If description says "12x1" but Qty is 1, change Qty to 12.
        - **Recalculate**: \`New Unit Price = Line Total / New Quantity\`.
-       - The `Line Total` NEVER changes during conversion, only Qty and Unit Price.
+       - The \`Line Total\` NEVER changes during conversion, only Qty and Unit Price.
 
     5. **Categorization**:
        - Assign a category based on the items and supplier (Inventory, Utilities, Maintenance, Payroll, Other).
