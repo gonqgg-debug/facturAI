@@ -2,6 +2,7 @@ export interface InvoiceItem {
     description: string;
     quantity: number;
     unitPrice: number;
+    taxRate?: number; // 0.18, 0.16, 0
     value: number;
     itbis: number;
     amount: number;

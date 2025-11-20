@@ -184,6 +184,7 @@
       description: '',
       quantity: 1,
       unitPrice: 0,
+      taxRate: 0.18,
       value: 0,
       itbis: 0,
       amount: 0
@@ -462,6 +463,7 @@
                   <th class="p-3 font-medium">Desc</th>
                   <th class="p-3 font-medium w-14 text-center">Qty</th>
                   <th class="p-3 font-medium w-20 text-right">Price</th>
+                  <th class="p-3 font-medium w-20 text-center">Tax</th>
                   <th class="p-3 font-medium w-20 text-right">Total</th>
                   <th class="p-3 w-8"></th>
                 </tr>
@@ -518,6 +520,17 @@
                           </div>
                         {/if}
                       </div>
+                    </td>
+                    <td class="p-2">
+                      <select 
+                        bind:value={item.taxRate} 
+                        on:change={handleRecalc}
+                        class="w-full bg-transparent text-white outline-none text-center text-xs appearance-none"
+                      >
+                        <option value={0.18}>18%</option>
+                        <option value={0.16}>16%</option>
+                        <option value={0}>0%</option>
+                      </select>
                     </td>
                     <td class="p-2 text-right font-mono text-gray-300">
                       {item.amount?.toFixed(2)}

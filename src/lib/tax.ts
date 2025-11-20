@@ -60,10 +60,11 @@ export function recalculateInvoice(invoice: Invoice): Invoice {
         // Simple logic: Value = Qty * UnitPrice
         item.value = Number((item.quantity * item.unitPrice).toFixed(2));
 
-        // If ITBIS is missing but should be there (default 18%), calc it?
-        // Or trust the OCR/User.
-        // Let's sum what we have.
-        item.itbis = Number(item.itbis) || 0;
+        // Calculate ITBIS based on rate
+        // Default to 18% if not set, or use 0 if explicitly 0
+        const rate = item.taxRate !== undefined ? item.taxRate : 0.18;
+        item.itbis = Number((item.value * rate).toFixed(2));
+
         item.amount = Number((item.value + item.itbis).toFixed(2));
 
         subtotal += item.value;
