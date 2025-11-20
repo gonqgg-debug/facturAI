@@ -18,7 +18,6 @@ export async function processImage(imageBlob: Blob): Promise<ProcessResult> {
     // 3. Run Tesseract on chunks
     const worker = await Tesseract.createWorker('spa');
     await worker.setParameters({
-        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,:-/()$%',
         tessedit_pageseg_mode: Tesseract.PSM.AUTO,
     });
 
@@ -103,17 +102,14 @@ function applyFilters(ctx: CanvasRenderingContext2D, width: number, height: numb
         const b = data[i + 2];
 
         // Grayscale
-        let gray = 0.21 * r + 0.72 * g + 0.07 * b;
+        const gray = 0.21 * r + 0.72 * g + 0.07 * b;
 
-        // Contrast
-        gray = ((gray - 128) * 1.8) + 128;
+        // Simple Contrast Enhancement (less aggressive)
+        // gray = ((gray - 128) * 1.2) + 128; 
 
-        // Binarize
-        const val = gray > 160 ? 255 : 0;
-
-        data[i] = val;
-        data[i + 1] = val;
-        data[i + 2] = val;
+        data[i] = gray;
+        data[i + 1] = gray;
+        data[i + 2] = gray;
     }
 
     ctx.putImageData(imageData, 0, 0);
