@@ -294,7 +294,7 @@
 <div class="h-screen flex flex-col md:flex-row overflow-hidden bg-ios-bg">
   
   <!-- Left: Image Viewer (Desktop) / Top (Mobile) -->
-  <div class="w-full md:w-1/2 h-64 md:h-full bg-black relative overflow-hidden border-b md:border-b-0 md:border-r border-ios-separator group">
+  <div class="w-full md:w-[35%] h-64 md:h-full bg-black relative overflow-hidden border-b md:border-b-0 md:border-r border-ios-separator group">
     {#if invoice?.imageUrl}
       <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
       <div 
@@ -334,7 +334,7 @@
   </div>
 
   <!-- Right: Form -->
-  <div class="w-full md:w-1/2 h-full overflow-y-auto p-4 pb-24">
+  <div class="w-full md:w-[65%] h-full overflow-y-auto p-4 pb-24">
     {#if invoice}
       <!-- Header Actions -->
       <div class="flex justify-between items-center mb-6">
