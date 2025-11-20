@@ -4,13 +4,28 @@ import type { Invoice } from './types';
 
 // Helper for persistent stores
 function persistentStore<T>(key: string, startValue: T) {
-    const storedValue = browser ? localStorage.getItem(key) : null;
-    const initial = storedValue ? JSON.parse(storedValue) : startValue;
+    let initial = startValue;
+
+    if (browser) {
+        try {
+            const storedValue = localStorage.getItem(key);
+            if (storedValue) {
+                initial = JSON.parse(storedValue);
+            }
+        } catch (e) {
+            console.error(`Error loading ${key} from localStorage:`, e);
+        }
+    }
+
     const store = writable<T>(initial);
 
     store.subscribe(value => {
         if (browser) {
-            localStorage.setItem(key, JSON.stringify(value));
+            try {
+                localStorage.setItem(key, JSON.stringify(value));
+            } catch (e) {
+                console.error(`Error saving ${key} to localStorage:`, e);
+            }
         }
     });
 
