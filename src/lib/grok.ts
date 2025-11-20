@@ -53,8 +53,10 @@ export async function parseInvoiceWithGrok(
 
         const content = data.choices[0].message.content;
 
-        // Clean up markdown code blocks if present
-        const jsonStr = content.replace(/```json/g, '').replace(/```/g, '').trim();
+        // Clean up markdown code blocks and extract JSON object
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        const jsonStr = jsonMatch ? jsonMatch[0] : content.replace(/```json/g, '').replace(/```/g, '').trim();
+
         return JSON.parse(jsonStr);
 
     } catch (error) {
