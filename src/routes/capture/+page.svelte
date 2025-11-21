@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
-  import { Camera, Zap, Image as ImageIcon, Settings, Upload } from 'lucide-svelte';
+  import { Camera, Zap, Image as ImageIcon, Settings, Upload, Brain } from 'lucide-svelte';
   import { processImage } from '$lib/ocr';
   import { parseInvoiceWithGrok } from '$lib/grok';
   import { apiKey, currentInvoice, isProcessing } from '$lib/stores';
@@ -178,12 +178,14 @@
   }
 
   let processingStatus = '';
+  let progress = 0;
 
   async function confirmProcessing() {
     if (pendingFiles.length === 0) return;
     showOnboarding = false;
     isProcessing.set(true);
     processingStatus = 'Initializing...';
+    progress = 5;
 
     try {
       await processBlobs(pendingFiles);
@@ -201,6 +203,7 @@
     
     // 1. Process all pages in parallel
     processingStatus = `Scanning ${blobs.length} pages...`;
+    progress = 10;
     
     let completedCount = 0;
     const processPromises = blobs.map(async (blob, index) => {
@@ -208,6 +211,7 @@
         const result = await processImage(blob);
         completedCount++;
         processingStatus = `Scanning pages (${completedCount}/${blobs.length})...`;
+        progress = 10 + (completedCount / blobs.length) * 30; // 10% to 40%
         return result;
       } catch (err) {
         console.error(`Error processing page ${index + 1}:`, err);
@@ -227,6 +231,7 @@
 
     // 2. Grok Extraction with Hints
     processingStatus = 'Consulting AI...';
+    progress = 50;
     
     const userHints = {
       supplierName: hints.supplierName,
@@ -270,27 +275,40 @@
       return;
     }
 
-    const invoiceData = await parseInvoiceWithGrok(fullText, $apiKey, undefined, userHints);
-    
-    // 3. Merge QR data if available
-    if (finalQr) {
-      invoiceData.securityCode = finalQr;
-      invoiceData.isEcf = true;
-      invoiceData.qrUrl = finalQr;
+    // Simulate progress for AI wait time (since we can't track real progress)
+    const progressInterval = setInterval(() => {
+      if (progress < 90) progress += 1;
+    }, 100);
+
+    try {
+      const invoiceData = await parseInvoiceWithGrok(fullText, $apiKey, undefined, userHints);
+      clearInterval(progressInterval);
+      progress = 95;
+      
+      // 3. Merge QR data if available
+      if (finalQr) {
+        invoiceData.securityCode = finalQr;
+        invoiceData.isEcf = true;
+        invoiceData.qrUrl = finalQr;
+      }
+
+      // 4. Store (use first image as thumbnail)
+      processingStatus = 'Finalizing...';
+      progress = 100;
+      currentInvoice.set({
+        ...invoiceData,
+        rawText: fullText,
+        imageUrl: URL.createObjectURL(blobs[0]),
+        status: 'draft',
+        createdAt: new Date()
+      });
+
+      isProcessing.set(false);
+      goto('/validation');
+    } catch (e) {
+      clearInterval(progressInterval);
+      throw e;
     }
-
-    // 4. Store (use first image as thumbnail)
-    processingStatus = 'Finalizing...';
-    currentInvoice.set({
-      ...invoiceData,
-      rawText: fullText,
-      imageUrl: URL.createObjectURL(blobs[0]),
-      status: 'draft',
-      createdAt: new Date()
-    });
-
-    isProcessing.set(false);
-    goto('/validation');
   }
 </script>
 
@@ -407,11 +425,28 @@
     {/if}
     
     <!-- Processing Overlay -->
+    <!-- Processing Overlay -->
     {#if $isProcessing}
-      <div class="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-50">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-ios-blue mb-4"></div>
-        <p class="text-white font-medium">{processingStatus}</p>
-        <p class="text-gray-400 text-sm mt-2">Please wait...</p>
+      <div class="absolute inset-0 bg-black z-50 flex flex-col items-center justify-center p-8">
+        <!-- Pulse Animation -->
+        <div class="relative mb-8">
+          <div class="absolute inset-0 bg-ios-blue/30 rounded-full animate-ping opacity-75"></div>
+          <div class="relative bg-ios-card p-6 rounded-full border border-ios-blue shadow-[0_0_30px_rgba(0,122,255,0.3)]">
+            <Brain size={48} class="text-ios-blue animate-pulse" />
+          </div>
+        </div>
+
+        <h3 class="text-2xl font-bold text-white mb-2 text-center tracking-wide">{processingStatus}</h3>
+        
+        <!-- Progress Bar -->
+        <div class="w-full max-w-xs bg-gray-900 rounded-full h-2 mb-4 overflow-hidden border border-white/10">
+          <div 
+            class="bg-ios-blue h-full rounded-full transition-all duration-300 ease-out shadow-[0_0_10px_rgba(0,122,255,0.5)]"
+            style="width: {progress}%"
+          ></div>
+        </div>
+        
+        <p class="text-gray-500 text-sm font-mono">{Math.round(progress)}% Complete</p>
       </div>
     {/if}
   </div>
