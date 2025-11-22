@@ -88,28 +88,60 @@
   async function processImport(data: any[]) {
     isImporting = true;
     let updatedCount = 0;
+    let createdCount = 0;
 
     for (const row of data) {
-      // Expected columns: Name, Supplier, Cost, Price, Category, TargetMargin
+      // Expected columns: Name, Supplier, Cost, Price, Category, TargetMargin, SalesVolume, TotalSales
       const name = row['Name'] || row['Product Name'] || row['Producto'];
       if (!name) continue;
 
       // Find existing product
       const existing = products.find(p => p.name.toLowerCase() === name.toLowerCase());
       
+      const productData = {
+        sellingPrice: row['Price'] || row['Precio'] || row['Selling Price'],
+        targetMargin: row['TargetMargin'] || row['Margen'] || row['Target Margin'],
+        category: row['Category'] || row['Categoria'],
+        salesVolume: row['SalesVolume'] || row['Sales Volume'] || row['Cantidad Vendida'],
+        // If total sales is provided, we can infer velocity if we had a date range, 
+        // but for now let's just store the volume.
+        lastSaleDate: new Date().toISOString().split('T')[0] // Mark as updated today
+      };
+
+      // Clean undefined values
+      Object.keys(productData).forEach(key => productData[key] === undefined && delete productData[key]);
+
       if (existing && existing.id) {
-        await db.products.update(existing.id, {
-          sellingPrice: row['Price'] || row['Precio'] || existing.sellingPrice,
-          targetMargin: row['TargetMargin'] || row['Margen'] || existing.targetMargin,
-          category: row['Category'] || row['Categoria'] || existing.category
-        });
+        await db.products.update(existing.id, productData);
         updatedCount++;
+      } else {
+        // Create new product if it doesn't exist
+        // We need a supplier ID. Try to find by name or use a default "Imported" supplier.
+        const supplierName = row['Supplier'] || row['Suplidor'] || 'Unknown';
+        let supplier = suppliers.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
+        
+        if (!supplier && supplierName !== 'Unknown') {
+            // Create supplier on the fly? Or just link to unknown?
+            // Let's create it to be safe
+            const id = await db.suppliers.add({ name: supplierName, rnc: '000000000', examples: [] });
+            supplier = { id, name: supplierName, rnc: '000000000', examples: [] };
+            suppliers.push(supplier);
+        }
+
+        await db.products.add({
+            name: name,
+            supplierId: supplier?.id,
+            lastPrice: row['Cost'] || row['Costo'] || 0,
+            lastDate: new Date().toISOString().split('T')[0],
+            ...productData
+        });
+        createdCount++;
       }
     }
 
     await loadData();
     isImporting = false;
-    alert(`Updated ${updatedCount} products successfully.`);
+    alert(`Import Complete: Updated ${updatedCount}, Created ${createdCount} products.`);
   }
 
   async function analyzeWithAI() {
@@ -119,25 +151,88 @@
     }
     
     isAnalyzing = true;
-    // Placeholder for AI Analysis Logic
-    // In a real implementation, this would batch send products to Grok
-    // For now, we'll simulate a "smart" suggestion for demo purposes
+    const productsToAnalyze = products.filter(p => !p.aiSuggestedPrice || activeTab === 'suggestions');
     
-    setTimeout(async () => {
-        const demoProduct = products.find(p => p.name.toLowerCase().includes('presidente'));
-        if (demoProduct && demoProduct.id) {
-            await db.products.update(demoProduct.id, {
-                aiSuggestedPrice: 150,
-                aiSuggestedMargin: 0.20,
-                aiReasoning: "High velocity item (Traffic Driver). Kept margin tight (20%) to match local colmado norms. Rounded to $150."
+    // Process in batches of 5 to avoid rate limits/timeouts
+    const batchSize = 5;
+    let processed = 0;
+
+    try {
+        for (let i = 0; i < productsToAnalyze.length; i += batchSize) {
+            const batch = productsToAnalyze.slice(i, i + batchSize);
+            
+            // Prepare prompt for batch
+            const itemsText = batch.map(p => 
+                `- ${p.name} (Category: ${p.category || 'Unknown'}, Cost: ${p.lastPrice}, Current Price: ${p.sellingPrice || 'N/A'}, Sales Vol: ${p.salesVolume || 'Unknown'})`
+            ).join('\n');
+
+            const prompt = `
+                Analyze the pricing for these Dominican Republic Colmado products.
+                Rules:
+                1. "Fria" (Beer) = Low margin (15-20%), traffic driver.
+                2. "Surtido" (Rice, Oil) = Competitive margin (20-25%).
+                3. "Antojos" (Snacks, Rum) = High margin (30-50%).
+                4. Round prices to nearest $5 or $10. No pennies.
+                5. Return JSON array with: { name, suggestedPrice, suggestedMargin, reasoning }.
+
+                Products:
+                ${itemsText}
+            `;
+
+            // Call Grok (using the existing parse function wrapper or a new one)
+            // Since parseInvoiceWithGrok is specific to invoices, we'll call the API directly here or adapt it.
+            // For simplicity in this file, I'll simulate the call structure but ideally we should move this to a service.
+            // We'll reuse the parseInvoiceWithGrok but treat the prompt as the "text".
+            // actually, let's use a direct fetch to keep it simple and contained or import a generic completion function.
+            // Re-using parseInvoiceWithGrok might be hacky because it expects invoice text.
+            // Let's assume we have a generic 'askGrok' or similar. 
+            // Since we don't, I will implement a quick fetch here.
+
+            const response = await fetch('https://api.x.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${$apiKey}`
+                },
+                body: JSON.stringify({
+                    messages: [
+                        { role: "system", content: "You are an expert Pricing Analyst for a Dominican Colmado." },
+                        { role: "user", content: prompt }
+                    ],
+                    model: "grok-beta",
+                    stream: false,
+                    temperature: 0.1
+                })
             });
-            await loadData();
-            alert('AI Analysis Complete! Check the "Suggestions" tab.');
-        } else {
-            alert('AI Analysis Complete. No specific suggestions found in this batch.');
+
+            const result = await response.json();
+            const content = result.choices[0].message.content;
+            
+            // Parse JSON from content (handle potential markdown blocks)
+            const jsonStr = content.replace(/```json\n?|```/g, '').trim();
+            const suggestions = JSON.parse(jsonStr);
+
+            // Update DB
+            for (const s of suggestions) {
+                const product = batch.find(p => p.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(p.name.toLowerCase()));
+                if (product && product.id) {
+                    await db.products.update(product.id, {
+                        aiSuggestedPrice: s.suggestedPrice,
+                        aiSuggestedMargin: s.suggestedMargin,
+                        aiReasoning: s.reasoning
+                    });
+                }
+            }
+            processed += batch.length;
         }
+        alert(`Analysis Complete! Processed ${processed} products.`);
+    } catch (e) {
+        console.error(e);
+        alert('Error during AI analysis: ' + e);
+    } finally {
+        await loadData();
         isAnalyzing = false;
-    }, 2000);
+    }
   }
 
   async function openHistory(product: Product & { supplierName?: string }) {
