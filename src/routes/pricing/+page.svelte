@@ -638,9 +638,9 @@
             {#if selectedProduct}
                 {@const score = calculateProductScore(selectedProduct)}
                 <div class="flex flex-col items-end">
-                    <span class="text-[10px] uppercase text-gray-500 font-bold">Product Score</span>
+                    <span class="text-[10px] uppercase text-gray-500 font-bold">Score</span>
                     <div class="flex items-center space-x-2">
-                        <div class="w-12 h-12 rounded-full border-4 {score >= 70 ? 'border-green-500 text-green-500' : score >= 40 ? 'border-yellow-500 text-yellow-500' : 'border-red-500 text-red-500'} flex items-center justify-center font-bold text-lg bg-black">
+                        <div class="w-8 h-8 rounded-full border-2 {score >= 70 ? 'border-green-500 text-green-500' : score >= 40 ? 'border-yellow-500 text-yellow-500' : 'border-red-500 text-red-500'} flex items-center justify-center font-bold text-sm bg-black">
                             {score}
                         </div>
                     </div>
@@ -732,14 +732,26 @@
                     <span>AI Analyst Rating</span>
                 </h3>
                 
+                
                 {#if selectedProduct.aiAnalystRating}
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="text-3xl font-black tracking-tighter {selectedProduct.aiAnalystRating === 'BUY' ? 'text-green-500' : selectedProduct.aiAnalystRating === 'SELL' ? 'text-red-500' : 'text-yellow-500'}">
-                            {selectedProduct.aiAnalystRating}
+                    <div class="space-y-4">
+                        <!-- Rating Badge -->
+                        <div class="flex items-center justify-between">
+                            <div class="text-3xl font-black tracking-tighter {selectedProduct.aiAnalystRating === 'BUY' ? 'text-green-500' : selectedProduct.aiAnalystRating === 'SELL' ? 'text-red-500' : 'text-yellow-500'}">
+                                {selectedProduct.aiAnalystRating}
+                            </div>
                         </div>
-                        <div class="text-right">
-                            <div class="text-xs text-gray-500">Target Price</div>
-                            <div class="text-xl font-bold text-white font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2)}</div>
+                        
+                        <!-- Price Comparison -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="bg-black/30 p-3 rounded-lg border border-gray-700">
+                                <div class="text-[10px] text-gray-500 uppercase mb-1">Current Price</div>
+                                <div class="text-lg font-bold text-white font-mono">${selectedProduct.sellingPrice?.toFixed(2) || '-'}</div>
+                            </div>
+                            <div class="bg-purple-500/10 p-3 rounded-lg border border-purple-500/30">
+                                <div class="text-[10px] text-purple-400 uppercase mb-1">AI Target</div>
+                                <div class="text-lg font-bold text-purple-300 font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2)}</div>
+                            </div>
                         </div>
                     </div>
                 {:else}
