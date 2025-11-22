@@ -30,6 +30,12 @@ export class MinimarketDatabase extends Dexie {
         this.version(4).stores({
             products: '++id, supplierId, name, [supplierId+name]'
         });
+
+        // Version 5 adds pricing fields to products (no schema change needed for non-indexed fields, but good to bump)
+        // We'll index category for filtering
+        this.version(5).stores({
+            products: '++id, supplierId, name, category, [supplierId+name]'
+        });
     }
 }
 

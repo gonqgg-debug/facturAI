@@ -77,3 +77,27 @@ export interface UserHints {
     itbis?: number;
     isMultiPage?: boolean;
 }
+
+export interface Product {
+    id?: number;
+    supplierId?: number;
+    name: string;
+    category?: string;
+
+    // Pricing & Costs
+    lastPrice: number; // Most recent purchase price
+    lastDate: string;
+    averageCost?: number;
+    sellingPrice?: number;
+    targetMargin?: number; // e.g. 0.30 for 30%
+
+    // Sales Data
+    salesVolume?: number; // Total units sold
+    salesVelocity?: number; // Units/day
+    lastSaleDate?: string;
+
+    // AI Analysis
+    aiSuggestedPrice?: number;
+    aiSuggestedMargin?: number;
+    aiReasoning?: string;
+}
