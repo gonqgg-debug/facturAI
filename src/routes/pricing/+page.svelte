@@ -635,15 +635,17 @@
         </div>
         <div class="flex items-center space-x-4">
             <!-- Product Score Badge -->
-            {@const score = calculateProductScore(selectedProduct)}
-            <div class="flex flex-col items-end">
-                <span class="text-[10px] uppercase text-gray-500 font-bold">Product Score</span>
-                <div class="flex items-center space-x-2">
-                    <div class="w-12 h-12 rounded-full border-4 {score >= 70 ? 'border-green-500 text-green-500' : score >= 40 ? 'border-yellow-500 text-yellow-500' : 'border-red-500 text-red-500'} flex items-center justify-center font-bold text-lg bg-black">
-                        {score}
+            {#if selectedProduct}
+                {@const score = calculateProductScore(selectedProduct)}
+                <div class="flex flex-col items-end">
+                    <span class="text-[10px] uppercase text-gray-500 font-bold">Product Score</span>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-12 h-12 rounded-full border-4 {score >= 70 ? 'border-green-500 text-green-500' : score >= 40 ? 'border-yellow-500 text-yellow-500' : 'border-red-500 text-red-500'} flex items-center justify-center font-bold text-lg bg-black">
+                            {score}
+                        </div>
                     </div>
                 </div>
-            </div>
+            {/if}
             <button on:click={closeHistory} class="text-gray-500 hover:text-white p-2 bg-white/5 rounded-full transition-colors">
                 <X size={24} />
             </button>
