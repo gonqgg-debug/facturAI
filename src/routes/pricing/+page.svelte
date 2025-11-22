@@ -301,7 +301,7 @@
                 <td class="p-4 text-right font-mono text-ios-blue font-bold">
                     {#if product.aiSuggestedPrice}
                         ${product.aiSuggestedPrice.toFixed(2)}
-                        <div class="text-[10px] text-ios-blue/70">{(product.aiSuggestedMargin! * 100).toFixed(1)}%</div>
+                        <div class="text-[10px] text-ios-blue/70">{((product.aiSuggestedMargin || 0) * 100).toFixed(1)}%</div>
                     {:else}
                         -
                     {/if}
