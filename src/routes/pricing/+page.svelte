@@ -667,9 +667,9 @@
                     <div class="text-xs text-gray-500 mb-1 uppercase tracking-wider">Current Price</div>
                     <div class="text-xl font-bold text-white font-mono">${selectedProduct.sellingPrice?.toFixed(2) || '-'}</div>
                 </div>
-                <div class="bg-purple-500/10 p-4 rounded-xl border border-purple-500/30">
-                    <div class="text-xs text-purple-400 mb-1 uppercase tracking-wider">AI Suggested</div>
-                    <div class="text-xl font-bold text-purple-300 font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2) || '-'}</div>
+                <div class="bg-ios-blue/10 p-4 rounded-xl border border-ios-blue/30">
+                    <div class="text-xs text-ios-blue mb-1 uppercase tracking-wider">AI Suggested</div>
+                    <div class="text-xl font-bold text-ios-blue font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2) || '-'}</div>
                 </div>
                 <div class="bg-black/20 p-4 rounded-xl border border-gray-800">
                     <div class="text-xs text-gray-500 mb-1 uppercase tracking-wider">Volume (30d)</div>
@@ -730,12 +730,9 @@
                 <div class="space-y-3">
                     {#each [...productHistory].reverse().slice(0, 3) as h}
                         <div class="flex justify-between items-center p-3 bg-white/5 rounded-lg border border-white/5">
-                            <div class="flex items-center space-x-3">
-                                <div class="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold text-white">INV</div>
-                                <div>
-                                    <div class="text-sm text-white font-medium">Invoice #{h.invoiceId || 'N/A'}</div>
-                                    <div class="text-xs text-gray-500">{h.date}</div>
-                                </div>
+                            <div class="flex-1">
+                                <div class="text-sm text-white font-medium">NCF: {h.invoiceId || 'N/A'}</div>
+                                <div class="text-xs text-gray-500">{h.date} • {selectedProduct.supplierName}</div>
                             </div>
                             <div class="text-right">
                                 <div class="text-sm font-mono text-white">${h.price.toFixed(2)}</div>
@@ -753,7 +750,7 @@
             <!-- Analyst Rating Header -->
             <div class="p-6 border-b border-gray-800">
                 <h3 class="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center space-x-2">
-                    <Sparkles size={16} class="text-purple-500" />
+                    <Sparkles size={16} class="text-ios-blue" />
                     <span>AI Analyst Rating</span>
                 </h3>
                 
@@ -773,9 +770,9 @@
                                 <div class="text-[10px] text-gray-500 uppercase mb-1">Current Price</div>
                                 <div class="text-lg font-bold text-white font-mono">${selectedProduct.sellingPrice?.toFixed(2) || '-'}</div>
                             </div>
-                            <div class="bg-purple-500/10 p-3 rounded-lg border border-purple-500/30">
-                                <div class="text-[10px] text-purple-400 uppercase mb-1">AI Target</div>
-                                <div class="text-lg font-bold text-purple-300 font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2)}</div>
+                            <div class="bg-ios-blue/10 p-3 rounded-lg border border-ios-blue/30">
+                                <div class="text-[10px] text-ios-blue uppercase mb-1">AI Target</div>
+                                <div class="text-lg font-bold text-ios-blue font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2)}</div>
                             </div>
                         </div>
                     </div>
@@ -797,14 +794,14 @@
             <!-- Chat / Insights Area -->
             <div class="flex-1 overflow-y-auto p-6 space-y-4">
                 {#if isAnalyzing}
-                    <div class="flex flex-col items-center justify-center h-full text-purple-400 animate-pulse">
+                    <div class="flex flex-col items-center justify-center h-full text-ios-blue animate-pulse">
                         <Sparkles size={32} class="mb-2 animate-spin" />
                         <p class="text-sm">Crunching numbers...</p>
                     </div>
                 {:else if selectedProduct.aiReasoning}
                     <!-- AI Message -->
                     <div class="flex items-start space-x-3">
-                        <div class="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 mt-1">
+                        <div class="w-8 h-8 rounded-full bg-ios-blue/20 flex items-center justify-center text-ios-blue mt-1">
                             <Sparkles size={14} />
                         </div>
                         <div class="bg-gray-800 rounded-2xl rounded-tl-none p-4 text-sm text-gray-200 leading-relaxed border border-gray-700">
@@ -812,7 +809,7 @@
                             
                             {#if selectedProduct.aiCreativeIdea}
                                 <div class="mt-3 pt-3 border-t border-gray-700">
-                                    <div class="text-xs font-bold text-purple-400 uppercase mb-1">💡 Out of the Box Idea</div>
+                                    <div class="text-xs font-bold text-ios-blue uppercase mb-1">💡 Out of the Box Idea</div>
                                     <p class="text-gray-300 italic">{selectedProduct.aiCreativeIdea}</p>
                                 </div>
                             {/if}
@@ -822,7 +819,7 @@
                     <!-- User Chat History (Mock for now, or real if we implement store) -->
                     {#each chatHistory as msg}
                         <div class="flex items-start space-x-3 {msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}">
-                            <div class="w-8 h-8 rounded-full {msg.role === 'user' ? 'bg-gray-700' : 'bg-purple-500/20 text-purple-400'} flex items-center justify-center mt-1">
+                            <div class="w-8 h-8 rounded-full {msg.role === 'user' ? 'bg-gray-700' : 'bg-ios-blue/20 text-ios-blue'} flex items-center justify-center mt-1">
                                 {#if msg.role === 'user'}
                                     <span class="text-xs">You</span>
                                 {:else}
@@ -844,10 +841,10 @@
                     <input 
                         type="text" 
                         placeholder="Ask about pricing, suppliers, or strategy..." 
-                        class="w-full bg-gray-900 border border-gray-700 rounded-xl pl-4 pr-12 py-3 text-white text-sm focus:border-purple-500 outline-none"
+                        class="w-full bg-gray-900 border border-gray-700 rounded-xl pl-4 pr-12 py-3 text-white text-sm focus:border-ios-blue outline-none"
                         on:keydown={(e) => e.key === 'Enter' && chatWithAI(e.currentTarget.value)}
                     />
-                    <button class="absolute right-2 top-1/2 transform -translate-y-1/2 text-purple-500 p-2 hover:bg-white/5 rounded-lg">
+                    <button class="absolute right-2 top-1/2 transform -translate-y-1/2 text-ios-blue p-2 hover:bg-white/5 rounded-lg">
                         <Sparkles size={16} />
                     </button>
                 </div>
