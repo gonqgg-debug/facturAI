@@ -89,51 +89,64 @@
     isImporting = true;
     let updatedCount = 0;
     let createdCount = 0;
+    let skippedCount = 0;
 
     for (const row of data) {
-      // Expected columns: Name, Supplier, Cost, Price, Category, TargetMargin, SalesVolume, TotalSales
+      // Expected columns: ProductID, Name, Supplier, Cost, AverageCost, Price, Category, TargetMargin, SalesVolume
       const name = row['Name'] || row['Product Name'] || row['Producto'];
-      if (!name) continue;
-
-      // Find existing product
-      const existing = products.find(p => p.name.toLowerCase() === name.toLowerCase());
+      const productId = row['ProductID'] || row['SKU'] || row['Codigo'] || row['ID'];
       
-      const productData = {
+      if (!name && !productId) {
+        skippedCount++;
+        continue;
+      }
+
+      // Find existing product by ProductID first, then by name
+      let existing = productId 
+        ? products.find(p => p.productId === productId)
+        : products.find(p => p.name.toLowerCase() === name?.toLowerCase());
+      
+      // Extract cost data
+      const lastPrice = row['Cost'] || row['Costo'] || row['Last Cost'];
+      const averageCost = row['AverageCost'] || row['Average Cost'] || row['Costo Promedio'];
+      
+      const productData: any = {
+        productId: productId || existing?.productId, // Preserve or set productId
         sellingPrice: row['Price'] || row['Precio'] || row['Selling Price'],
         targetMargin: row['TargetMargin'] || row['Margen'] || row['Target Margin'],
         category: row['Category'] || row['Categoria'],
         salesVolume: row['SalesVolume'] || row['Sales Volume'] || row['Cantidad Vendida'],
-        // If total sales is provided, we can infer velocity if we had a date range, 
-        // but for now let's just store the volume.
-        lastSaleDate: new Date().toISOString().split('T')[0] // Mark as updated today
+        lastSaleDate: new Date().toISOString().split('T')[0]
       };
+
+      // Add cost fields if provided
+      if (lastPrice !== undefined) productData.lastPrice = lastPrice;
+      if (averageCost !== undefined) productData.averageCost = averageCost;
 
       // Clean undefined values
       Object.keys(productData).forEach(key => productData[key] === undefined && delete productData[key]);
 
       if (existing && existing.id) {
+        // Update existing product
         await db.products.update(existing.id, productData);
         updatedCount++;
       } else {
-        // Create new product if it doesn't exist
-        // We need a supplier ID. Try to find by name or use a default "Imported" supplier.
+        // Create new product
         const supplierName = row['Supplier'] || row['Suplidor'] || 'Unknown';
         let supplier = suppliers.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
         
         if (!supplier && supplierName !== 'Unknown') {
-            // Create supplier on the fly? Or just link to unknown?
-            // Let's create it to be safe
-            const id = await db.suppliers.add({ name: supplierName, rnc: '000000000', examples: [] });
-            supplier = { id, name: supplierName, rnc: '000000000', examples: [] };
-            suppliers.push(supplier);
+          const id = await db.suppliers.add({ name: supplierName, rnc: '000000000', examples: [] });
+          supplier = { id, name: supplierName, rnc: '000000000', examples: [] };
+          suppliers.push(supplier);
         }
 
         await db.products.add({
-            name: name,
-            supplierId: supplier?.id,
-            lastPrice: row['Cost'] || row['Costo'] || 0,
-            lastDate: new Date().toISOString().split('T')[0],
-            ...productData
+          name: name || `Product ${productId}`,
+          supplierId: supplier?.id,
+          lastPrice: lastPrice || 0,
+          lastDate: new Date().toISOString().split('T')[0],
+          ...productData
         });
         createdCount++;
       }
@@ -141,7 +154,7 @@
 
     await loadData();
     isImporting = false;
-    alert(`Import Complete: Updated ${updatedCount}, Created ${createdCount} products.`);
+    alert(`Import Complete!\nCreated: ${createdCount}\nUpdated: ${updatedCount}\nSkipped: ${skippedCount}`);
   }
 
   async function analyzeWithAI() {

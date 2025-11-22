@@ -80,6 +80,7 @@ export interface UserHints {
 
 export interface Product {
     id?: number;
+    productId?: string; // Custom SKU/Product ID
     supplierId?: number;
     name: string;
     category?: string;
