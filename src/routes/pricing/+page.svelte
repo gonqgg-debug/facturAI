@@ -206,6 +206,17 @@
             });
 
             const result = await response.json();
+
+            if (!response.ok) {
+                console.error('AI API Error:', result);
+                throw new Error(result.error?.message || 'Unknown API Error');
+            }
+
+            if (!result.choices || result.choices.length === 0) {
+                console.error('Unexpected API Response:', result);
+                throw new Error('No choices returned from AI');
+            }
+
             const content = result.choices[0].message.content;
             
             // Parse JSON from content (handle potential markdown blocks)
