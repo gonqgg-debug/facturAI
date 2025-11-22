@@ -290,6 +290,123 @@
     productHistory = history.sort((a, b) => a.date.localeCompare(b.date));
   }
 
+  async function analyzeSingleProduct(product: Product & { supplierName?: string }) {
+    if (!$apiKey) {
+        alert('Please set your API Key in Settings first.');
+        return;
+    }
+    
+    isAnalyzing = true;
+
+    try {
+        // Fetch Pricing Rules
+        const globalContextItems = await db.globalContext.toArray();
+        const pricingRules = globalContextItems
+            .filter(i => i.category === 'pricing_rule')
+            .map(i => `- ${i.title}: ${i.content}`)
+            .join('\n');
+
+        const prompt = `
+            Analyze the pricing for this SPECIFIC Dominican Republic Colmado product.
+            
+            PRODUCT DATA:
+            - Name: ${product.name}
+            - Category: ${product.category || 'Unknown'}
+            - Supplier: ${product.supplierName || 'Unknown'}
+            - Cost: $${product.lastPrice}
+            - Current Price: $${product.sellingPrice || 'N/A'}
+            - Current Margin: ${product.sellingPrice ? ((product.sellingPrice - product.lastPrice)/product.sellingPrice * 100).toFixed(1) : 0}%
+            - Sales Volume: ${product.salesVolume || 'Unknown'} units
+            - Last Updated: ${product.lastDate}
+
+            GLOBAL PRICING RULES:
+            ${pricingRules || 'No specific custom rules found. Use general logic.'}
+
+            TASK:
+            1. Determine the optimal price based on category margins and sales volume.
+            2. If volume is high (>50), you can be aggressive with margin.
+            3. If volume is low, suggest a bundle or promo idea.
+            4. Round to nearest $5 or $10.
+            5. Return JSON: { suggestedPrice, suggestedMargin, reasoning }.
+        `;
+
+        const response = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${$apiKey}`
+            },
+            body: JSON.stringify({
+                messages: [
+                    { role: "system", content: "You are an expert Pricing Analyst. Return ONLY valid JSON." },
+                    { role: "user", content: prompt }
+                ],
+                model: "grok-3",
+                stream: false,
+                temperature: 0.1
+            })
+        });
+
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error?.message || 'API Error');
+
+        const content = result.choices[0].message.content;
+        const jsonStr = content.replace(/```json\n?|```/g, '').trim();
+        const suggestion = JSON.parse(jsonStr);
+
+        // Validate Price > Cost
+        let finalPrice = suggestion.suggestedPrice;
+        if (finalPrice <= product.lastPrice) {
+            finalPrice = product.lastPrice * 1.15;
+            suggestion.reasoning += " [Auto-corrected: Price was <= Cost]";
+        }
+
+        // Update DB and Local State
+        await db.products.update(product.id!, {
+            aiSuggestedPrice: finalPrice,
+            aiSuggestedMargin: (finalPrice - product.lastPrice) / finalPrice,
+            aiReasoning: suggestion.reasoning
+        });
+
+        // Update the selectedProduct object in place to reflect changes immediately in UI
+        selectedProduct = {
+            ...selectedProduct,
+            aiSuggestedPrice: finalPrice,
+            aiSuggestedMargin: (finalPrice - product.lastPrice) / finalPrice,
+            aiReasoning: suggestion.reasoning
+        } as any;
+
+        await loadData(); // Refresh background list
+
+    } catch (e) {
+        console.error(e);
+        alert('Analysis failed: ' + e);
+    } finally {
+        isAnalyzing = false;
+    }
+  }
+
+  async function applySuggestion(product: Product) {
+    if (!product.id || !product.aiSuggestedPrice) return;
+    
+    await db.products.update(product.id, {
+        sellingPrice: product.aiSuggestedPrice,
+        aiSuggestedPrice: undefined, // Clear suggestion after applying
+        aiReasoning: undefined
+    });
+    
+    // Update UI
+    selectedProduct = {
+        ...selectedProduct,
+        sellingPrice: product.aiSuggestedPrice,
+        aiSuggestedPrice: undefined,
+        aiReasoning: undefined
+    } as any;
+
+    await loadData();
+    alert('Price updated successfully!');
+  }
+
   function closeHistory() {
     showHistory = false;
     selectedProduct = null;
@@ -460,51 +577,174 @@
   </div>
 </div>
 
-<!-- History Modal (Same as before) -->
+<!-- Product Deep Dive Modal -->
 {#if showHistory && selectedProduct}
   <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-ios-card border border-ios-separator rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
-      <div class="p-4 border-b border-ios-separator flex justify-between items-center bg-gray-500/10">
+    <div class="bg-ios-card border border-ios-separator rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+      
+      <!-- Header -->
+      <div class="p-6 border-b border-ios-separator flex justify-between items-start bg-gray-500/10">
         <div>
-          <h2 class="text-xl font-bold text-white">{selectedProduct.name}</h2>
-          <p class="text-sm text-gray-400">{selectedProduct.supplierName}</p>
+          <div class="flex items-center space-x-2 mb-1">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-ios-blue/20 text-ios-blue uppercase tracking-wider">
+                {selectedProduct.category || 'Uncategorized'}
+            </span>
+            <span class="text-xs text-gray-500">{selectedProduct.supplierName}</span>
+          </div>
+          <h2 class="text-3xl font-bold text-white">{selectedProduct.name}</h2>
         </div>
-        <button on:click={closeHistory} class="text-gray-500 hover:text-white">
+        <button on:click={closeHistory} class="text-gray-500 hover:text-white p-2 bg-white/5 rounded-full transition-colors">
           <X size={24} />
         </button>
       </div>
       
-      <div class="p-6">
-        <h3 class="text-xs font-bold text-gray-500 uppercase mb-4">Price History</h3>
+      <div class="flex-1 overflow-y-auto p-6">
         
-        <!-- Simple Visual Chart (CSS Bar/Line) -->
-        <div class="h-40 flex items-end space-x-2 mb-6 border-b border-gray-700 pb-2">
-          {#each productHistory as point}
-            {@const maxPrice = Math.max(...productHistory.map(h => h.price)) * 1.2}
-            {@const height = (point.price / maxPrice) * 100}
-            <div class="flex-1 flex flex-col items-center group relative">
-              <!-- Tooltip -->
-              <div class="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black text-white text-xs p-2 rounded pointer-events-none whitespace-nowrap border border-gray-700">
-                {point.date}: ${point.price.toFixed(2)}
-              </div>
-              
-              <div 
-                class="w-full bg-ios-blue/50 hover:bg-ios-blue transition-colors rounded-t-sm min-w-[4px]"
-                style="height: {height}%"
-              ></div>
-              <span class="text-[10px] text-gray-500 mt-1 truncate w-full text-center">{point.date.split('-').slice(1).join('/')}</span>
+        <!-- Top Stats Row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-black/30 p-4 rounded-xl border border-ios-separator">
+                <div class="text-xs text-gray-500 mb-1">Selling Price</div>
+                <div class="text-2xl font-bold text-white font-mono">
+                    ${selectedProduct.sellingPrice?.toFixed(2) || '-'}
+                </div>
             </div>
-          {/each}
+            <div class="bg-black/30 p-4 rounded-xl border border-ios-separator">
+                <div class="text-xs text-gray-500 mb-1">Cost</div>
+                <div class="text-2xl font-bold text-gray-300 font-mono">
+                    ${selectedProduct.lastPrice.toFixed(2)}
+                </div>
+            </div>
+            <div class="bg-black/30 p-4 rounded-xl border border-ios-separator">
+                <div class="text-xs text-gray-500 mb-1">Margin</div>
+                {@const margin = calculateMargin(selectedProduct.lastPrice, selectedProduct.sellingPrice)}
+                {@const target = selectedProduct.targetMargin || 0.30}
+                <div class="text-2xl font-bold font-mono {margin < target ? 'text-ios-red' : 'text-ios-green'}">
+                    {(margin * 100).toFixed(1)}%
+                </div>
+            </div>
+            <div class="bg-black/30 p-4 rounded-xl border border-ios-separator">
+                <div class="text-xs text-gray-500 mb-1">Sales Volume</div>
+                <div class="text-2xl font-bold text-ios-blue font-mono">
+                    {selectedProduct.salesVolume || 0} <span class="text-sm text-gray-500 font-sans">units</span>
+                </div>
+            </div>
         </div>
 
-        <div class="space-y-2 max-h-60 overflow-y-auto">
-          {#each [...productHistory].reverse() as h}
-            <div class="flex justify-between items-center p-2 hover:bg-white/5 rounded-lg">
-              <span class="text-gray-400 text-sm">{h.date}</span>
-              <span class="text-white font-mono font-bold">${h.price.toFixed(2)}</span>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Left Column: History & Charts -->
+            <div class="space-y-6">
+                <div class="bg-black/20 rounded-xl p-4 border border-ios-separator">
+                    <h3 class="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center space-x-2">
+                        <TrendingUp size={16} />
+                        <span>Price History</span>
+                    </h3>
+                    
+                    <!-- Visual Chart -->
+                    <div class="h-40 flex items-end space-x-2 mb-4 border-b border-gray-700 pb-2">
+                        {#if productHistory.length > 0}
+                            {#each productHistory as point}
+                                {@const maxPrice = Math.max(...productHistory.map(h => h.price)) * 1.2}
+                                {@const height = (point.price / maxPrice) * 100}
+                                <div class="flex-1 flex flex-col items-center group relative">
+                                    <div class="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black text-white text-xs p-2 rounded pointer-events-none whitespace-nowrap border border-gray-700 z-10">
+                                        {point.date}: ${point.price.toFixed(2)}
+                                    </div>
+                                    <div 
+                                        class="w-full bg-ios-blue/50 hover:bg-ios-blue transition-colors rounded-t-sm min-w-[8px]"
+                                        style="height: {height}%"
+                                    ></div>
+                                </div>
+                            {/each}
+                        {:else}
+                            <div class="w-full h-full flex items-center justify-center text-gray-600 text-sm">
+                                No history data available
+                            </div>
+                        {/if}
+                    </div>
+                    
+                    <!-- List -->
+                    <div class="space-y-2 max-h-40 overflow-y-auto">
+                        {#each [...productHistory].reverse().slice(0, 5) as h}
+                            <div class="flex justify-between items-center p-2 hover:bg-white/5 rounded-lg text-sm">
+                                <span class="text-gray-400">{h.date}</span>
+                                <span class="text-white font-mono">${h.price.toFixed(2)}</span>
+                            </div>
+                        {/each}
+                    </div>
+                </div>
             </div>
-          {/each}
+
+            <!-- Right Column: AI Intelligence -->
+            <div class="space-y-6">
+                <div class="bg-gradient-to-br from-ios-blue/10 to-purple-500/10 rounded-xl p-6 border border-ios-blue/30 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 p-4 opacity-10">
+                        <Sparkles size={100} />
+                    </div>
+
+                    <h3 class="text-lg font-bold text-white mb-4 flex items-center space-x-2">
+                        <Sparkles size={20} class="text-ios-blue" />
+                        <span>AI Pricing Analyst</span>
+                    </h3>
+
+                    {#if isAnalyzing}
+                        <div class="py-12 flex flex-col items-center justify-center text-ios-blue animate-pulse">
+                            <Sparkles size={48} class="mb-4 animate-spin" />
+                            <p>Analyzing market data...</p>
+                        </div>
+                    {:else if selectedProduct.aiSuggestedPrice}
+                        <div class="space-y-4 relative z-10">
+                            <div class="flex justify-between items-end">
+                                <div>
+                                    <div class="text-sm text-gray-400">Suggested Price</div>
+                                    <div class="text-4xl font-bold text-white font-mono">
+                                        ${selectedProduct.aiSuggestedPrice.toFixed(2)}
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm text-gray-400">New Margin</div>
+                                    <div class="text-xl font-bold text-ios-green font-mono">
+                                        {((selectedProduct.aiSuggestedMargin || 0) * 100).toFixed(1)}%
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-black/40 rounded-lg p-4 text-sm text-gray-300 leading-relaxed border border-white/5">
+                                {selectedProduct.aiReasoning}
+                            </div>
+
+                            <div class="flex gap-3 pt-2">
+                                <button 
+                                    class="flex-1 bg-ios-green text-white py-3 rounded-xl font-bold hover:bg-green-600 transition-colors flex items-center justify-center space-x-2"
+                                    on:click={() => applySuggestion(selectedProduct)}
+                                >
+                                    <TrendingUp size={18} />
+                                    <span>Apply Price</span>
+                                </button>
+                                <button 
+                                    class="px-4 py-3 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-colors"
+                                    on:click={() => analyzeSingleProduct(selectedProduct)}
+                                    title="Re-analyze"
+                                >
+                                    <Sparkles size={18} />
+                                </button>
+                            </div>
+                        </div>
+                    {:else}
+                        <div class="py-8 text-center">
+                            <p class="text-gray-400 mb-6">Get a detailed analysis based on sales volume, costs, and market rules.</p>
+                            <button 
+                                class="bg-white text-black px-6 py-3 rounded-xl font-bold hover:bg-gray-200 transition-colors flex items-center space-x-2 mx-auto shadow-lg shadow-white/10"
+                                on:click={() => analyzeSingleProduct(selectedProduct)}
+                            >
+                                <Sparkles size={18} />
+                                <span>Analyze This Product</span>
+                            </button>
+                        </div>
+                    {/if}
+                </div>
+            </div>
         </div>
+
       </div>
     </div>
   </div>
