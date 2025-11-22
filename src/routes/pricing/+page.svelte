@@ -11,7 +11,7 @@
   let suppliers: Supplier[] = [];
   let searchQuery = '';
   let selectedCategory = 'All';
-  let activeTab: 'catalog' | 'suggestions' | 'sales' = 'catalog';
+  let activeTab: 'catalog' | 'suggestions' = 'catalog';
   
   // Import State
   let fileInput: HTMLInputElement;
@@ -348,12 +348,6 @@
     >
         Suggestions
     </button>
-    <button 
-        class="px-4 py-2 rounded-lg text-sm font-medium transition-all {activeTab === 'sales' ? 'bg-gray-500/20 text-white shadow-sm' : 'text-gray-400 hover:text-white'}"
-        on:click={() => activeTab = 'sales'}
-    >
-        Sales Analysis
-    </button>
   </div>
 
   <!-- Search & Filter Bar -->
@@ -386,6 +380,7 @@
         <thead class="bg-gray-500/10 text-gray-400 text-xs uppercase">
           <tr>
             <th class="p-4 font-medium">Product</th>
+            <th class="p-4 font-medium text-right">Sales Vol</th>
             <th class="p-4 font-medium text-right">Cost</th>
             <th class="p-4 font-medium text-right">Price</th>
             <th class="p-4 font-medium text-right">Margin</th>
@@ -406,6 +401,9 @@
               <td class="p-4">
                 <div class="font-medium text-white">{product.name}</div>
                 <div class="text-xs text-gray-500">{product.supplierName} • {product.category || 'Uncategorized'}</div>
+              </td>
+              <td class="p-4 text-right font-mono text-gray-400">
+                {product.salesVolume || '-'}
               </td>
               <td class="p-4 text-right font-mono text-gray-300">
                 ${product.lastPrice.toFixed(2)}
