@@ -196,7 +196,7 @@
                 },
                 body: JSON.stringify({
                     messages: [
-                        { role: "system", content: "You are an expert Pricing Analyst for a Dominican Colmado." },
+                        { role: "system", content: "You are an expert Pricing Analyst for a Dominican Colmado. Return ONLY a valid JSON array. Do not include markdown formatting like ```json." },
                         { role: "user", content: prompt }
                     ],
                     model: "grok-beta",
@@ -208,8 +208,9 @@
             const result = await response.json();
 
             if (!response.ok) {
-                console.error('AI API Error:', result);
-                throw new Error(result.error?.message || 'Unknown API Error');
+                console.error('AI API Error:', response.status, response.statusText, result);
+                const errorMsg = result.error?.message || JSON.stringify(result) || response.statusText;
+                throw new Error(`API Error (${response.status}): ${errorMsg}`);
             }
 
             if (!result.choices || result.choices.length === 0) {
