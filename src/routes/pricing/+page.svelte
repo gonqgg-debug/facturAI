@@ -153,9 +153,17 @@
     isAnalyzing = true;
     const productsToAnalyze = products.filter(p => !p.aiSuggestedPrice || activeTab === 'suggestions');
     
+    // Fetch Pricing Rules from KB
+    const globalContextItems = await db.globalContext.toArray();
+    const pricingRules = globalContextItems
+        .filter(i => i.category === 'pricing_rule')
+        .map(i => `- ${i.title}: ${i.content}`)
+        .join('\n');
+
     // Process in batches of 5 to avoid rate limits/timeouts
     const batchSize = 5;
     let processed = 0;
+    let errors = 0;
 
     try {
         for (let i = 0; i < productsToAnalyze.length; i += batchSize) {
@@ -168,79 +176,90 @@
 
             const prompt = `
                 Analyze the pricing for these Dominican Republic Colmado products.
-                Rules:
+                
+                GLOBAL PRICING RULES (FROM KNOWLEDGE BASE):
+                ${pricingRules || 'No specific custom rules found. Use general logic.'}
+
+                GENERAL LOGIC:
                 1. "Fria" (Beer) = Low margin (15-20%), traffic driver.
                 2. "Surtido" (Rice, Oil) = Competitive margin (20-25%).
                 3. "Antojos" (Snacks, Rum) = High margin (30-50%).
-                4. Round prices to nearest $5 or $10. No pennies.
-                5. Return JSON array with: { name, suggestedPrice, suggestedMargin, reasoning }.
+                
+                CRITICAL CONSTRAINTS:
+                1. Suggested Price MUST be greater than Cost.
+                2. Round prices to nearest $5 or $10. No pennies.
+                3. Return JSON array with: { name, suggestedPrice, suggestedMargin, reasoning }.
 
                 Products:
                 ${itemsText}
             `;
 
-            // Call Grok (using the existing parse function wrapper or a new one)
-            // Since parseInvoiceWithGrok is specific to invoices, we'll call the API directly here or adapt it.
-            // For simplicity in this file, I'll simulate the call structure but ideally we should move this to a service.
-            // We'll reuse the parseInvoiceWithGrok but treat the prompt as the "text".
-            // actually, let's use a direct fetch to keep it simple and contained or import a generic completion function.
-            // Re-using parseInvoiceWithGrok might be hacky because it expects invoice text.
-            // Let's assume we have a generic 'askGrok' or similar. 
-            // Since we don't, I will implement a quick fetch here.
+            try {
+                const response = await fetch('https://api.x.ai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${$apiKey}`
+                    },
+                    body: JSON.stringify({
+                        messages: [
+                            { role: "system", content: "You are an expert Pricing Analyst for a Dominican Colmado. Return ONLY a valid JSON array. Do not include markdown formatting like ```json." },
+                            { role: "user", content: prompt }
+                        ],
+                        model: "grok-3",
+                        stream: false,
+                        temperature: 0.1
+                    })
+                });
 
-            const response = await fetch('https://api.x.ai/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${$apiKey}`
-                },
-                body: JSON.stringify({
-                    messages: [
-                        { role: "system", content: "You are an expert Pricing Analyst for a Dominican Colmado. Return ONLY a valid JSON array. Do not include markdown formatting like ```json." },
-                        { role: "user", content: prompt }
-                    ],
-                    model: "grok-3",
-                    stream: false,
-                    temperature: 0.1
-                })
-            });
+                const result = await response.json();
 
-            const result = await response.json();
-
-            if (!response.ok) {
-                console.error('AI API Error:', response.status, response.statusText, result);
-                const errorMsg = result.error?.message || JSON.stringify(result) || response.statusText;
-                throw new Error(`API Error (${response.status}): ${errorMsg}`);
-            }
-
-            if (!result.choices || result.choices.length === 0) {
-                console.error('Unexpected API Response:', result);
-                throw new Error('No choices returned from AI');
-            }
-
-            const content = result.choices[0].message.content;
-            
-            // Parse JSON from content (handle potential markdown blocks)
-            const jsonStr = content.replace(/```json\n?|```/g, '').trim();
-            const suggestions = JSON.parse(jsonStr);
-
-            // Update DB
-            for (const s of suggestions) {
-                const product = batch.find(p => p.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(p.name.toLowerCase()));
-                if (product && product.id) {
-                    await db.products.update(product.id, {
-                        aiSuggestedPrice: s.suggestedPrice,
-                        aiSuggestedMargin: s.suggestedMargin,
-                        aiReasoning: s.reasoning
-                    });
+                if (!response.ok) {
+                    console.error('AI API Error:', response.status, response.statusText, result);
+                    throw new Error(`API Error (${response.status})`);
                 }
+
+                if (!result.choices || result.choices.length === 0) {
+                    throw new Error('No choices returned from AI');
+                }
+
+                const content = result.choices[0].message.content;
+                
+                // Parse JSON from content (handle potential markdown blocks)
+                const jsonStr = content.replace(/```json\n?|```/g, '').trim();
+                const suggestions = JSON.parse(jsonStr);
+
+                // Update DB
+                for (const s of suggestions) {
+                    const product = batch.find(p => p.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(p.name.toLowerCase()));
+                    
+                    // Validation: Ensure Price > Cost
+                    if (product && product.id) {
+                        let finalPrice = s.suggestedPrice;
+                        if (finalPrice <= product.lastPrice) {
+                            finalPrice = product.lastPrice * 1.15; // Force minimum 15% margin if AI fails
+                            s.reasoning += " [Auto-corrected: Price was <= Cost]";
+                        }
+
+                        await db.products.update(product.id, {
+                            aiSuggestedPrice: finalPrice,
+                            aiSuggestedMargin: (finalPrice - product.lastPrice) / finalPrice,
+                            aiReasoning: s.reasoning
+                        });
+                    }
+                }
+                processed += batch.length;
+
+            } catch (batchError) {
+                console.error(`Error processing batch ${i}:`, batchError);
+                errors++;
+                // Continue to next batch instead of stopping completely
             }
-            processed += batch.length;
         }
-        alert(`Analysis Complete! Processed ${processed} products.`);
+        alert(`Analysis Complete! Processed ${processed} products. Errors: ${errors}`);
     } catch (e) {
         console.error(e);
-        alert('Error during AI analysis: ' + e);
+        alert('Critical error during AI analysis: ' + e);
     } finally {
         await loadData();
         isAnalyzing = false;

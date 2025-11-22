@@ -65,7 +65,7 @@ export interface GlobalContextItem {
     title: string;
     content: string; // Extracted text
     type: 'text' | 'file';
-    category?: 'tax' | 'conversion' | 'business_logic';
+    category?: 'tax' | 'conversion' | 'business_logic' | 'pricing_rule';
     fileName?: string;
     fileType?: 'pdf' | 'excel' | 'txt';
     createdAt: Date;

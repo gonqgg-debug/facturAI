@@ -280,6 +280,7 @@
             <option value="business_logic">Business Logic (General)</option>
             <option value="tax">Tax Rules (ITBIS, Exemptions)</option>
             <option value="conversion">Unit Conversions (Packs, Boxes)</option>
+            <option value="pricing_rule">Pricing Rules (Margins, Rounding)</option>
           </select>
           
           <textarea 
