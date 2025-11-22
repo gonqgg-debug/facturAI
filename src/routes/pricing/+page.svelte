@@ -199,7 +199,7 @@
                         { role: "system", content: "You are an expert Pricing Analyst for a Dominican Colmado. Return ONLY a valid JSON array. Do not include markdown formatting like ```json." },
                         { role: "user", content: prompt }
                     ],
-                    model: "grok-beta",
+                    model: "grok-3",
                     stream: false,
                     temperature: 0.1
                 })
