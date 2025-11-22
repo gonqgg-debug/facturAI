@@ -658,41 +658,66 @@
         <div class="flex-1 overflow-y-auto p-6 border-r border-gray-800 space-y-8">
             
             <!-- Key Metrics Grid -->
-            <div class="grid grid-cols-3 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div class="bg-black/20 p-4 rounded-xl border border-gray-800">
                     <div class="text-xs text-gray-500 mb-1 uppercase tracking-wider">Cost Basis</div>
                     <div class="text-xl font-bold text-gray-300 font-mono">${selectedProduct.lastPrice.toFixed(2)}</div>
                 </div>
                 <div class="bg-black/20 p-4 rounded-xl border border-gray-800">
+                    <div class="text-xs text-gray-500 mb-1 uppercase tracking-wider">Current Price</div>
+                    <div class="text-xl font-bold text-white font-mono">${selectedProduct.sellingPrice?.toFixed(2) || '-'}</div>
+                </div>
+                <div class="bg-purple-500/10 p-4 rounded-xl border border-purple-500/30">
+                    <div class="text-xs text-purple-400 mb-1 uppercase tracking-wider">AI Suggested</div>
+                    <div class="text-xl font-bold text-purple-300 font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2) || '-'}</div>
+                </div>
+                <div class="bg-black/20 p-4 rounded-xl border border-gray-800">
                     <div class="text-xs text-gray-500 mb-1 uppercase tracking-wider">Volume (30d)</div>
                     <div class="text-xl font-bold text-ios-blue font-mono">{selectedProduct.salesVolume || 0}</div>
                 </div>
-                <div class="bg-black/20 p-4 rounded-xl border border-gray-800">
-                    <div class="text-xs text-gray-500 mb-1 uppercase tracking-wider">Velocity</div>
-                    <div class="text-xl font-bold text-white font-mono">
-                        {(selectedProduct.salesVolume ? (selectedProduct.salesVolume / 30).toFixed(1) : 0)} <span class="text-xs text-gray-500">/day</span>
-                    </div>
-                </div>
             </div>
 
-            <!-- Price History Chart -->
-            <div class="bg-black/20 rounded-xl p-6 border border-gray-800">
-                <h3 class="text-sm font-bold text-gray-400 uppercase mb-6 flex items-center space-x-2">
-                    <TrendingUp size={16} />
-                    <span>Price Performance</span>
-                </h3>
-                <div class="h-48 flex items-end space-x-1">
-                    {#if productHistory.length > 0}
-                        {#each productHistory as point}
-                            {@const maxPrice = Math.max(...productHistory.map(h => h.price)) * 1.1}
-                            {@const height = (point.price / maxPrice) * 100}
-                            <div class="flex-1 flex flex-col items-center group relative">
-                                <div class="w-full bg-gradient-to-t from-ios-blue/20 to-ios-blue hover:from-ios-blue/40 hover:to-ios-blue/80 transition-all rounded-t-sm min-w-[4px]" style="height: {height}%"></div>
-                            </div>
-                        {/each}
-                    {:else}
-                        <div class="w-full h-full flex items-center justify-center text-gray-600 text-sm">No history data</div>
-                    {/if}
+            <!-- Cost & Price History Side by Side -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Product Cost Chart -->
+                <div class="bg-black/20 rounded-xl p-6 border border-gray-800">
+                    <h3 class="text-sm font-bold text-gray-400 uppercase mb-6 flex items-center space-x-2">
+                        <TrendingDown size={16} />
+                        <span>Product Cost</span>
+                    </h3>
+                    <div class="h-48 flex items-end space-x-1">
+                        {#if productHistory.length > 0}
+                            {#each productHistory as point}
+                                {@const maxPrice = Math.max(...productHistory.map(h => h.price)) * 1.1}
+                                {@const height = (point.price / maxPrice) * 100}
+                                <div class="flex-1 flex flex-col items-center group relative">
+                                    <div class="w-full bg-gradient-to-t from-orange-500/20 to-orange-500 hover:from-orange-500/40 hover:to-orange-500/80 transition-all rounded-t-sm min-w-[4px]" style="height: {height}%"></div>
+                                </div>
+                            {/each}
+                        {:else}
+                            <div class="w-full h-full flex items-center justify-center text-gray-600 text-sm">No cost data</div>
+                        {/if}
+                    </div>
+                </div>
+
+                <!-- Historical Price Table -->
+                <div class="bg-black/20 rounded-xl p-6 border border-gray-800">
+                    <h3 class="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center space-x-2">
+                        <TrendingUp size={16} />
+                        <span>Historical Price</span>
+                    </h3>
+                    <div class="space-y-2 max-h-48 overflow-y-auto">
+                        {#if productHistory.length > 0}
+                            {#each [...productHistory].reverse() as h}
+                                <div class="flex justify-between items-center p-2 bg-white/5 rounded-lg border border-white/5 hover:bg-white/10 transition-colors">
+                                    <span class="text-sm text-gray-400">{h.date}</span>
+                                    <span class="text-sm font-mono text-white font-bold">${h.price.toFixed(2)}</span>
+                                </div>
+                            {/each}
+                        {:else}
+                            <div class="text-center text-gray-600 text-sm py-8">No price history</div>
+                        {/if}
+                    </div>
                 </div>
             </div>
 
