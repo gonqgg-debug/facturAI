@@ -616,11 +616,13 @@
             </div>
             <div class="bg-black/30 p-4 rounded-xl border border-ios-separator">
                 <div class="text-xs text-gray-500 mb-1">Margin</div>
-                {@const margin = calculateMargin(selectedProduct.lastPrice, selectedProduct.sellingPrice)}
-                {@const target = selectedProduct.targetMargin || 0.30}
-                <div class="text-2xl font-bold font-mono {margin < target ? 'text-ios-red' : 'text-ios-green'}">
-                    {(margin * 100).toFixed(1)}%
-                </div>
+                {#if selectedProduct}
+                    {@const margin = calculateMargin(selectedProduct.lastPrice, selectedProduct.sellingPrice)}
+                    {@const target = selectedProduct.targetMargin || 0.30}
+                    <div class="text-2xl font-bold font-mono {margin < target ? 'text-ios-red' : 'text-ios-green'}">
+                        {(margin * 100).toFixed(1)}%
+                    </div>
+                {/if}
             </div>
             <div class="bg-black/30 p-4 rounded-xl border border-ios-separator">
                 <div class="text-xs text-gray-500 mb-1">Sales Volume</div>
