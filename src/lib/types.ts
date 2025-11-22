@@ -100,4 +100,6 @@ export interface Product {
     aiSuggestedPrice?: number;
     aiSuggestedMargin?: number;
     aiReasoning?: string;
+    aiAnalystRating?: 'BUY' | 'SELL' | 'HOLD';
+    aiCreativeIdea?: string;
 }
