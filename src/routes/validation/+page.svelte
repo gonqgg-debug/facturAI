@@ -46,7 +46,25 @@
 
   async function loadProducts(supplierId: number) {
     products = await db.products.where('supplierId').equals(supplierId).toArray();
+    autoLinkProducts();
     checkPrices();
+  }
+
+  function autoLinkProducts() {
+    if (!invoice || !invoice.items) return;
+    
+    invoice.items = invoice.items.map(item => {
+        // If already linked, skip
+        if (item.productId) return item;
+
+        // Try to find exact match by name
+        const match = products.find(p => p.name.toLowerCase() === item.description.toLowerCase());
+        
+        if (match && match.productId) {
+            return { ...item, productId: match.productId };
+        }
+        return item;
+    });
   }
 
   function checkPrices() {
