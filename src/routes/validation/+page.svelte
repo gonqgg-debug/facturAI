@@ -5,7 +5,7 @@
   import { db } from '$lib/db';
   import { recalculateInvoice, validateNcf, getNcfType, recalculateFromTotal } from '$lib/tax';
   import { parseInvoiceWithGrok } from '$lib/grok';
-  import { Save, RefreshCw, AlertTriangle, Check, TrendingUp, TrendingDown, Brain } from 'lucide-svelte';
+  import { Save, RefreshCw, AlertTriangle, Check, TrendingUp, TrendingDown, Brain, Link } from 'lucide-svelte';
   import type { Supplier, Product } from '$lib/types';
 
   let invoice = $currentInvoice;
@@ -15,6 +15,12 @@
   let priceAlerts: Record<number, { type: 'up' | 'down', diff: number, lastPrice: number, lastDate: string }> = {};
   let isSaving = false;
   let showReasoning = false;
+
+  // Product Linking State
+  let showProductLinker = false;
+  let activeLinkIndex: number | null = null;
+  let productSearchQuery = '';
+  let filteredLinkProducts: Product[] = [];
 
   onMount(async () => {
     if (!invoice) {
@@ -131,11 +137,20 @@
       if (invoice.items) {
         for (const item of invoice.items) {
           if (item.description && item.unitPrice) {
-            // Check if exists
-            const existing = await db.products
-              .where('[supplierId+name]')
-              .equals([supplierId, item.description])
-              .first();
+            let existing: Product | undefined;
+
+            // Try to find by Product ID first
+            if (item.productId) {
+                existing = await db.products.where('productId').equals(item.productId).first();
+            }
+
+            // Fallback to Name + Supplier match
+            if (!existing) {
+                existing = await db.products
+                  .where('[supplierId+name]')
+                  .equals([supplierId, item.description])
+                  .first();
+            }
 
             if (existing) {
               await db.products.update(existing.id!, {
@@ -146,6 +161,7 @@
               await db.products.add({
                 supplierId,
                 name: item.description,
+                productId: item.productId, // Save ID if it was set (e.g. manually linked but not found in DB? Unlikely but safe)
                 lastPrice: item.unitPrice,
                 lastDate: invoice.issueDate || new Date().toISOString().split('T')[0],
                 category: invoice.category
@@ -289,6 +305,45 @@
         }, 50);
       }
     }
+  }
+  // Product Linking Logic
+  function openProductLinker(index: number) {
+    if (!invoice || !invoice.items) return;
+    activeLinkIndex = index;
+    productSearchQuery = invoice.items[index].description || '';
+    showProductLinker = true;
+    searchProducts();
+  }
+
+  function closeProductLinker() {
+    showProductLinker = false;
+    activeLinkIndex = null;
+    productSearchQuery = '';
+  }
+
+  function searchProducts() {
+    if (!productSearchQuery) {
+        filteredLinkProducts = products.slice(0, 10);
+        return;
+    }
+    const q = productSearchQuery.toLowerCase();
+    filteredLinkProducts = products.filter(p => 
+        p.name.toLowerCase().includes(q) || 
+        p.productId?.toLowerCase().includes(q)
+    ).slice(0, 10);
+  }
+
+  function selectLinkedProduct(product: Product) {
+    if (activeLinkIndex === null || !invoice || !invoice.items) return;
+    
+    // Link the product
+    invoice.items[activeLinkIndex].productId = product.productId;
+    // Optional: Update description to match catalog? 
+    // Let's keep the invoice description but maybe show the linked name in UI
+    // Or better, update description to match catalog for consistency
+    invoice.items[activeLinkIndex].description = product.name;
+    
+    closeProductLinker();
   }
 </script>
 
@@ -505,14 +560,23 @@
               <tbody class="divide-y divide-ios-separator">
                 {#each invoice.items || [] as item, i}
                   <tr class="group hover:bg-white/5 transition-colors">
-                    <td class="p-2">
-                      <input 
-                        bind:value={item.description} 
-                        class="w-full bg-transparent text-white outline-none placeholder-gray-600" 
-                        placeholder="Item..." 
-                        data-row={i} data-col="0"
-                        on:keydown={(e) => handleKeydown(e, i, 0)}
-                      />
+                    <td class="p-2 relative group/cell">
+                      <div class="flex items-center space-x-2">
+                          <button 
+                            class="p-1 rounded hover:bg-white/10 transition-colors {item.productId ? 'text-green-500' : 'text-gray-600'}"
+                            title={item.productId ? "Linked to Product Catalog" : "Link to Product"}
+                            on:click={() => openProductLinker(i)}
+                          >
+                            <Link size={14} />
+                          </button>
+                          <input 
+                            bind:value={item.description} 
+                            class="w-full bg-transparent text-white outline-none placeholder-gray-600" 
+                            placeholder="Item..." 
+                            data-row={i} data-col="0"
+                            on:keydown={(e) => handleKeydown(e, i, 0)}
+                          />
+                      </div>
                     </td>
                     <td class="p-2">
                       <input 
@@ -620,4 +684,54 @@
       </div>
     {/if}
   </div>
+  <!-- Product Linker Modal -->
+  {#if showProductLinker}
+    <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-ios-card w-full max-w-md rounded-2xl border border-ios-separator shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div class="p-4 border-b border-ios-separator flex justify-between items-center">
+                <h3 class="text-white font-bold">Link Product</h3>
+                <button on:click={closeProductLinker} class="text-gray-400 hover:text-white">✕</button>
+            </div>
+            
+            <div class="p-4 border-b border-ios-separator">
+                <input 
+                    bind:value={productSearchQuery}
+                    on:input={searchProducts}
+                    placeholder="Search catalog..."
+                    class="w-full bg-black/50 border border-ios-separator rounded-lg p-3 text-white focus:border-ios-blue outline-none"
+                    autoFocus
+                />
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-2 space-y-1">
+                {#each filteredLinkProducts as product}
+                    <button 
+                        class="w-full text-left p-3 rounded-lg hover:bg-white/10 flex justify-between items-center group"
+                        on:click={() => selectLinkedProduct(product)}
+                    >
+                        <div>
+                            <div class="text-white font-medium">{product.name}</div>
+                            <div class="text-xs text-gray-500 flex items-center space-x-2">
+                                {#if product.productId}
+                                    <span class="bg-gray-800 px-1 rounded border border-gray-700">{product.productId}</span>
+                                {/if}
+                                <span>${product.sellingPrice?.toFixed(2)}</span>
+                            </div>
+                        </div>
+                        <div class="text-ios-blue opacity-0 group-hover:opacity-100 transition-opacity">
+                            Link
+                        </div>
+                    </button>
+                {/each}
+
+                {#if filteredLinkProducts.length === 0}
+                    <div class="text-center py-8 text-gray-500">
+                        <p>No matching products found.</p>
+                        <p class="text-xs mt-2">A new product will be created automatically.</p>
+                    </div>
+                {/if}
+            </div>
+        </div>
+    </div>
+  {/if}
 </div>
