@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { db } from '$lib/db';
-  import { Search, Tag, TrendingUp, TrendingDown, X, Filter, Upload, Sparkles, AlertTriangle, FileSpreadsheet } from 'lucide-svelte';
+  import { Search, Tag, TrendingUp, TrendingDown, X, Filter, Upload, Sparkles, AlertTriangle, FileSpreadsheet, Edit2 } from 'lucide-svelte';
   import type { Product, Supplier } from '$lib/types';
   import * as XLSX from 'xlsx';
   import { apiKey } from '$lib/stores';
