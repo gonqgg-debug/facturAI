@@ -1,197 +1,124 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { db } from '$lib/db';
-  import { Search, Tag, TrendingUp, TrendingDown, X, Filter, Upload, Sparkles, AlertTriangle, FileSpreadsheet, Edit2 } from 'lucide-svelte';
-  import type { Product, Supplier } from '$lib/types';
-  import * as XLSX from 'xlsx';
-  import { apiKey } from '$lib/stores';
-  import { parseInvoiceWithGrok } from '$lib/grok'; // We'll reuse this or create a new one for pricing
+    import { onMount } from "svelte";
+    import { db } from "$lib/db";
+    import { onMount } from "svelte";
+    import { db } from "$lib/db";
+    import {
+        Search,
+        Tag,
+        TrendingUp,
+        TrendingDown,
+        X,
+        Filter,
+        Sparkles,
+        AlertTriangle,
+        FileSpreadsheet,
+    } from "lucide-svelte";
+    import type { Product, Supplier } from "$lib/types";
+    import { apiKey } from "$lib/stores";
+    import { parseInvoiceWithGrok } from "$lib/grok";
 
-  let products: (Product & { supplierName?: string })[] = [];
-  let suppliers: Supplier[] = [];
-  let searchQuery = '';
-  let selectedCategory = 'All';
-  let activeTab: 'catalog' | 'suggestions' = 'catalog';
-  
-  // Import State
-  let fileInput: HTMLInputElement;
-  let isImporting = false;
+    let products: (Product & { supplierName?: string })[] = [];
+    let suppliers: Supplier[] = [];
+    let searchQuery = "";
+    let selectedCategory = "All";
+    let activeTab: "catalog" | "suggestions" = "catalog";
 
-  // Analysis State
-  let isAnalyzing = false;
+    // Analysis State
+    let isAnalyzing = false;
 
-  // History Modal
-  let selectedProduct: (Product & { supplierName?: string }) | null = null;
-  let productHistory: { date: string, price: number, invoiceId?: number }[] = [];
-  let showHistory = false;
+    // History Modal
+    let selectedProduct: (Product & { supplierName?: string }) | null = null;
+    let productHistory: { date: string; price: number; invoiceId?: number }[] =
+        [];
+    let showHistory = false;
 
-  onMount(async () => {
-    await loadData();
-  });
+    onMount(async () => {
+        await loadData();
+    });
 
-  async function loadData() {
-    suppliers = await db.suppliers.toArray();
-    const rawProducts = await db.products.toArray();
-    
-    // Join with supplier names
-    products = rawProducts.map(p => ({
-      ...p,
-      supplierName: suppliers.find(s => s.id === p.supplierId)?.name || 'Unknown'
-    })).sort((a, b) => a.name.localeCompare(b.name));
-  }
+    async function loadData() {
+        suppliers = await db.suppliers.toArray();
+        const rawProducts = await db.products.toArray();
 
-  $: filteredProducts = products.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          p.supplierName?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
-    
-    if (activeTab === 'suggestions') {
-        // Only show products with "bad" margins or AI suggestions
-        const currentMargin = calculateMargin(p.lastPrice, p.sellingPrice);
-        const target = p.targetMargin || 0.30;
-        const hasAiSuggestion = !!p.aiSuggestedPrice;
-        return matchesSearch && matchesCategory && (currentMargin < target || hasAiSuggestion);
+        // Join with supplier names
+        products = rawProducts
+            .map((p) => ({
+                ...p,
+                supplierName:
+                    suppliers.find((s) => s.id === p.supplierId)?.name ||
+                    "Unknown",
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    return matchesSearch && matchesCategory;
-  });
+    $: filteredProducts = products.filter((p) => {
+        const matchesSearch =
+            p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            p.supplierName?.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesCategory =
+            selectedCategory === "All" || p.category === selectedCategory;
 
-  function calculateMargin(cost: number, price?: number): number {
-    if (!price || price === 0) return 0;
-    return (price - cost) / price;
-  }
-
-  async function handleFileUpload(event: Event) {
-    const target = event.target as HTMLInputElement;
-    if (!target.files || target.files.length === 0) return;
-
-    const file = target.files[0];
-    const reader = new FileReader();
-
-    reader.onload = async (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(sheet);
-
-        await processImport(jsonData);
-      } catch (err) {
-        alert('Error reading file: ' + err);
-      }
-    };
-
-    reader.readAsArrayBuffer(file);
-  }
-
-  async function processImport(data: any[]) {
-    isImporting = true;
-    let updatedCount = 0;
-    let createdCount = 0;
-    let skippedCount = 0;
-
-    for (const row of data) {
-      // Expected columns: ProductID, Name, Supplier, Cost, AverageCost, Price, Category, TargetMargin, SalesVolume
-      const name = row['Name'] || row['Product Name'] || row['Producto'];
-      const productId = row['ProductID'] || row['SKU'] || row['Codigo'] || row['ID'];
-      
-      if (!name && !productId) {
-        skippedCount++;
-        continue;
-      }
-
-      // Find existing product by ProductID first, then by name
-      let existing = productId 
-        ? products.find(p => p.productId === productId)
-        : products.find(p => p.name.toLowerCase() === name?.toLowerCase());
-      
-      // Extract cost data
-      const lastPrice = row['Cost'] || row['Costo'] || row['Last Cost'];
-      const averageCost = row['AverageCost'] || row['Average Cost'] || row['Costo Promedio'];
-      
-      const productData: any = {
-        productId: productId || existing?.productId, // Preserve or set productId
-        sellingPrice: row['Price'] || row['Precio'] || row['Selling Price'],
-        targetMargin: row['TargetMargin'] || row['Margen'] || row['Target Margin'],
-        category: row['Category'] || row['Categoria'],
-        salesVolume: row['SalesVolume'] || row['Sales Volume'] || row['Cantidad Vendida'],
-        lastSaleDate: new Date().toISOString().split('T')[0]
-      };
-
-      // Add cost fields if provided
-      if (lastPrice !== undefined) productData.lastPrice = lastPrice;
-      if (averageCost !== undefined) productData.averageCost = averageCost;
-
-      // Clean undefined values
-      Object.keys(productData).forEach(key => productData[key] === undefined && delete productData[key]);
-
-      if (existing && existing.id) {
-        // Update existing product
-        await db.products.update(existing.id, productData);
-        updatedCount++;
-      } else {
-        // Create new product
-        const supplierName = row['Supplier'] || row['Suplidor'] || 'Unknown';
-        let supplier = suppliers.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
-        
-        if (!supplier && supplierName !== 'Unknown') {
-          const id = await db.suppliers.add({ name: supplierName, rnc: '000000000', examples: [] });
-          supplier = { id, name: supplierName, rnc: '000000000', examples: [] };
-          suppliers.push(supplier);
+        if (activeTab === "suggestions") {
+            // Only show products with "bad" margins or AI suggestions
+            const currentMargin = calculateMargin(p.lastPrice, p.sellingPrice);
+            const target = p.targetMargin || 0.3;
+            const hasAiSuggestion = !!p.aiSuggestedPrice;
+            return (
+                matchesSearch &&
+                matchesCategory &&
+                (currentMargin < target || hasAiSuggestion)
+            );
         }
 
-        await db.products.add({
-          name: name || `Product ${productId}`,
-          supplierId: supplier?.id,
-          lastPrice: lastPrice || 0,
-          lastDate: new Date().toISOString().split('T')[0],
-          ...productData
-        });
-        createdCount++;
-      }
+        return matchesSearch && matchesCategory;
+    });
+
+    function calculateMargin(cost: number, price?: number): number {
+        if (!price || price === 0) return 0;
+        return (price - cost) / price;
     }
 
-    await loadData();
-    isImporting = false;
-    alert(`Import Complete!\nCreated: ${createdCount}\nUpdated: ${updatedCount}\nSkipped: ${skippedCount}`);
-  }
+    async function analyzeWithAI() {
+        if (!$apiKey) {
+            alert("Please set your API Key in Settings first.");
+            return;
+        }
 
-  async function analyzeWithAI() {
-    if (!$apiKey) {
-        alert('Please set your API Key in Settings first.');
-        return;
-    }
-    
-    isAnalyzing = true;
-    const productsToAnalyze = products.filter(p => !p.aiSuggestedPrice || activeTab === 'suggestions');
-    
-    // Fetch Pricing Rules from KB
-    const globalContextItems = await db.globalContext.toArray();
-    const pricingRules = globalContextItems
-        .filter(i => i.category === 'pricing_rule')
-        .map(i => `- ${i.title}: ${i.content}`)
-        .join('\n');
+        isAnalyzing = true;
+        const productsToAnalyze = products.filter(
+            (p) => !p.aiSuggestedPrice || activeTab === "suggestions",
+        );
 
-    // Process in batches of 5 to avoid rate limits/timeouts
-    const batchSize = 5;
-    let processed = 0;
-    let errors = 0;
+        // Fetch Pricing Rules from KB
+        const globalContextItems = await db.globalContext.toArray();
+        const pricingRules = globalContextItems
+            .filter((i) => i.category === "pricing_rule")
+            .map((i) => `- ${i.title}: ${i.content}`)
+            .join("\n");
 
-    try {
-        for (let i = 0; i < productsToAnalyze.length; i += batchSize) {
-            const batch = productsToAnalyze.slice(i, i + batchSize);
-            
-            // Prepare prompt for batch
-            const itemsText = batch.map(p => 
-                `- ${p.name} (Category: ${p.category || 'Unknown'}, Cost: ${p.lastPrice}, Current Price: ${p.sellingPrice || 'N/A'}, Sales Vol: ${p.salesVolume || 'Unknown'})`
-            ).join('\n');
+        // Process in batches of 5 to avoid rate limits/timeouts
+        const batchSize = 5;
+        let processed = 0;
+        let errors = 0;
 
-            const prompt = `
+        try {
+            for (let i = 0; i < productsToAnalyze.length; i += batchSize) {
+                const batch = productsToAnalyze.slice(i, i + batchSize);
+
+                // Prepare prompt for batch
+                const itemsText = batch
+                    .map(
+                        (p) =>
+                            `- ${p.name} (Category: ${p.category || "Unknown"}, Cost: ${p.lastPrice}, Current Price: ${p.sellingPrice || "N/A"}, Sales Vol: ${p.salesVolume || "Unknown"})`,
+                    )
+                    .join("\n");
+
+                const prompt = `
                 Analyze the pricing for these Dominican Republic Colmado products.
                 
                 GLOBAL PRICING RULES (FROM KNOWLEDGE BASE):
-                ${pricingRules || 'No specific custom rules found. Use general logic.'}
+                ${pricingRules || "No specific custom rules found. Use general logic."}
 
                 GENERAL LOGIC:
                 1. "Fria" (Beer) = Low margin (15-20%), traffic driver.
@@ -207,188 +134,224 @@
                 ${itemsText}
             `;
 
-            try {
-                const response = await fetch('https://api.x.ai/v1/chat/completions', {
-                    method: 'POST',
+                try {
+                    const response = await fetch(
+                        "https://api.x.ai/v1/chat/completions",
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${$apiKey}`,
+                            },
+                            body: JSON.stringify({
+                                messages: [
+                                    {
+                                        role: "system",
+                                        content:
+                                            "You are an expert Pricing Analyst for a Dominican Colmado. Return ONLY a valid JSON array. Do not include markdown formatting like ```json.",
+                                    },
+                                    { role: "user", content: prompt },
+                                ],
+                                model: "grok-3",
+                                stream: false,
+                                temperature: 0.1,
+                            }),
+                        },
+                    );
+
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        console.error(
+                            "AI API Error:",
+                            response.status,
+                            response.statusText,
+                            result,
+                        );
+                        throw new Error(`API Error (${response.status})`);
+                    }
+
+                    if (!result.choices || result.choices.length === 0) {
+                        throw new Error("No choices returned from AI");
+                    }
+
+                    const content = result.choices[0].message.content;
+
+                    // Parse JSON from content (handle potential markdown blocks)
+                    const jsonStr = content
+                        .replace(/```json\n?|```/g, "")
+                        .trim();
+                    const suggestions = JSON.parse(jsonStr);
+
+                    // Update DB
+                    for (const s of suggestions) {
+                        const product = batch.find(
+                            (p) =>
+                                p.name
+                                    .toLowerCase()
+                                    .includes(s.name.toLowerCase()) ||
+                                s.name
+                                    .toLowerCase()
+                                    .includes(p.name.toLowerCase()),
+                        );
+
+                        // Validation: Ensure Price > Cost
+                        if (product && product.id) {
+                            let finalPrice = s.suggestedPrice;
+                            if (finalPrice <= product.lastPrice) {
+                                finalPrice = product.lastPrice * 1.15; // Force minimum 15% margin if AI fails
+                                s.reasoning +=
+                                    " [Auto-corrected: Price was <= Cost]";
+                            }
+
+                            await db.products.update(product.id, {
+                                aiSuggestedPrice: finalPrice,
+                                aiSuggestedMargin:
+                                    (finalPrice - product.lastPrice) /
+                                    finalPrice,
+                                aiReasoning: s.reasoning,
+                            });
+                        }
+                    }
+                    processed += batch.length;
+                } catch (batchError) {
+                    console.error(`Error processing batch ${i}:`, batchError);
+                    errors++;
+                    // Continue to next batch instead of stopping completely
+                }
+            }
+            alert(
+                `Analysis Complete! Processed ${processed} products. Errors: ${errors}`,
+            );
+        } catch (e) {
+            console.error(e);
+            alert("Critical error during AI analysis: " + e);
+        } finally {
+            await loadData();
+            isAnalyzing = false;
+        }
+    }
+
+    async function openHistory(product: Product & { supplierName?: string }) {
+        selectedProduct = product;
+        showHistory = true;
+        productHistory = [];
+
+        const invoices = await db.invoices.toArray();
+        const history: typeof productHistory = [];
+
+        invoices.forEach((inv) => {
+            if (inv.items) {
+                const item = inv.items.find(
+                    (i) =>
+                        i.description?.toLowerCase() ===
+                        product.name.toLowerCase(),
+                );
+                if (item && item.unitPrice) {
+                    history.push({
+                        date: inv.issueDate || "Unknown",
+                        price: item.unitPrice,
+                        invoiceId: inv.id,
+                    });
+                }
+            }
+        });
+
+        productHistory = history.sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    let chatHistory: { role: "user" | "assistant"; content: string }[] = [];
+
+    function calculateProductScore(product: Product): number {
+        let score = 50; // Base score
+
+        // Margin Impact
+        const margin = calculateMargin(product.lastPrice, product.sellingPrice);
+        if (margin > 0.4) score += 20;
+        else if (margin > 0.25) score += 10;
+        else if (margin < 0.15) score -= 10;
+
+        // Volume Impact
+        const volume = product.salesVolume || 0;
+        if (volume > 100) score += 30;
+        else if (volume > 50) score += 15;
+        else if (volume < 10) score -= 10;
+
+        return Math.min(100, Math.max(0, score));
+    }
+
+    async function chatWithAI(message: string) {
+        if (!message.trim() || !selectedProduct) return;
+
+        // Add user message
+        chatHistory = [...chatHistory, { role: "user", content: message }];
+
+        // Simulate AI response (or call API)
+        // For now, let's do a quick API call for chat
+        try {
+            const response = await fetch(
+                "https://api.x.ai/v1/chat/completions",
+                {
+                    method: "POST",
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${$apiKey}`
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${$apiKey}`,
                     },
                     body: JSON.stringify({
                         messages: [
-                            { role: "system", content: "You are an expert Pricing Analyst for a Dominican Colmado. Return ONLY a valid JSON array. Do not include markdown formatting like ```json." },
-                            { role: "user", content: prompt }
+                            {
+                                role: "system",
+                                content:
+                                    "You are a helpful Pricing Analyst assistant. Keep answers short and conversational.",
+                            },
+                            {
+                                role: "user",
+                                content: `Product: ${selectedProduct.name}. Context: ${selectedProduct.aiReasoning}. User Question: ${message}`,
+                            },
                         ],
                         model: "grok-3",
                         stream: false,
-                        temperature: 0.1
-                    })
-                });
+                    }),
+                },
+            );
+            const result = await response.json();
+            const aiMsg = result.choices[0].message.content;
 
-                const result = await response.json();
-
-                if (!response.ok) {
-                    console.error('AI API Error:', response.status, response.statusText, result);
-                    throw new Error(`API Error (${response.status})`);
-                }
-
-                if (!result.choices || result.choices.length === 0) {
-                    throw new Error('No choices returned from AI');
-                }
-
-                const content = result.choices[0].message.content;
-                
-                // Parse JSON from content (handle potential markdown blocks)
-                const jsonStr = content.replace(/```json\n?|```/g, '').trim();
-                const suggestions = JSON.parse(jsonStr);
-
-                // Update DB
-                for (const s of suggestions) {
-                    const product = batch.find(p => p.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(p.name.toLowerCase()));
-                    
-                    // Validation: Ensure Price > Cost
-                    if (product && product.id) {
-                        let finalPrice = s.suggestedPrice;
-                        if (finalPrice <= product.lastPrice) {
-                            finalPrice = product.lastPrice * 1.15; // Force minimum 15% margin if AI fails
-                            s.reasoning += " [Auto-corrected: Price was <= Cost]";
-                        }
-
-                        await db.products.update(product.id, {
-                            aiSuggestedPrice: finalPrice,
-                            aiSuggestedMargin: (finalPrice - product.lastPrice) / finalPrice,
-                            aiReasoning: s.reasoning
-                        });
-                    }
-                }
-                processed += batch.length;
-
-            } catch (batchError) {
-                console.error(`Error processing batch ${i}:`, batchError);
-                errors++;
-                // Continue to next batch instead of stopping completely
-            }
+            chatHistory = [
+                ...chatHistory,
+                { role: "assistant", content: aiMsg },
+            ];
+        } catch (e) {
+            chatHistory = [
+                ...chatHistory,
+                {
+                    role: "assistant",
+                    content: "Sorry, I couldn't connect to the analyst server.",
+                },
+            ];
         }
-        alert(`Analysis Complete! Processed ${processed} products. Errors: ${errors}`);
-    } catch (e) {
-        console.error(e);
-        alert('Critical error during AI analysis: ' + e);
-    } finally {
-        await loadData();
-        isAnalyzing = false;
     }
-  }
 
-  async function openHistory(product: Product & { supplierName?: string }) {
-    selectedProduct = product;
-    showHistory = true;
-    productHistory = [];
-
-    const invoices = await db.invoices.toArray();
-    const history: typeof productHistory = [];
-
-    invoices.forEach(inv => {
-      if (inv.items) {
-        const item = inv.items.find(i => i.description?.toLowerCase() === product.name.toLowerCase());
-        if (item && item.unitPrice) {
-          history.push({
-            date: inv.issueDate || 'Unknown',
-            price: item.unitPrice,
-            invoiceId: inv.id
-          });
+    async function analyzeSingleProduct(
+        product: Product & { supplierName?: string },
+    ) {
+        if (!$apiKey) {
+            alert("Please set your API Key in Settings first.");
+            return;
         }
-      }
-    });
 
-    productHistory = history.sort((a, b) => a.date.localeCompare(b.date));
-  }
+        isAnalyzing = true;
+        chatHistory = []; // Reset chat
 
-  let chatHistory: { role: 'user' | 'assistant', content: string }[] = [];
-  let isEditingProduct = false;
+        try {
+            // Fetch Pricing Rules
+            const globalContextItems = await db.globalContext.toArray();
+            const pricingRules = globalContextItems
+                .filter((i) => i.category === "pricing_rule")
+                .map((i) => `- ${i.title}: ${i.content}`)
+                .join("\n");
 
-  async function saveProductChanges() {
-    if (!selectedProduct || !selectedProduct.id) return;
-    
-    await db.products.update(selectedProduct.id, {
-        name: selectedProduct.name,
-        productId: selectedProduct.productId,
-        lastPrice: selectedProduct.lastPrice,
-        sellingPrice: selectedProduct.sellingPrice
-    });
-    
-    isEditingProduct = false;
-    await loadData(); // Refresh list
-  }
-
-  function calculateProductScore(product: Product): number {
-    let score = 50; // Base score
-    
-    // Margin Impact
-    const margin = calculateMargin(product.lastPrice, product.sellingPrice);
-    if (margin > 0.4) score += 20;
-    else if (margin > 0.25) score += 10;
-    else if (margin < 0.15) score -= 10;
-
-    // Volume Impact
-    const volume = product.salesVolume || 0;
-    if (volume > 100) score += 30;
-    else if (volume > 50) score += 15;
-    else if (volume < 10) score -= 10;
-
-    return Math.min(100, Math.max(0, score));
-  }
-
-  async function chatWithAI(message: string) {
-    if (!message.trim() || !selectedProduct) return;
-    
-    // Add user message
-    chatHistory = [...chatHistory, { role: 'user', content: message }];
-    
-    // Simulate AI response (or call API)
-    // For now, let's do a quick API call for chat
-    try {
-        const response = await fetch('https://api.x.ai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${$apiKey}`
-            },
-            body: JSON.stringify({
-                messages: [
-                    { role: "system", content: "You are a helpful Pricing Analyst assistant. Keep answers short and conversational." },
-                    { role: "user", content: `Product: ${selectedProduct.name}. Context: ${selectedProduct.aiReasoning}. User Question: ${message}` }
-                ],
-                model: "grok-3",
-                stream: false
-            })
-        });
-        const result = await response.json();
-        const aiMsg = result.choices[0].message.content;
-        
-        chatHistory = [...chatHistory, { role: 'assistant', content: aiMsg }];
-    } catch (e) {
-        chatHistory = [...chatHistory, { role: 'assistant', content: "Sorry, I couldn't connect to the analyst server." }];
-    }
-  }
-
-  async function analyzeSingleProduct(product: Product & { supplierName?: string }) {
-    if (!$apiKey) {
-        alert('Please set your API Key in Settings first.');
-        return;
-    }
-    
-    isAnalyzing = true;
-    chatHistory = []; // Reset chat
-
-    try {
-        // Fetch Pricing Rules
-        const globalContextItems = await db.globalContext.toArray();
-        const pricingRules = globalContextItems
-            .filter(i => i.category === 'pricing_rule')
-            .map(i => `- ${i.title}: ${i.content}`)
-            .join('\n');
-
-        const prompt = `
+            const prompt = `
             Analyze this product for a Dominican Colmado. Act as a Wall Street Analyst but for groceries.
             
             PRODUCT: ${product.name}
@@ -410,510 +373,726 @@
             }
         `;
 
-        const response = await fetch('https://api.x.ai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${$apiKey}`
-            },
-            body: JSON.stringify({
-                messages: [
-                    { role: "system", content: "You are an expert Pricing Analyst. Return ONLY valid JSON." },
-                    { role: "user", content: prompt }
-                ],
-                model: "grok-3",
-                stream: false,
-                temperature: 0.1
-            })
-        });
+            const response = await fetch(
+                "https://api.x.ai/v1/chat/completions",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${$apiKey}`,
+                    },
+                    body: JSON.stringify({
+                        messages: [
+                            {
+                                role: "system",
+                                content:
+                                    "You are an expert Pricing Analyst. Return ONLY valid JSON.",
+                            },
+                            { role: "user", content: prompt },
+                        ],
+                        model: "grok-3",
+                        stream: false,
+                        temperature: 0.1,
+                    }),
+                },
+            );
 
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error?.message || 'API Error');
+            const result = await response.json();
+            if (!response.ok)
+                throw new Error(result.error?.message || "API Error");
 
-        const content = result.choices[0].message.content;
-        const jsonStr = content.replace(/```json\n?|```/g, '').trim();
-        const suggestion = JSON.parse(jsonStr);
+            const content = result.choices[0].message.content;
+            const jsonStr = content.replace(/```json\n?|```/g, "").trim();
+            const suggestion = JSON.parse(jsonStr);
 
-        // Update DB
-        await db.products.update(product.id!, {
-            aiSuggestedPrice: suggestion.suggestedPrice,
-            aiSuggestedMargin: suggestion.suggestedMargin,
-            aiReasoning: suggestion.reasoning,
-            aiAnalystRating: suggestion.analystRating,
-            aiCreativeIdea: suggestion.creativeIdea
-        });
+            // Update DB
+            await db.products.update(product.id!, {
+                aiSuggestedPrice: suggestion.suggestedPrice,
+                aiSuggestedMargin: suggestion.suggestedMargin,
+                aiReasoning: suggestion.reasoning,
+                aiAnalystRating: suggestion.analystRating,
+                aiCreativeIdea: suggestion.creativeIdea,
+            });
 
-        // Update UI
-        selectedProduct = {
-            ...selectedProduct,
-            aiSuggestedPrice: suggestion.suggestedPrice,
-            aiSuggestedMargin: suggestion.suggestedMargin,
-            aiReasoning: suggestion.reasoning,
-            aiAnalystRating: suggestion.analystRating,
-            aiCreativeIdea: suggestion.creativeIdea
-        } as any;
+            // Update UI
+            selectedProduct = {
+                ...selectedProduct,
+                aiSuggestedPrice: suggestion.suggestedPrice,
+                aiSuggestedMargin: suggestion.suggestedMargin,
+                aiReasoning: suggestion.reasoning,
+                aiAnalystRating: suggestion.analystRating,
+                aiCreativeIdea: suggestion.creativeIdea,
+            } as any;
 
-        await loadData();
-
-    } catch (e) {
-        console.error(e);
-        alert('Analysis failed: ' + e);
-    } finally {
-        isAnalyzing = false;
+            await loadData();
+        } catch (e) {
+            console.error(e);
+            alert("Analysis failed: " + e);
+        } finally {
+            isAnalyzing = false;
+        }
     }
-  }
 
-  function closeHistory() {
-    showHistory = false;
-    selectedProduct = null;
-    chatHistory = [];
-  }
+    function closeHistory() {
+        showHistory = false;
+        selectedProduct = null;
+        chatHistory = [];
+    }
 </script>
 
 <div class="p-4 max-w-6xl mx-auto pb-24">
-  <!-- Header -->
-  <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-    <div>
-        <h1 class="text-2xl font-bold text-white flex items-center space-x-2">
-        <Tag class="text-ios-blue" />
-        <span>Pricing Engine</span>
-        </h1>
-        <p class="text-gray-400 text-sm">Optimize margins and analyze costs</p>
-    </div>
-    
-    <div class="flex flex-wrap gap-2">
-        <button 
-            class="bg-ios-card border border-ios-separator text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm font-bold hover:bg-white/5 transition-colors"
-            on:click={() => fileInput.click()}
-        >
-            <Upload size={16} />
-            <span>Import Catalog</span>
-        </button>
-        <input 
-            type="file" 
-            bind:this={fileInput} 
-            class="hidden" 
-            accept=".xlsx,.xls,.csv"
-            on:change={handleFileUpload}
-        />
-
-        <button 
-            class="bg-gradient-to-r from-ios-blue to-purple-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm font-bold shadow-lg hover:shadow-xl transition-all"
-            on:click={analyzeWithAI}
-            disabled={isAnalyzing}
-        >
-            <Sparkles size={16} class={isAnalyzing ? 'animate-spin' : ''} />
-            <span>{isAnalyzing ? 'Analyzing...' : 'Analyze with AI'}</span>
-        </button>
-    </div>
-  </div>
-
-  <!-- Tabs -->
-  <div class="flex space-x-1 bg-ios-card p-1 rounded-xl mb-6 border border-ios-separator w-full md:w-auto inline-flex">
-    <button 
-        class="px-4 py-2 rounded-lg text-sm font-medium transition-all {activeTab === 'catalog' ? 'bg-gray-500/20 text-white shadow-sm' : 'text-gray-400 hover:text-white'}"
-        on:click={() => activeTab = 'catalog'}
+    <!-- Header -->
+    <div
+        class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4"
     >
-        Catalog
-    </button>
-    <button 
-        class="px-4 py-2 rounded-lg text-sm font-medium transition-all {activeTab === 'suggestions' ? 'bg-gray-500/20 text-white shadow-sm' : 'text-gray-400 hover:text-white'}"
-        on:click={() => activeTab = 'suggestions'}
-    >
-        Suggestions
-    </button>
-  </div>
-
-  <!-- Search & Filter Bar -->
-  <div class="flex flex-col md:flex-row gap-4 mb-6">
-    <div class="relative flex-1">
-        <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" size={16} />
-        <input 
-          bind:value={searchQuery} 
-          placeholder="Search product or supplier..." 
-          class="w-full bg-ios-card border border-ios-separator rounded-lg pl-10 pr-4 py-2 text-white text-sm focus:border-ios-blue outline-none"
-        />
-    </div>
-    <select 
-        bind:value={selectedCategory}
-        class="bg-ios-card border border-ios-separator rounded-lg px-3 py-2 text-white text-sm focus:border-ios-blue outline-none"
-    >
-        <option value="All">All Categories</option>
-        <option value="Inventory">Inventory</option>
-        <option value="Utilities">Utilities</option>
-        <option value="Maintenance">Maintenance</option>
-        <option value="Payroll">Payroll</option>
-        <option value="Other">Other</option>
-    </select>
-  </div>
-
-  <!-- Content Area -->
-  <div class="bg-ios-card rounded-xl border border-ios-separator overflow-hidden min-h-[400px]">
-    <div class="overflow-x-auto">
-      <table class="w-full text-left text-sm">
-        <thead class="bg-gray-500/10 text-gray-400 text-xs uppercase">
-          <tr>
-            <th class="p-4 font-medium">Product</th>
-            <th class="p-4 font-medium text-right">Sales Vol</th>
-            <th class="p-4 font-medium text-right">Cost</th>
-            <th class="p-4 font-medium text-right">Price</th>
-            <th class="p-4 font-medium text-right">Margin</th>
-            {#if activeTab === 'suggestions'}
-                <th class="p-4 font-medium text-right text-ios-blue">AI Suggestion</th>
-                <th class="p-4 font-medium">Reasoning</th>
-            {/if}
-            <th class="p-4 font-medium text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-ios-separator">
-          {#each filteredProducts as product}
-            {@const margin = calculateMargin(product.lastPrice, product.sellingPrice)}
-            {@const target = product.targetMargin || 0.30}
-            {@const isLowMargin = margin < target}
-            
-            <tr class="group hover:bg-white/5 transition-colors">
-              <td class="p-4">
-                <div class="font-medium text-white">{product.name}</div>
-                <div class="text-xs text-gray-500">{product.supplierName} • {product.category || 'Uncategorized'}</div>
-              </td>
-              <td class="p-4 text-right font-mono text-gray-400">
-                {product.salesVolume || '-'}
-              </td>
-              <td class="p-4 text-right font-mono text-gray-300">
-                ${product.lastPrice.toFixed(2)}
-              </td>
-              <td class="p-4 text-right font-mono text-white font-bold">
-                {product.sellingPrice ? `$${product.sellingPrice.toFixed(2)}` : '-'}
-              </td>
-              <td class="p-4 text-right">
-                {#if product.sellingPrice}
-                    <span class="px-2 py-1 rounded-full text-xs font-bold {isLowMargin ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}">
-                        {(margin * 100).toFixed(1)}%
-                    </span>
-                {:else}
-                    <span class="text-gray-500">-</span>
-                {/if}
-              </td>
-
-              {#if activeTab === 'suggestions'}
-                <td class="p-4 text-right font-mono text-ios-blue font-bold">
-                    {#if product.aiSuggestedPrice}
-                        ${product.aiSuggestedPrice.toFixed(2)}
-                        <div class="text-[10px] text-ios-blue/70">{((product.aiSuggestedMargin || 0) * 100).toFixed(1)}%</div>
-                    {:else}
-                        -
-                    {/if}
-                </td>
-                <td class="p-4 text-xs text-gray-400 max-w-xs">
-                    {product.aiReasoning || '-'}
-                </td>
-              {/if}
-
-              <td class="p-4 text-right">
-                <button 
-                    class="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
-                    on:click={() => openHistory(product)}
-                    title="View History"
-                >
-                    <TrendingUp size={16} />
-                </button>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-      
-      {#if filteredProducts.length === 0}
-        <div class="p-12 text-center text-gray-500 flex flex-col items-center">
-          <FileSpreadsheet size={48} class="mb-4 opacity-20" />
-          <p class="text-lg font-medium">No products found.</p>
-          <p class="text-sm">Try importing a catalog or changing your filters.</p>
+        <div>
+            <h1
+                class="text-2xl font-bold text-white flex items-center space-x-2"
+            >
+                <Tag class="text-ios-blue" />
+                <span>Pricing Analytics</span>
+            </h1>
+            <p class="text-gray-400 text-sm">
+                AI-powered margin optimization and insights
+            </p>
         </div>
-      {/if}
+
+        <div class="flex flex-wrap gap-2">
+            <button
+                class="bg-gradient-to-r from-ios-blue to-purple-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm font-bold shadow-lg hover:shadow-xl transition-all"
+                on:click={analyzeWithAI}
+                disabled={isAnalyzing}
+            >
+                <Sparkles size={16} class={isAnalyzing ? "animate-spin" : ""} />
+                <span>{isAnalyzing ? "Analyzing..." : "Analyze with AI"}</span>
+            </button>
+        </div>
     </div>
-  </div>
+
+    <!-- Tabs -->
+    <div
+        class="flex space-x-1 bg-ios-card p-1 rounded-xl mb-6 border border-ios-separator w-full md:w-auto inline-flex"
+    >
+        <button
+            class="px-4 py-2 rounded-lg text-sm font-medium transition-all {activeTab ===
+            'catalog'
+                ? 'bg-gray-500/20 text-white shadow-sm'
+                : 'text-gray-400 hover:text-white'}"
+            on:click={() => (activeTab = "catalog")}
+        >
+            Catalog
+        </button>
+        <button
+            class="px-4 py-2 rounded-lg text-sm font-medium transition-all {activeTab ===
+            'suggestions'
+                ? 'bg-gray-500/20 text-white shadow-sm'
+                : 'text-gray-400 hover:text-white'}"
+            on:click={() => (activeTab = "suggestions")}
+        >
+            Suggestions
+        </button>
+    </div>
+
+    <!-- Search & Filter Bar -->
+    <div class="flex flex-col md:flex-row gap-4 mb-6">
+        <div class="relative flex-1">
+            <Search
+                class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"
+                size={16}
+            />
+            <input
+                bind:value={searchQuery}
+                placeholder="Search product or supplier..."
+                class="w-full bg-ios-card border border-ios-separator rounded-lg pl-10 pr-4 py-2 text-white text-sm focus:border-ios-blue outline-none"
+            />
+        </div>
+        <select
+            bind:value={selectedCategory}
+            class="bg-ios-card border border-ios-separator rounded-lg px-3 py-2 text-white text-sm focus:border-ios-blue outline-none"
+        >
+            <option value="All">All Categories</option>
+            <option value="Inventory">Inventory</option>
+            <option value="Utilities">Utilities</option>
+            <option value="Maintenance">Maintenance</option>
+            <option value="Payroll">Payroll</option>
+            <option value="Other">Other</option>
+        </select>
+    </div>
+
+    <!-- Content Area -->
+    <div
+        class="bg-ios-card rounded-xl border border-ios-separator overflow-hidden min-h-[400px]"
+    >
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+                <thead class="bg-gray-500/10 text-gray-400 text-xs uppercase">
+                    <tr>
+                        <th class="p-4 font-medium">Product</th>
+                        <th class="p-4 font-medium text-right">Sales Vol</th>
+                        <th class="p-4 font-medium text-right">Cost</th>
+                        <th class="p-4 font-medium text-right">Price</th>
+                        <th class="p-4 font-medium text-right">Margin</th>
+                        {#if activeTab === "suggestions"}
+                            <th class="p-4 font-medium text-right text-ios-blue"
+                                >AI Suggestion</th
+                            >
+                            <th class="p-4 font-medium">Reasoning</th>
+                        {/if}
+                        <th class="p-4 font-medium text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-ios-separator">
+                    {#each filteredProducts as product}
+                        {@const margin = calculateMargin(
+                            product.lastPrice,
+                            product.sellingPrice,
+                        )}
+                        {@const target = product.targetMargin || 0.3}
+                        {@const isLowMargin = margin < target}
+
+                        <tr class="group hover:bg-white/5 transition-colors">
+                            <td class="p-4">
+                                <div class="font-medium text-white">
+                                    {product.name}
+                                </div>
+                                <div class="text-xs text-gray-500">
+                                    {product.supplierName} • {product.category ||
+                                        "Uncategorized"}
+                                </div>
+                            </td>
+                            <td class="p-4 text-right font-mono text-gray-400">
+                                {product.salesVolume || "-"}
+                            </td>
+                            <td class="p-4 text-right font-mono text-gray-300">
+                                ${product.lastPrice.toFixed(2)}
+                            </td>
+                            <td
+                                class="p-4 text-right font-mono text-white font-bold"
+                            >
+                                {product.sellingPrice
+                                    ? `$${product.sellingPrice.toFixed(2)}`
+                                    : "-"}
+                            </td>
+                            <td class="p-4 text-right">
+                                {#if product.sellingPrice}
+                                    <span
+                                        class="px-2 py-1 rounded-full text-xs font-bold {isLowMargin
+                                            ? 'bg-red-500/20 text-red-400'
+                                            : 'bg-green-500/20 text-green-400'}"
+                                    >
+                                        {(margin * 100).toFixed(1)}%
+                                    </span>
+                                {:else}
+                                    <span class="text-gray-500">-</span>
+                                {/if}
+                            </td>
+
+                            {#if activeTab === "suggestions"}
+                                <td
+                                    class="p-4 text-right font-mono text-ios-blue font-bold"
+                                >
+                                    {#if product.aiSuggestedPrice}
+                                        ${product.aiSuggestedPrice.toFixed(2)}
+                                        <div
+                                            class="text-[10px] text-ios-blue/70"
+                                        >
+                                            {(
+                                                (product.aiSuggestedMargin ||
+                                                    0) * 100
+                                            ).toFixed(1)}%
+                                        </div>
+                                    {:else}
+                                        -
+                                    {/if}
+                                </td>
+                                <td class="p-4 text-xs text-gray-400 max-w-xs">
+                                    {product.aiReasoning || "-"}
+                                </td>
+                            {/if}
+
+                            <td class="p-4 text-right">
+                                <button
+                                    class="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
+                                    on:click={() => openHistory(product)}
+                                    title="View History"
+                                >
+                                    <TrendingUp size={16} />
+                                </button>
+                            </td>
+                        </tr>
+                    {/each}
+                </tbody>
+            </table>
+
+            {#if filteredProducts.length === 0}
+                <div
+                    class="p-12 text-center text-gray-500 flex flex-col items-center"
+                >
+                    <FileSpreadsheet size={48} class="mb-4 opacity-20" />
+                    <p class="text-lg font-medium">No products found.</p>
+                    <p class="text-sm">
+                        Try importing a catalog or changing your filters.
+                    </p>
+                </div>
+            {/if}
+        </div>
+    </div>
 </div>
 
 <!-- Stock App Style Deep Dive Modal -->
 {#if showHistory && selectedProduct}
-  <div class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
-    <div class="bg-[#1c1c1e] border border-gray-800 rounded-2xl w-full max-w-6xl h-[90vh] overflow-hidden shadow-2xl flex flex-col">
-      
-      <!-- Stock Ticker Header -->
-      <div class="p-6 border-b border-gray-800 flex justify-between items-start bg-black/40">
-        <div>
-          <div class="flex items-center space-x-3 mb-2">
-            <span class="px-2 py-1 rounded text-[10px] font-bold bg-gray-700 text-gray-300 uppercase tracking-wider">
-                {selectedProduct.category || 'Uncategorized'}
-            </span>
-            <span class="text-xs text-gray-500 font-mono">{selectedProduct.supplierName}</span>
-            {#if selectedProduct.productId}
-                <span class="text-xs text-gray-600 font-mono border border-gray-800 px-1 rounded">ID: {selectedProduct.productId}</span>
-            {/if}
-          </div>
-          
-          {#if isEditingProduct}
-            <div class="space-y-3 bg-black/20 p-4 rounded-xl border border-gray-700 mt-2">
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="text-[10px] text-gray-500 uppercase">Product Name</label>
-                        <input bind:value={selectedProduct.name} class="w-full bg-black border border-gray-700 rounded p-2 text-white text-sm" />
-                    </div>
-                    <div>
-                        <label class="text-[10px] text-gray-500 uppercase">Product ID / SKU</label>
-                        <input bind:value={selectedProduct.productId} class="w-full bg-black border border-gray-700 rounded p-2 text-white text-sm" placeholder="SKU-123" />
-                    </div>
-                    <div>
-                        <label class="text-[10px] text-gray-500 uppercase">Cost</label>
-                        <input type="number" bind:value={selectedProduct.lastPrice} class="w-full bg-black border border-gray-700 rounded p-2 text-white text-sm" />
-                    </div>
-                    <div>
-                        <label class="text-[10px] text-gray-500 uppercase">Price</label>
-                        <input type="number" bind:value={selectedProduct.sellingPrice} class="w-full bg-black border border-gray-700 rounded p-2 text-white text-sm" />
-                    </div>
-                </div>
-                <div class="flex justify-end space-x-2 mt-2">
-                    <button on:click={() => isEditingProduct = false} class="px-3 py-1 text-xs text-gray-400 hover:text-white">Cancel</button>
-                    <button on:click={saveProductChanges} class="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-500">Save Changes</button>
-                </div>
-            </div>
-          {:else}
-            <div class="flex items-end space-x-4 group">
-                <h2 class="text-4xl font-bold text-white tracking-tight">{selectedProduct.name}</h2>
-                <button on:click={() => isEditingProduct = true} class="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-white transition-opacity">
-                    <Edit2 size={16} />
-                </button>
-                <div class="flex items-baseline space-x-2 pb-1">
-                    <span class="text-2xl font-mono font-bold text-white">${selectedProduct.sellingPrice?.toFixed(2) || '-'}</span>
-                    {#if selectedProduct.sellingPrice && selectedProduct.lastPrice}
-                        {@const margin = calculateMargin(selectedProduct.lastPrice, selectedProduct.sellingPrice)}
-                        <span class="text-sm font-bold {margin > 0.3 ? 'text-green-500' : 'text-red-500'}">
-                            {margin > 0.3 ? '+' : ''}{(margin * 100).toFixed(1)}%
+    <div
+        class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4"
+    >
+        <div
+            class="bg-[#1c1c1e] border border-gray-800 rounded-2xl w-full max-w-6xl h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+        >
+            <!-- Stock Ticker Header -->
+            <div
+                class="p-6 border-b border-gray-800 flex justify-between items-start bg-black/40"
+            >
+                <div>
+                    <div class="flex items-center space-x-3 mb-2">
+                        <span
+                            class="px-2 py-1 rounded text-[10px] font-bold bg-gray-700 text-gray-300 uppercase tracking-wider"
+                        >
+                            {selectedProduct.category || "Uncategorized"}
                         </span>
-                    {/if}
-                </div>
-            </div>
-          {/if}
-        </div>
-        <div class="flex items-center space-x-4">
-            <!-- Product Score Badge -->
-            {#if selectedProduct}
-                {@const score = calculateProductScore(selectedProduct)}
-                <div class="flex flex-col items-end">
-                    <span class="text-[10px] uppercase text-gray-500 font-bold">Score</span>
-                    <div class="flex items-center space-x-2">
-                        <div class="w-8 h-8 rounded-full border-2 {score >= 70 ? 'border-green-500 text-green-500' : score >= 40 ? 'border-yellow-500 text-yellow-500' : 'border-red-500 text-red-500'} flex items-center justify-center font-bold text-sm bg-black">
-                            {score}
-                        </div>
-                    </div>
-                </div>
-            {/if}
-            <button on:click={closeHistory} class="text-gray-500 hover:text-white p-2 bg-white/5 rounded-full transition-colors">
-                <X size={24} />
-            </button>
-        </div>
-      </div>
-      
-      <div class="flex-1 overflow-hidden flex flex-col md:flex-row">
-        
-        <!-- LEFT COLUMN: Data & Charts -->
-        <div class="flex-1 overflow-y-auto p-6 border-r border-gray-800 space-y-8">
-            
-            <!-- Key Metrics Grid -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div class="bg-black/20 p-4 rounded-xl border border-gray-800">
-                    <div class="text-xs text-gray-500 mb-1 uppercase tracking-wider">Cost Basis</div>
-                    <div class="text-xl font-bold text-gray-300 font-mono">${selectedProduct.lastPrice.toFixed(2)}</div>
-                </div>
-                <div class="bg-black/20 p-4 rounded-xl border border-gray-800">
-                    <div class="text-xs text-gray-500 mb-1 uppercase tracking-wider">Current Price</div>
-                    <div class="text-xl font-bold text-white font-mono">${selectedProduct.sellingPrice?.toFixed(2) || '-'}</div>
-                </div>
-                <div class="bg-ios-blue/10 p-4 rounded-xl border border-ios-blue/30">
-                    <div class="text-xs text-ios-blue mb-1 uppercase tracking-wider">AI Suggested</div>
-                    <div class="text-xl font-bold text-ios-blue font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2) || '-'}</div>
-                </div>
-                <div class="bg-black/20 p-4 rounded-xl border border-gray-800">
-                    <div class="text-xs text-gray-500 mb-1 uppercase tracking-wider">Volume (30d)</div>
-                    <div class="text-xl font-bold text-ios-blue font-mono">{selectedProduct.salesVolume || 0}</div>
-                </div>
-            </div>
-
-            <!-- Cost & Price History Side by Side -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Product Cost Chart -->
-                <div class="bg-black/20 rounded-xl p-6 border border-gray-800">
-                    <h3 class="text-sm font-bold text-gray-400 uppercase mb-6 flex items-center space-x-2">
-                        <TrendingDown size={16} />
-                        <span>Product Cost</span>
-                    </h3>
-                    <div class="h-48 flex items-end space-x-1">
-                        {#if productHistory.length > 0}
-                            {#each productHistory as point}
-                                {@const maxPrice = Math.max(...productHistory.map(h => h.price)) * 1.1}
-                                {@const height = (point.price / maxPrice) * 100}
-                                <div class="flex-1 flex flex-col items-center group relative">
-                                    <div class="w-full bg-gradient-to-t from-orange-500/20 to-orange-500 hover:from-orange-500/40 hover:to-orange-500/80 transition-all rounded-t-sm min-w-[4px]" style="height: {height}%"></div>
-                                </div>
-                            {/each}
-                        {:else}
-                            <div class="w-full h-full flex items-center justify-center text-gray-600 text-sm">No cost data</div>
+                        <span class="text-xs text-gray-500 font-mono"
+                            >{selectedProduct.supplierName}</span
+                        >
+                        {#if selectedProduct.productId}
+                            <span
+                                class="text-xs text-gray-600 font-mono border border-gray-800 px-1 rounded"
+                                >ID: {selectedProduct.productId}</span
+                            >
                         {/if}
                     </div>
-                </div>
 
-                <!-- Historical Price Table -->
-                <div class="bg-black/20 rounded-xl p-6 border border-gray-800">
-                    <h3 class="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center space-x-2">
-                        <TrendingUp size={16} />
-                        <span>Historical Price</span>
-                    </h3>
-                    <div class="space-y-2 max-h-48 overflow-y-auto">
-                        {#if productHistory.length > 0}
-                            {#each [...productHistory].reverse() as h}
-                                <div class="flex justify-between items-center p-2 bg-white/5 rounded-lg border border-white/5 hover:bg-white/10 transition-colors">
-                                    <span class="text-sm text-gray-400">{h.date}</span>
-                                    <span class="text-sm font-mono text-white font-bold">${h.price.toFixed(2)}</span>
-                                </div>
-                            {/each}
-                        {:else}
-                            <div class="text-center text-gray-600 text-sm py-8">No price history</div>
-                        {/if}
-                    </div>
-                </div>
-            </div>
-
-            <!-- Supplier & Invoice History -->
-            <div class="bg-black/20 rounded-xl p-6 border border-gray-800">
-                <h3 class="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center space-x-2">
-                    <FileSpreadsheet size={16} />
-                    <span>Supply Chain</span>
-                </h3>
-                <div class="space-y-3">
-                    {#each [...productHistory].reverse().slice(0, 3) as h}
-                        <div class="flex justify-between items-center p-3 bg-white/5 rounded-lg border border-white/5">
-                            <div class="flex-1">
-                                <div class="text-sm text-white font-medium">NCF: {h.invoiceId || 'N/A'}</div>
-                                <div class="text-xs text-gray-500">{h.date} • {selectedProduct.supplierName}</div>
-                            </div>
-                            <div class="text-right">
-                                <div class="text-sm font-mono text-white">${h.price.toFixed(2)}</div>
-                                <div class="text-[10px] text-gray-400">Unit Cost</div>
-                            </div>
-                        </div>
-                    {/each}
-                </div>
-            </div>
-        </div>
-
-        <!-- RIGHT COLUMN: AI Analyst -->
-        <div class="w-full md:w-[450px] bg-[#121212] flex flex-col">
-            
-            <!-- Analyst Rating Header -->
-            <div class="p-6 border-b border-gray-800">
-                <h3 class="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center space-x-2">
-                    <Sparkles size={16} class="text-ios-blue" />
-                    <span>AI Analyst Rating</span>
-                </h3>
-                
-                
-                {#if selectedProduct.aiAnalystRating}
-                    <div class="space-y-4">
-                        <!-- Rating Badge -->
-                        <div class="flex items-center justify-between">
-                            <div class="text-3xl font-black tracking-tighter {selectedProduct.aiAnalystRating === 'BUY' ? 'text-green-500' : selectedProduct.aiAnalystRating === 'SELL' ? 'text-red-500' : 'text-yellow-500'}">
-                                {selectedProduct.aiAnalystRating}
-                            </div>
-                        </div>
-                        
-                        <!-- Price Comparison -->
-                        <div class="grid grid-cols-2 gap-3">
-                            <div class="bg-black/30 p-3 rounded-lg border border-gray-700">
-                                <div class="text-[10px] text-gray-500 uppercase mb-1">Current Price</div>
-                                <div class="text-lg font-bold text-white font-mono">${selectedProduct.sellingPrice?.toFixed(2) || '-'}</div>
-                            </div>
-                            <div class="bg-ios-blue/10 p-3 rounded-lg border border-ios-blue/30">
-                                <div class="text-[10px] text-ios-blue uppercase mb-1">AI Target</div>
-                                <div class="text-lg font-bold text-ios-blue font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2)}</div>
-                            </div>
-                        </div>
-                    </div>
-                {:else}
-                    <div class="text-center py-4 text-gray-500 text-sm">Run analysis to get a rating.</div>
-                {/if}
-
-                {#if !isAnalyzing && !selectedProduct.aiAnalystRating}
-                     <button 
-                        class="w-full bg-white text-black py-3 rounded-xl font-bold hover:bg-gray-200 transition-colors flex items-center justify-center space-x-2"
-                        on:click={() => analyzeSingleProduct(selectedProduct)}
-                    >
-                        <Sparkles size={18} />
-                        <span>Start Analysis</span>
-                    </button>
-                {/if}
-            </div>
-
-            <!-- Chat / Insights Area -->
-            <div class="flex-1 overflow-y-auto p-6 space-y-4">
-                {#if isAnalyzing}
-                    <div class="flex flex-col items-center justify-center h-full text-ios-blue animate-pulse">
-                        <Sparkles size={32} class="mb-2 animate-spin" />
-                        <p class="text-sm">Crunching numbers...</p>
-                    </div>
-                {:else if selectedProduct.aiReasoning}
-                    <!-- AI Message -->
-                    <div class="flex items-start space-x-3">
-                        <div class="w-8 h-8 rounded-full bg-ios-blue/20 flex items-center justify-center text-ios-blue mt-1">
-                            <Sparkles size={14} />
-                        </div>
-                        <div class="bg-gray-800 rounded-2xl rounded-tl-none p-4 text-sm text-gray-200 leading-relaxed border border-gray-700">
-                            <p class="mb-2">{selectedProduct.aiReasoning}</p>
-                            
-                            {#if selectedProduct.aiCreativeIdea}
-                                <div class="mt-3 pt-3 border-t border-gray-700">
-                                    <div class="text-xs font-bold text-ios-blue uppercase mb-1">💡 Out of the Box Idea</div>
-                                    <p class="text-gray-300 italic">{selectedProduct.aiCreativeIdea}</p>
-                                </div>
+                    <div class="flex items-end space-x-4">
+                        <h2
+                            class="text-4xl font-bold text-white tracking-tight"
+                        >
+                            {selectedProduct.name}
+                        </h2>
+                        <div class="flex items-baseline space-x-2 pb-1">
+                            <span
+                                class="text-2xl font-mono font-bold text-white"
+                                >${selectedProduct.sellingPrice?.toFixed(2) ||
+                                    "-"}</span
+                            >
+                            {#if selectedProduct.sellingPrice && selectedProduct.lastPrice}
+                                {@const margin = calculateMargin(
+                                    selectedProduct.lastPrice,
+                                    selectedProduct.sellingPrice,
+                                )}
+                                <span
+                                    class="text-sm font-bold {margin > 0.3
+                                        ? 'text-green-500'
+                                        : 'text-red-500'}"
+                                >
+                                    {margin > 0.3 ? "+" : ""}{(
+                                        margin * 100
+                                    ).toFixed(1)}%
+                                </span>
                             {/if}
                         </div>
                     </div>
-
-                    <!-- User Chat History (Mock for now, or real if we implement store) -->
-                    {#each chatHistory as msg}
-                        <div class="flex items-start space-x-3 {msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}">
-                            <div class="w-8 h-8 rounded-full {msg.role === 'user' ? 'bg-gray-700' : 'bg-ios-blue/20 text-ios-blue'} flex items-center justify-center mt-1">
-                                {#if msg.role === 'user'}
-                                    <span class="text-xs">You</span>
-                                {:else}
-                                    <Sparkles size={14} />
-                                {/if}
-                            </div>
-                            <div class="{msg.role === 'user' ? 'bg-ios-blue text-white rounded-tr-none' : 'bg-gray-800 text-gray-200 rounded-tl-none'} rounded-2xl p-3 text-sm max-w-[80%]">
-                                {msg.content}
+                </div>
+                <div class="flex items-center space-x-4">
+                    <!-- Product Score Badge -->
+                    {#if selectedProduct}
+                        {@const score = calculateProductScore(selectedProduct)}
+                        <div class="flex flex-col items-end">
+                            <span
+                                class="text-[10px] uppercase text-gray-500 font-bold"
+                                >Score</span
+                            >
+                            <div class="flex items-center space-x-2">
+                                <div
+                                    class="w-8 h-8 rounded-full border-2 {score >=
+                                    70
+                                        ? 'border-green-500 text-green-500'
+                                        : score >= 40
+                                          ? 'border-yellow-500 text-yellow-500'
+                                          : 'border-red-500 text-red-500'} flex items-center justify-center font-bold text-sm bg-black"
+                                >
+                                    {score}
+                                </div>
                             </div>
                         </div>
-                    {/each}
-
-                {/if}
-            </div>
-
-            <!-- Chat Input -->
-            <div class="p-4 border-t border-gray-800 bg-black/40">
-                <div class="relative">
-                    <input 
-                        type="text" 
-                        placeholder="Ask about pricing, suppliers, or strategy..." 
-                        class="w-full bg-gray-900 border border-gray-700 rounded-xl pl-4 pr-12 py-3 text-white text-sm focus:border-ios-blue outline-none"
-                        on:keydown={(e) => e.key === 'Enter' && chatWithAI(e.currentTarget.value)}
-                    />
-                    <button class="absolute right-2 top-1/2 transform -translate-y-1/2 text-ios-blue p-2 hover:bg-white/5 rounded-lg">
-                        <Sparkles size={16} />
+                    {/if}
+                    <button
+                        on:click={closeHistory}
+                        class="text-gray-500 hover:text-white p-2 bg-white/5 rounded-full transition-colors"
+                    >
+                        <X size={24} />
                     </button>
                 </div>
             </div>
 
+            <div class="flex-1 overflow-hidden flex flex-col md:flex-row">
+                <!-- LEFT COLUMN: Data & Charts -->
+                <div
+                    class="flex-1 overflow-y-auto p-6 border-r border-gray-800 space-y-8"
+                >
+                    <!-- Key Metrics Grid -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div
+                            class="bg-black/20 p-4 rounded-xl border border-gray-800"
+                        >
+                            <div
+                                class="text-xs text-gray-500 mb-1 uppercase tracking-wider"
+                            >
+                                Cost Basis
+                            </div>
+                            <div
+                                class="text-xl font-bold text-gray-300 font-mono"
+                            >
+                                ${selectedProduct.lastPrice.toFixed(2)}
+                            </div>
+                        </div>
+                        <div
+                            class="bg-black/20 p-4 rounded-xl border border-gray-800"
+                        >
+                            <div
+                                class="text-xs text-gray-500 mb-1 uppercase tracking-wider"
+                            >
+                                Current Price
+                            </div>
+                            <div class="text-xl font-bold text-white font-mono">
+                                ${selectedProduct.sellingPrice?.toFixed(2) ||
+                                    "-"}
+                            </div>
+                        </div>
+                        <div
+                            class="bg-ios-blue/10 p-4 rounded-xl border border-ios-blue/30"
+                        >
+                            <div
+                                class="text-xs text-ios-blue mb-1 uppercase tracking-wider"
+                            >
+                                AI Suggested
+                            </div>
+                            <div
+                                class="text-xl font-bold text-ios-blue font-mono"
+                            >
+                                ${selectedProduct.aiSuggestedPrice?.toFixed(
+                                    2,
+                                ) || "-"}
+                            </div>
+                        </div>
+                        <div
+                            class="bg-black/20 p-4 rounded-xl border border-gray-800"
+                        >
+                            <div
+                                class="text-xs text-gray-500 mb-1 uppercase tracking-wider"
+                            >
+                                Volume (30d)
+                            </div>
+                            <div
+                                class="text-xl font-bold text-ios-blue font-mono"
+                            >
+                                {selectedProduct.salesVolume || 0}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cost & Price History Side by Side -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Product Cost Chart -->
+                        <div
+                            class="bg-black/20 rounded-xl p-6 border border-gray-800"
+                        >
+                            <h3
+                                class="text-sm font-bold text-gray-400 uppercase mb-6 flex items-center space-x-2"
+                            >
+                                <TrendingDown size={16} />
+                                <span>Product Cost</span>
+                            </h3>
+                            <div class="h-48 flex items-end space-x-1">
+                                {#if productHistory.length > 0}
+                                    {#each productHistory as point}
+                                        {@const maxPrice =
+                                            Math.max(
+                                                ...productHistory.map(
+                                                    (h) => h.price,
+                                                ),
+                                            ) * 1.1}
+                                        {@const height =
+                                            (point.price / maxPrice) * 100}
+                                        <div
+                                            class="flex-1 flex flex-col items-center group relative"
+                                        >
+                                            <div
+                                                class="w-full bg-gradient-to-t from-orange-500/20 to-orange-500 hover:from-orange-500/40 hover:to-orange-500/80 transition-all rounded-t-sm min-w-[4px]"
+                                                style="height: {height}%"
+                                            ></div>
+                                        </div>
+                                    {/each}
+                                {:else}
+                                    <div
+                                        class="w-full h-full flex items-center justify-center text-gray-600 text-sm"
+                                    >
+                                        No cost data
+                                    </div>
+                                {/if}
+                            </div>
+                        </div>
+
+                        <!-- Historical Price Table -->
+                        <div
+                            class="bg-black/20 rounded-xl p-6 border border-gray-800"
+                        >
+                            <h3
+                                class="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center space-x-2"
+                            >
+                                <TrendingUp size={16} />
+                                <span>Historical Price</span>
+                            </h3>
+                            <div class="space-y-2 max-h-48 overflow-y-auto">
+                                {#if productHistory.length > 0}
+                                    {#each [...productHistory].reverse() as h}
+                                        <div
+                                            class="flex justify-between items-center p-2 bg-white/5 rounded-lg border border-white/5 hover:bg-white/10 transition-colors"
+                                        >
+                                            <span class="text-sm text-gray-400"
+                                                >{h.date}</span
+                                            >
+                                            <span
+                                                class="text-sm font-mono text-white font-bold"
+                                                >${h.price.toFixed(2)}</span
+                                            >
+                                        </div>
+                                    {/each}
+                                {:else}
+                                    <div
+                                        class="text-center text-gray-600 text-sm py-8"
+                                    >
+                                        No price history
+                                    </div>
+                                {/if}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Supplier & Invoice History -->
+                    <div
+                        class="bg-black/20 rounded-xl p-6 border border-gray-800"
+                    >
+                        <h3
+                            class="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center space-x-2"
+                        >
+                            <FileSpreadsheet size={16} />
+                            <span>Supply Chain</span>
+                        </h3>
+                        <div class="space-y-3">
+                            {#each [...productHistory]
+                                .reverse()
+                                .slice(0, 3) as h}
+                                <div
+                                    class="flex justify-between items-center p-3 bg-white/5 rounded-lg border border-white/5"
+                                >
+                                    <div class="flex-1">
+                                        <div
+                                            class="text-sm text-white font-medium"
+                                        >
+                                            NCF: {h.invoiceId || "N/A"}
+                                        </div>
+                                        <div class="text-xs text-gray-500">
+                                            {h.date} • {selectedProduct.supplierName}
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div
+                                            class="text-sm font-mono text-white"
+                                        >
+                                            ${h.price.toFixed(2)}
+                                        </div>
+                                        <div class="text-[10px] text-gray-400">
+                                            Unit Cost
+                                        </div>
+                                    </div>
+                                </div>
+                            {/each}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RIGHT COLUMN: AI Analyst -->
+                <div class="w-full md:w-[450px] bg-[#121212] flex flex-col">
+                    <!-- Analyst Rating Header -->
+                    <div class="p-6 border-b border-gray-800">
+                        <h3
+                            class="text-sm font-bold text-gray-400 uppercase mb-4 flex items-center space-x-2"
+                        >
+                            <Sparkles size={16} class="text-ios-blue" />
+                            <span>AI Analyst Rating</span>
+                        </h3>
+
+                        {#if selectedProduct.aiAnalystRating}
+                            <div class="space-y-4">
+                                <!-- Rating Badge -->
+                                <div class="flex items-center justify-between">
+                                    <div
+                                        class="text-3xl font-black tracking-tighter {selectedProduct.aiAnalystRating ===
+                                        'BUY'
+                                            ? 'text-green-500'
+                                            : selectedProduct.aiAnalystRating ===
+                                                'SELL'
+                                              ? 'text-red-500'
+                                              : 'text-yellow-500'}"
+                                    >
+                                        {selectedProduct.aiAnalystRating}
+                                    </div>
+                                </div>
+
+                                <!-- Price Comparison -->
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div
+                                        class="bg-black/30 p-3 rounded-lg border border-gray-700"
+                                    >
+                                        <div
+                                            class="text-[10px] text-gray-500 uppercase mb-1"
+                                        >
+                                            Current Price
+                                        </div>
+                                        <div
+                                            class="text-lg font-bold text-white font-mono"
+                                        >
+                                            ${selectedProduct.sellingPrice?.toFixed(
+                                                2,
+                                            ) || "-"}
+                                        </div>
+                                    </div>
+                                    <div
+                                        class="bg-ios-blue/10 p-3 rounded-lg border border-ios-blue/30"
+                                    >
+                                        <div
+                                            class="text-[10px] text-ios-blue uppercase mb-1"
+                                        >
+                                            AI Target
+                                        </div>
+                                        <div
+                                            class="text-lg font-bold text-ios-blue font-mono"
+                                        >
+                                            ${selectedProduct.aiSuggestedPrice?.toFixed(
+                                                2,
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {:else}
+                            <div class="text-center py-4 text-gray-500 text-sm">
+                                Run analysis to get a rating.
+                            </div>
+                        {/if}
+
+                        {#if !isAnalyzing && !selectedProduct.aiAnalystRating}
+                            <button
+                                class="w-full bg-white text-black py-3 rounded-xl font-bold hover:bg-gray-200 transition-colors flex items-center justify-center space-x-2"
+                                on:click={() =>
+                                    analyzeSingleProduct(selectedProduct)}
+                            >
+                                <Sparkles size={18} />
+                                <span>Start Analysis</span>
+                            </button>
+                        {/if}
+                    </div>
+
+                    <!-- Chat / Insights Area -->
+                    <div class="flex-1 overflow-y-auto p-6 space-y-4">
+                        {#if isAnalyzing}
+                            <div
+                                class="flex flex-col items-center justify-center h-full text-ios-blue animate-pulse"
+                            >
+                                <Sparkles size={32} class="mb-2 animate-spin" />
+                                <p class="text-sm">Crunching numbers...</p>
+                            </div>
+                        {:else if selectedProduct.aiReasoning}
+                            <!-- AI Message -->
+                            <div class="flex items-start space-x-3">
+                                <div
+                                    class="w-8 h-8 rounded-full bg-ios-blue/20 flex items-center justify-center text-ios-blue mt-1"
+                                >
+                                    <Sparkles size={14} />
+                                </div>
+                                <div
+                                    class="bg-gray-800 rounded-2xl rounded-tl-none p-4 text-sm text-gray-200 leading-relaxed border border-gray-700"
+                                >
+                                    <p class="mb-2">
+                                        {selectedProduct.aiReasoning}
+                                    </p>
+
+                                    {#if selectedProduct.aiCreativeIdea}
+                                        <div
+                                            class="mt-3 pt-3 border-t border-gray-700"
+                                        >
+                                            <div
+                                                class="text-xs font-bold text-ios-blue uppercase mb-1"
+                                            >
+                                                💡 Out of the Box Idea
+                                            </div>
+                                            <p class="text-gray-300 italic">
+                                                {selectedProduct.aiCreativeIdea}
+                                            </p>
+                                        </div>
+                                    {/if}
+                                </div>
+                            </div>
+
+                            <!-- User Chat History (Mock for now, or real if we implement store) -->
+                            {#each chatHistory as msg}
+                                <div
+                                    class="flex items-start space-x-3 {msg.role ===
+                                    'user'
+                                        ? 'flex-row-reverse space-x-reverse'
+                                        : ''}"
+                                >
+                                    <div
+                                        class="w-8 h-8 rounded-full {msg.role ===
+                                        'user'
+                                            ? 'bg-gray-700'
+                                            : 'bg-ios-blue/20 text-ios-blue'} flex items-center justify-center mt-1"
+                                    >
+                                        {#if msg.role === "user"}
+                                            <span class="text-xs">You</span>
+                                        {:else}
+                                            <Sparkles size={14} />
+                                        {/if}
+                                    </div>
+                                    <div
+                                        class="{msg.role === 'user'
+                                            ? 'bg-ios-blue text-white rounded-tr-none'
+                                            : 'bg-gray-800 text-gray-200 rounded-tl-none'} rounded-2xl p-3 text-sm max-w-[80%]"
+                                    >
+                                        {msg.content}
+                                    </div>
+                                </div>
+                            {/each}
+                        {/if}
+                    </div>
+
+                    <!-- Chat Input -->
+                    <div class="p-4 border-t border-gray-800 bg-black/40">
+                        <div class="relative">
+                            <input
+                                type="text"
+                                placeholder="Ask about pricing, suppliers, or strategy..."
+                                class="w-full bg-gray-900 border border-gray-700 rounded-xl pl-4 pr-12 py-3 text-white text-sm focus:border-ios-blue outline-none"
+                                on:keydown={(e) =>
+                                    e.key === "Enter" &&
+                                    chatWithAI(e.currentTarget.value)}
+                            />
+                            <button
+                                class="absolute right-2 top-1/2 transform -translate-y-1/2 text-ios-blue p-2 hover:bg-white/5 rounded-lg"
+                            >
+                                <Sparkles size={16} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
     </div>
-  </div>
 {/if}

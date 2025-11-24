@@ -2,7 +2,7 @@
 <script>
   import '../app.css';
   import { page } from '$app/stores';
-  import { Camera, CheckSquare, History, BookOpen, Settings, Tag } from 'lucide-svelte';
+  import { Camera, CheckSquare, History, BookOpen, Settings, Tag, Package } from 'lucide-svelte';
 
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
@@ -12,6 +12,7 @@
     { href: '/capture', label: 'Capture', icon: Camera },
     { href: '/validation', label: 'Validate', icon: CheckSquare },
     { href: '/history', label: 'History', icon: History },
+    { href: '/catalog', label: 'Catalog', icon: Package },
     { href: '/pricing', label: 'Pricing', icon: Tag },
     { href: '/kb', label: 'KB', icon: BookOpen },
     { href: '/settings', label: 'Settings', icon: Settings }
