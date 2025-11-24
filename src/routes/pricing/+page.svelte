@@ -1,8 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { db } from "$lib/db";
-    import { onMount } from "svelte";
-    import { db } from "$lib/db";
     import {
         Search,
         Tag,
