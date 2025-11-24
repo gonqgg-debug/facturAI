@@ -1,5 +1,6 @@
 export interface InvoiceItem {
     description: string;
+    productId?: string; // Link to Product Catalog
     quantity: number;
     unitPrice: number;
     taxRate?: number; // 0.18, 0.16, 0

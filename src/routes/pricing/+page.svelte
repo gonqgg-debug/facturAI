@@ -304,6 +304,21 @@
   }
 
   let chatHistory: { role: 'user' | 'assistant', content: string }[] = [];
+  let isEditingProduct = false;
+
+  async function saveProductChanges() {
+    if (!selectedProduct || !selectedProduct.id) return;
+    
+    await db.products.update(selectedProduct.id, {
+        name: selectedProduct.name,
+        productId: selectedProduct.productId,
+        lastPrice: selectedProduct.lastPrice,
+        sellingPrice: selectedProduct.sellingPrice
+    });
+    
+    isEditingProduct = false;
+    await loadData(); // Refresh list
+  }
 
   function calculateProductScore(product: Product): number {
     let score = 50; // Base score
@@ -632,19 +647,53 @@
                 {selectedProduct.category || 'Uncategorized'}
             </span>
             <span class="text-xs text-gray-500 font-mono">{selectedProduct.supplierName}</span>
+            {#if selectedProduct.productId}
+                <span class="text-xs text-gray-600 font-mono border border-gray-800 px-1 rounded">ID: {selectedProduct.productId}</span>
+            {/if}
           </div>
-          <div class="flex items-end space-x-4">
-            <h2 class="text-4xl font-bold text-white tracking-tight">{selectedProduct.name}</h2>
-            <div class="flex items-baseline space-x-2 pb-1">
-                <span class="text-2xl font-mono font-bold text-white">${selectedProduct.sellingPrice?.toFixed(2) || '-'}</span>
-                {#if selectedProduct.sellingPrice && selectedProduct.lastPrice}
-                    {@const margin = calculateMargin(selectedProduct.lastPrice, selectedProduct.sellingPrice)}
-                    <span class="text-sm font-bold {margin > 0.3 ? 'text-green-500' : 'text-red-500'}">
-                        {margin > 0.3 ? '+' : ''}{(margin * 100).toFixed(1)}%
-                    </span>
-                {/if}
+          
+          {#if isEditingProduct}
+            <div class="space-y-3 bg-black/20 p-4 rounded-xl border border-gray-700 mt-2">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[10px] text-gray-500 uppercase">Product Name</label>
+                        <input bind:value={selectedProduct.name} class="w-full bg-black border border-gray-700 rounded p-2 text-white text-sm" />
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-gray-500 uppercase">Product ID / SKU</label>
+                        <input bind:value={selectedProduct.productId} class="w-full bg-black border border-gray-700 rounded p-2 text-white text-sm" placeholder="SKU-123" />
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-gray-500 uppercase">Cost</label>
+                        <input type="number" bind:value={selectedProduct.lastPrice} class="w-full bg-black border border-gray-700 rounded p-2 text-white text-sm" />
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-gray-500 uppercase">Price</label>
+                        <input type="number" bind:value={selectedProduct.sellingPrice} class="w-full bg-black border border-gray-700 rounded p-2 text-white text-sm" />
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-2 mt-2">
+                    <button on:click={() => isEditingProduct = false} class="px-3 py-1 text-xs text-gray-400 hover:text-white">Cancel</button>
+                    <button on:click={saveProductChanges} class="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-500">Save Changes</button>
+                </div>
             </div>
-          </div>
+          {:else}
+            <div class="flex items-end space-x-4 group">
+                <h2 class="text-4xl font-bold text-white tracking-tight">{selectedProduct.name}</h2>
+                <button on:click={() => isEditingProduct = true} class="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-white transition-opacity">
+                    <Edit2 size={16} />
+                </button>
+                <div class="flex items-baseline space-x-2 pb-1">
+                    <span class="text-2xl font-mono font-bold text-white">${selectedProduct.sellingPrice?.toFixed(2) || '-'}</span>
+                    {#if selectedProduct.sellingPrice && selectedProduct.lastPrice}
+                        {@const margin = calculateMargin(selectedProduct.lastPrice, selectedProduct.sellingPrice)}
+                        <span class="text-sm font-bold {margin > 0.3 ? 'text-green-500' : 'text-red-500'}">
+                            {margin > 0.3 ? '+' : ''}{(margin * 100).toFixed(1)}%
+                        </span>
+                    {/if}
+                </div>
+            </div>
+          {/if}
         </div>
         <div class="flex items-center space-x-4">
             <!-- Product Score Badge -->
