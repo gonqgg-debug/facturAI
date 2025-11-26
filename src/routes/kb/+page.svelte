@@ -22,7 +22,7 @@
   // Global Context Form
   let newContextTitle = '';
   let newContextContent = '';
-  let newContextCategory: 'tax' | 'conversion' | 'business_logic' = 'business_logic';
+  let newContextCategory: 'tax' | 'conversion' | 'business_logic' | 'pricing_rule' = 'business_logic';
   let isUploading = false;
 
   onMount(async () => {
@@ -278,7 +278,7 @@
           
           <Select.Root 
             selected={{ value: newContextCategory, label: { 'business_logic': 'Business Logic (General)', 'tax': 'Tax Rules (ITBIS, Exemptions)', 'conversion': 'Unit Conversions (Packs, Boxes)', 'pricing_rule': 'Pricing Rules (Margins, Rounding)' }[newContextCategory] || 'Business Logic (General)' }}
-            onSelectedChange={(v) => { if (v?.value) newContextCategory = v.value as any; }}
+            onSelectedChange={(v) => { if (v?.value) newContextCategory = v.value; }}
           >
             <Select.Trigger class="w-full bg-secondary">
               <Select.Value placeholder="Select category..." />
