@@ -6,6 +6,10 @@
   import { parseInvoiceWithGrok } from '$lib/grok';
   import { apiKey, currentInvoice, isProcessing } from '$lib/stores';
   import { db } from '$lib/db';
+  import * as Dialog from '$lib/components/ui/dialog';
+  import { Input } from '$lib/components/ui/input';
+  import { Label } from '$lib/components/ui/label';
+  import { Button } from '$lib/components/ui/button';
 
   let video: HTMLVideoElement;
   let canvas: HTMLCanvasElement;
@@ -50,7 +54,7 @@
         video: { 
           facingMode: 'environment',
           zoom: true // Request zoom capability
-        } 
+        } as any
       });
       
       if (video) {
@@ -175,6 +179,12 @@
     if (pendingFiles.length === 0) {
       showOnboarding = false;
     }
+  }
+
+  function cancelOnboarding() {
+    showOnboarding = false;
+    pendingFiles = [];
+    hints = { isMultiPage: false, supplierName: '', total: '', itbis: '' };
   }
 
   let processingStatus = '';
@@ -312,7 +322,7 @@
   }
 </script>
 
-<div class="relative h-full flex flex-col bg-black">
+<div class="relative h-full flex flex-col bg-background">
   <!-- Main Content Area -->
   <div class="flex-1 relative overflow-hidden flex flex-col">
     
@@ -358,7 +368,7 @@
             step={capabilities.zoom.step || 0.1} 
             bind:value={zoom}
             on:input={handleZoom}
-            class="flex-1 accent-ios-blue h-1 bg-white/30 rounded-lg appearance-none cursor-pointer"
+            class="flex-1 accent-primary h-1 bg-white/30 rounded-lg appearance-none cursor-pointer"
           />
           <span class="text-xs text-white font-bold drop-shadow-md">{capabilities.zoom.max}x</span>
         </div>
@@ -376,77 +386,81 @@
 
     {:else if !hasApiKey}
       <!-- No API Key State -->
-      <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-6 bg-ios-bg text-center">
+      <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-6 bg-background text-center">
         <div class="w-20 h-20 rounded-full bg-yellow-500/10 flex items-center justify-center mb-4">
           <Settings size={40} class="text-yellow-500" />
         </div>
-        <h1 class="text-2xl font-bold text-white">Setup Required</h1>
-        <p class="text-gray-400 max-w-xs">To start scanning invoices, you need to configure your AI API Key.</p>
+        <h1 class="text-2xl font-bold text-foreground">Setup Required</h1>
+        <p class="text-muted-foreground max-w-xs">To start scanning invoices, you need to configure your AI API Key.</p>
         
-        <button 
-          class="bg-ios-blue text-white font-bold py-3 px-8 rounded-xl hover:bg-blue-600 transition-colors"
+        <Button 
+          variant="default"
+          size="default"
           on:click={() => goto('/settings')}
+          class="font-bold"
         >
           Go to Settings
-        </button>
+        </Button>
       </div>
 
     {:else}
       <!-- Upload / Start View -->
-      <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-8 bg-ios-bg">
+      <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-8 bg-background">
         <div class="text-center space-y-2">
-          <h1 class="text-3xl font-bold text-white">New Invoice</h1>
-          <p class="text-gray-400">Upload a photo or scan to start</p>
+          <h1 class="text-3xl font-bold text-foreground">New Invoice</h1>
+          <p class="text-muted-foreground">Upload a photo or scan to start</p>
           {#if error}
-            <div class="bg-red-500/20 border border-red-500 text-red-200 p-3 rounded-lg text-sm max-w-xs mx-auto mt-4">
+            <div class="bg-destructive/10 border border-destructive text-destructive p-3 rounded-lg text-sm max-w-xs mx-auto mt-4">
               {error}
             </div>
           {/if}
         </div>
 
         <!-- Big Upload Button -->
-        <label class="w-full max-w-xs aspect-square bg-ios-card border-2 border-dashed border-ios-separator rounded-3xl flex flex-col items-center justify-center space-y-4 cursor-pointer hover:bg-white/5 transition-colors group">
+        <label class="w-full max-w-xs aspect-square bg-card border-2 border-dashed border-border rounded-3xl flex flex-col items-center justify-center space-y-4 cursor-pointer hover:bg-accent transition-colors group">
           <input type="file" accept="image/*" class="hidden" on:change={handleFileUpload} />
-          <div class="w-20 h-20 rounded-full bg-ios-blue/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-            <Upload size={40} class="text-ios-blue" />
+          <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center group-hover:scale-110 transition-transform">
+            <Upload size={40} class="text-primary" />
           </div>
-          <span class="text-white font-medium text-lg">Upload Photo</span>
+          <span class="text-foreground font-medium text-lg">Upload Photo</span>
         </label>
 
         <!-- Camera Button -->
-        <button 
-          class="flex items-center space-x-2 text-ios-blue font-medium px-6 py-3 rounded-full bg-ios-blue/10 hover:bg-ios-blue/20 transition-colors"
+        <Button 
+          variant="outline"
+          size="default"
           on:click={startCamera}
+          class="text-primary bg-primary/10 hover:bg-primary/20"
         >
           <Camera size={20} />
           <span>Use Camera</span>
-        </button>
+        </Button>
       </div>
     {/if}
     
     <!-- Processing Overlay -->
     <!-- Processing Overlay -->
     {#if $isProcessing}
-      <div class="absolute inset-0 bg-black z-50 flex flex-col items-center justify-center p-8">
+      <div class="absolute inset-0 bg-background/80 backdrop-blur-md z-50 flex flex-col items-center justify-center p-8">
         <!-- Pulse Animation -->
         <div class="relative mb-8">
-          <div class="absolute inset-0 bg-ios-blue/30 rounded-full animate-ping opacity-75"></div>
-          <div class="relative bg-ios-card p-6 rounded-full border border-ios-blue shadow-[0_0_30px_rgba(0,122,255,0.3)]">
-            <Brain size={48} class="text-ios-blue animate-pulse" />
+          <div class="absolute inset-0 bg-primary/30 rounded-full animate-ping opacity-75"></div>
+          <div class="relative bg-card p-6 rounded-full border border-primary shadow-[0_0_30px_rgba(0,122,255,0.3)]">
+            <Brain size={48} class="text-primary animate-pulse" />
           </div>
         </div>
 
-        <h3 class="text-2xl font-bold text-white mb-2 text-center tracking-wide">{processingStatus}</h3>
+        <h3 class="text-2xl font-bold text-foreground mb-2 text-center tracking-wide">{processingStatus}</h3>
         
         <!-- Progress Bar -->
-        <div class="w-full max-w-xs bg-gray-900 rounded-full h-2 mb-4 overflow-hidden border border-white/10">
+        <div class="w-full max-w-xs bg-secondary rounded-full h-2 mb-4 overflow-hidden border border-border">
           <div 
-            class="bg-ios-blue h-full rounded-full transition-all duration-300 ease-out shadow-[0_0_10px_rgba(0,122,255,0.5)]"
+            class="bg-primary h-full rounded-full transition-all duration-300 ease-out shadow-[0_0_10px_rgba(0,122,255,0.5)]"
             style="width: {progress}%"
           ></div>
         </div>
         
-        <p class="text-gray-500 text-sm font-mono">{Math.round(progress)}% Complete</p>
+        <p class="text-muted-foreground text-sm font-mono">{Math.round(progress)}% Complete</p>
       </div>
     {/if}
   </div>
@@ -455,114 +469,121 @@
 
   <canvas bind:this={canvas} class="hidden"></canvas>
 
-  <!-- Onboarding Modal -->
-  {#if showOnboarding}
-    <div class="absolute inset-0 bg-black/90 z-50 flex items-center justify-center p-6 overflow-y-auto">
-      <div class="bg-ios-card w-full max-w-md p-6 rounded-2xl border border-ios-separator space-y-6 my-auto">
-        <div class="text-center">
-          <h2 class="text-xl font-bold text-white">Invoice Details</h2>
-          <p class="text-gray-400 text-sm">Help the AI by providing some context</p>
+  <!-- Onboarding Dialog -->
+  <Dialog.Root bind:open={showOnboarding} onOpenChange={(open) => { if (!open) cancelOnboarding(); }}>
+    <Dialog.Content class="max-w-md max-h-[90vh] overflow-hidden flex flex-col">
+      <Dialog.Header>
+        <Dialog.Title>Invoice Details</Dialog.Title>
+        <Dialog.Description>
+          Help the AI by providing some context about this invoice.
+        </Dialog.Description>
+      </Dialog.Header>
+
+      <div class="space-y-4 overflow-y-auto flex-1 py-4">
+        <!-- Page Type -->
+        <div class="flex bg-secondary p-1 rounded-lg">
+          <button 
+            class="flex-1 py-2 rounded-md text-sm font-medium transition-colors { !hints.isMultiPage ? 'bg-background shadow text-foreground' : 'text-muted-foreground' }"
+            on:click={() => hints.isMultiPage = false}
+          >
+            Single Page
+          </button>
+          <button 
+            class="flex-1 py-2 rounded-md text-sm font-medium transition-colors { hints.isMultiPage ? 'bg-background shadow text-foreground' : 'text-muted-foreground' }"
+            on:click={() => hints.isMultiPage = true}
+          >
+            Multi Page
+          </button>
         </div>
 
-        <div class="space-y-4">
-          <!-- Page Type -->
-          <div class="flex bg-black/50 p-1 rounded-lg">
-            <button 
-              class="flex-1 py-2 rounded-md text-sm font-medium transition-colors { !hints.isMultiPage ? 'bg-ios-blue text-white' : 'text-gray-400' }"
-              on:click={() => hints.isMultiPage = false}
-            >
-              Single Page
-            </button>
-            <button 
-              class="flex-1 py-2 rounded-md text-sm font-medium transition-colors { hints.isMultiPage ? 'bg-ios-blue text-white' : 'text-gray-400' }"
-              on:click={() => hints.isMultiPage = true}
-            >
-              Multi Page
-            </button>
-          </div>
-
-          <!-- Page Thumbnails (Only if Multi Page) -->
-          {#if hints.isMultiPage}
-            <div class="space-y-2">
-              <label class="block text-xs text-gray-500 uppercase font-bold">Pages ({pendingFiles.length})</label>
-              <div class="flex space-x-2 overflow-x-auto pb-2">
-                {#each pendingFiles as file, i}
-                  <div class="relative flex-shrink-0 w-20 h-28 bg-black/50 rounded-lg border border-ios-separator overflow-hidden group">
-                    <img src={URL.createObjectURL(file)} class="w-full h-full object-cover" alt="Page {i+1}" />
-                    <button 
-                      class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                      on:click={() => removePage(i)}
-                    >
-                      <div class="w-3 h-3 flex items-center justify-center text-[10px]">✕</div>
-                    </button>
-                    <div class="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] text-center py-1">
-                      Page {i+1}
-                    </div>
-                  </div>
-                {/each}
-                
-                <!-- Add Page Button -->
-                <div class="flex-shrink-0 w-20 h-28 bg-black/30 rounded-lg border border-ios-separator border-dashed flex flex-col items-center justify-center space-y-2">
-                  <button class="p-2 bg-ios-blue/20 rounded-full text-ios-blue" on:click={addAnotherPage}>
-                    <Camera size={16} />
+        <!-- Page Thumbnails (Only if Multi Page) -->
+        {#if hints.isMultiPage}
+          <div class="space-y-2">
+            <span class="block text-xs text-muted-foreground uppercase font-bold">Pages ({pendingFiles.length})</span>
+            <div class="flex space-x-2 overflow-x-auto pb-2">
+              {#each pendingFiles as file, i}
+                <div class="relative flex-shrink-0 w-20 h-28 bg-secondary rounded-lg border border-border overflow-hidden group">
+                  <img src={URL.createObjectURL(file)} class="w-full h-full object-cover" alt="Page {i+1}" />
+                  <button 
+                    class="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    on:click={() => removePage(i)}
+                  >
+                    <div class="w-3 h-3 flex items-center justify-center text-[10px]">✕</div>
                   </button>
-                  <label class="p-2 bg-ios-blue/20 rounded-full text-ios-blue cursor-pointer">
-                    <input type="file" accept="image/*" class="hidden" on:change={handleFileUpload} />
-                    <Upload size={16} />
-                  </label>
+                  <div class="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] text-center py-1">
+                    Page {i+1}
+                  </div>
                 </div>
+              {/each}
+              
+              <!-- Add Page Button -->
+              <div class="flex-shrink-0 w-20 h-28 bg-secondary/50 rounded-lg border border-border border-dashed flex flex-col items-center justify-center space-y-2">
+                <button class="p-2 bg-primary/10 rounded-full text-primary" on:click={addAnotherPage}>
+                  <Camera size={16} />
+                </button>
+                <label class="p-2 bg-primary/10 rounded-full text-primary cursor-pointer">
+                  <input type="file" accept="image/*" class="hidden" on:change={handleFileUpload} />
+                  <Upload size={16} />
+                </label>
               </div>
             </div>
-          {/if}
+          </div>
+        {/if}
 
-          <!-- Supplier -->
-          <div>
-            <label class="block text-xs text-gray-500 mb-1 uppercase font-bold">Supplier Name (Optional)</label>
-            <input 
-              bind:value={hints.supplierName}
-              placeholder="e.g. Supermercado Nacional"
-              class="w-full bg-black/50 border border-ios-separator rounded-lg p-3 text-white focus:border-ios-blue outline-none"
+        <!-- Supplier -->
+        <div class="space-y-1.5">
+          <Label for="hint-supplier" class="text-xs uppercase">Supplier Name (Optional)</Label>
+          <Input 
+            id="hint-supplier"
+            bind:value={hints.supplierName}
+            placeholder="e.g. Supermercado Nacional"
+            class="h-11"
+          />
+        </div>
+
+        <!-- Amounts -->
+        <div class="grid grid-cols-2 gap-4">
+          <div class="space-y-1.5">
+            <Label for="hint-total" class="text-xs uppercase">Total Amount</Label>
+            <Input 
+              id="hint-total"
+              type="number"
+              bind:value={hints.total}
+              placeholder="0.00"
+              class="h-11"
             />
           </div>
-
-          <!-- Amounts -->
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs text-gray-500 mb-1 uppercase font-bold">Total Amount</label>
-              <input 
-                type="number"
-                bind:value={hints.total}
-                placeholder="0.00"
-                class="w-full bg-black/50 border border-ios-separator rounded-lg p-3 text-white focus:border-ios-blue outline-none"
-              />
-            </div>
-            <div>
-              <label class="block text-xs text-gray-500 mb-1 uppercase font-bold">ITBIS Amount</label>
-              <input 
-                type="number"
-                bind:value={hints.itbis}
-                placeholder="0.00"
-                class="w-full bg-black/50 border border-ios-separator rounded-lg p-3 text-white focus:border-ios-blue outline-none"
-              />
-            </div>
+          <div class="space-y-1.5">
+            <Label for="hint-itbis" class="text-xs uppercase">ITBIS Amount</Label>
+            <Input 
+              id="hint-itbis"
+              type="number"
+              bind:value={hints.itbis}
+              placeholder="0.00"
+              class="h-11"
+            />
           </div>
         </div>
-
-        <div class="flex space-x-3">
-          <button 
-            class="flex-1 bg-white/10 text-white font-bold py-3 rounded-lg"
-            on:click={() => { showOnboarding = false; pendingFiles = []; }}
-          >
-            Cancel
-          </button>
-          <button 
-            class="flex-1 bg-ios-blue text-white font-bold py-3 rounded-lg"
-            on:click={confirmProcessing}
-          >
-            Process Invoice
-          </button>
-        </div>
       </div>
-    </div>
-  {/if}
+
+      <Dialog.Footer class="pt-4 border-t border-border gap-3">
+        <Button 
+          variant="secondary"
+          size="default"
+          on:click={cancelOnboarding}
+          class="flex-1 font-bold"
+        >
+          Cancel
+        </Button>
+        <Button 
+          variant="default"
+          size="default"
+          on:click={confirmProcessing}
+          class="flex-1 font-bold"
+        >
+          Process Invoice
+        </Button>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
 </div>
