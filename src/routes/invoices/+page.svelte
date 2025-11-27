@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { db } from '$lib/db';
-  import { ChevronDown, ChevronRight, FileText, Download, Trash2, Search, RefreshCw, Eye, X, Check, Clock, AlertTriangle, DollarSign, Calendar, CreditCard, Building2, Banknote, Smartphone } from 'lucide-svelte';
+  import { FileText, Download, Trash2, Search, RefreshCw, Eye, X, Check, Clock, AlertTriangle, DollarSign, Calendar, CreditCard, Building2, Banknote, Smartphone, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-svelte';
   import * as XLSX from 'xlsx';
   import type { Invoice, BankAccount, PaymentMethodType, Payment } from '$lib/types';
   import { parseInvoiceWithGrok } from '$lib/grok';
@@ -10,10 +10,11 @@
   import * as Table from '$lib/components/ui/table';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import { DatePicker } from '$lib/components/ui/date-picker';
+  import { locale } from '$lib/stores';
+  import { t } from '$lib/i18n';
 
   let invoices: Invoice[] = [];
-  let groupedInvoices: Record<string, Invoice[]> = {};
-  let expandedProviders: Record<string, boolean> = {};
   let searchQuery = '';
   let startDate = '';
   let endDate = '';
@@ -38,6 +39,39 @@
   let overdueTotal = 0;
   let invoiceAlerts: InvoiceAlert[] = [];
 
+  type SortColumn = 'issueDate' | 'provider' | 'dueDate' | 'total' | 'paymentStatus';
+  let sortColumn: SortColumn = 'issueDate';
+  let sortDirection: 'asc' | 'desc' = 'desc';
+  $: sortedInvoices = [...invoices].sort((a, b) => {
+    switch (sortColumn) {
+      case 'provider': {
+        const aName = (a.providerName || '').toLowerCase();
+        const bName = (b.providerName || '').toLowerCase();
+        return sortDirection === 'asc' ? aName.localeCompare(bName) : bName.localeCompare(aName);
+      }
+      case 'dueDate': {
+        const aDate = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+        const bDate = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+        return sortDirection === 'asc' ? aDate - bDate : bDate - aDate;
+      }
+      case 'total': {
+        const aTotal = a.total || 0;
+        const bTotal = b.total || 0;
+        return sortDirection === 'asc' ? aTotal - bTotal : bTotal - aTotal;
+      }
+      case 'paymentStatus': {
+        const aStatus = getPaymentStatusText(a).toLowerCase();
+        const bStatus = getPaymentStatusText(b).toLowerCase();
+        return sortDirection === 'asc' ? aStatus.localeCompare(bStatus) : bStatus.localeCompare(aStatus);
+      }
+      case 'issueDate':
+      default: {
+        const aDate = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+        const bDate = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+        return sortDirection === 'asc' ? aDate - bDate : bDate - aDate;
+      }
+    }
+  });
   let selectedInvoice: Invoice | null = null;
   let showPaymentModal = false;
   let paymentInvoice: Invoice | null = null;
@@ -154,17 +188,15 @@
     });
     topSupplier = { name: maxSupplier, amount: maxSpend };
 
-    // Group
-    groupedInvoices = invoices.reduce((acc, inv) => {
-      const provider = inv.providerName || 'Unknown';
-      if (!acc[provider]) acc[provider] = [];
-      acc[provider].push(inv);
-      return acc;
-    }, {} as Record<string, Invoice[]>);
   }
-
-  function toggleProvider(provider: string) {
-    expandedProviders[provider] = !expandedProviders[provider];
+  
+  function toggleSort(column: SortColumn) {
+    if (sortColumn === column) {
+      sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortColumn = column;
+      sortDirection = column === 'issueDate' || column === 'total' ? 'desc' : 'asc';
+    }
   }
 
   function confirmDeleteInvoice(id?: number) {
@@ -406,7 +438,7 @@
 
 <div class="p-4 max-w-5xl mx-auto pb-24">
   <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-    <h1 class="text-2xl font-bold">Invoices</h1>
+    <h1 class="text-2xl font-bold">{t('nav.invoices', $locale)}</h1>
     
     <div class="flex flex-wrap gap-2 w-full md:w-auto">
       <div class="relative flex-1 md:w-64">
@@ -418,17 +450,19 @@
           class="w-full bg-card border border-border rounded-lg pl-10 pr-4 py-2 text-sm text-foreground focus:border-primary outline-none"
         />
       </div>
-      <input 
-        type="date" 
+      <DatePicker 
         bind:value={startDate} 
         on:change={loadInvoices}
-        class="bg-card border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+        placeholder={$locale === 'es' ? 'Desde' : 'From'}
+        locale={$locale === 'es' ? 'es-DO' : 'en-US'}
+        class="w-44"
       />
-      <input 
-        type="date" 
+      <DatePicker 
         bind:value={endDate} 
         on:change={loadInvoices}
-        class="bg-card border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+        placeholder={$locale === 'es' ? 'Hasta' : 'To'}
+        locale={$locale === 'es' ? 'es-DO' : 'en-US'}
+        class="w-44"
       />
       <button 
         on:click={exportToExcel}
@@ -538,150 +572,183 @@
     </div>
   {/if}
 
-  <div class="space-y-4">
-    {#each Object.entries(groupedInvoices) as [provider, items]}
-      <div class="bg-card text-card-foreground rounded-xl border border-border overflow-hidden">
-        <button 
-          class="w-full p-4 flex justify-between items-center hover:bg-muted/50 transition-colors"
-          on:click={() => toggleProvider(provider)}
-        >
-          <div class="flex items-center space-x-3">
-            {#if expandedProviders[provider]}
-              <ChevronDown size={20} class="text-muted-foreground" />
-            {:else}
-              <ChevronRight size={20} class="text-muted-foreground" />
-            {/if}
-            <span class="font-bold">{provider}</span>
-            <span class="bg-muted text-muted-foreground text-xs px-2 py-1 rounded-full">{items.length}</span>
-          </div>
-          <span class="text-green-500 font-mono font-bold">
-            {formatCurrency(items.reduce((sum, i) => sum + (i.total || 0), 0))}
-          </span>
-        </button>
-
-        {#if expandedProviders[provider]}
-          <div class="border-t border-border bg-muted/30">
-            {#each items as invoice}
-              <div class="p-4 border-b border-border last:border-0 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div class="flex items-start space-x-4">
-                  <div class="w-10 h-10 rounded bg-background flex items-center justify-center flex-shrink-0 border border-border">
-                    <FileText size={20} class="text-primary" />
+  <div class="bg-card text-card-foreground rounded-xl border border-border overflow-hidden">
+    <Table.Root>
+      <Table.Header class="bg-muted/50">
+        <Table.Row>
+          <Table.Head>
+            <button class="flex items-center gap-1 text-xs uppercase tracking-wider font-semibold text-muted-foreground hover:text-foreground transition-colors" on:click={() => toggleSort('issueDate')}>
+              Date
+              {#if sortColumn === 'issueDate'}
+                {#if sortDirection === 'asc'}<ArrowUp size={14} />{:else}<ArrowDown size={14} />{/if}
+              {:else}<ArrowUpDown size={14} class="opacity-50" />{/if}
+            </button>
+          </Table.Head>
+          <Table.Head>
+            <button class="flex items-center gap-1 text-xs uppercase tracking-wider font-semibold text-muted-foreground hover:text-foreground transition-colors" on:click={() => toggleSort('provider')}>
+              Supplier
+              {#if sortColumn === 'provider'}
+                {#if sortDirection === 'asc'}<ArrowUp size={14} />{:else}<ArrowDown size={14} />{/if}
+              {:else}<ArrowUpDown size={14} class="opacity-50" />{/if}
+            </button>
+          </Table.Head>
+          <Table.Head class="text-xs uppercase tracking-wider">NCF</Table.Head>
+          <Table.Head>
+            <button class="flex items-center gap-1 text-xs uppercase tracking-wider font-semibold text-muted-foreground hover:text-foreground transition-colors" on:click={() => toggleSort('dueDate')}>
+              Due Date
+              {#if sortColumn === 'dueDate'}
+                {#if sortDirection === 'asc'}<ArrowUp size={14} />{:else}<ArrowDown size={14} />{/if}
+              {:else}<ArrowUpDown size={14} class="opacity-50" />{/if}
+            </button>
+          </Table.Head>
+          <Table.Head>
+            <button class="flex items-center gap-1 text-xs uppercase tracking-wider font-semibold text-muted-foreground hover:text-foreground transition-colors" on:click={() => toggleSort('paymentStatus')}>
+              Status
+              {#if sortColumn === 'paymentStatus'}
+                {#if sortDirection === 'asc'}<ArrowUp size={14} />{:else}<ArrowDown size={14} />{/if}
+              {:else}<ArrowUpDown size={14} class="opacity-50" />{/if}
+            </button>
+          </Table.Head>
+          <Table.Head class="text-right">
+            <button class="flex items-center gap-1 text-xs uppercase tracking-wider font-semibold text-muted-foreground hover:text-foreground transition-colors ml-auto" on:click={() => toggleSort('total')}>
+              Total
+              {#if sortColumn === 'total'}
+                {#if sortDirection === 'asc'}<ArrowUp size={14} />{:else}<ArrowDown size={14} />{/if}
+              {:else}<ArrowUpDown size={14} class="opacity-50" />{/if}
+            </button>
+          </Table.Head>
+          <Table.Head class="text-xs uppercase tracking-wider text-center">Actions</Table.Head>
+        </Table.Row>
+      </Table.Header>
+      <Table.Body>
+        {#if sortedInvoices.length === 0}
+          <Table.Row>
+            <Table.Cell colspan="7" class="text-center py-10 text-muted-foreground">
+              No invoices found.
+            </Table.Cell>
+          </Table.Row>
+        {:else}
+          {#each sortedInvoices as invoice}
+            <Table.Row class="hover:bg-muted/30">
+              <Table.Cell>
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 rounded bg-background flex items-center justify-center border border-border">
+                    <FileText size={18} class="text-primary" />
                   </div>
                   <div>
-                    <div class="font-medium flex items-center space-x-2">
-                      <span>{invoice.issueDate}</span>
-                      {#if invoice.dueDate && invoice.paymentStatus !== 'paid'}
-                        <span class="text-xs {getDaysUntilDue(invoice).includes('overdue') ? 'text-destructive' : 'text-muted-foreground'}">
-                          ({getDaysUntilDue(invoice)})
-                        </span>
-                      {/if}
-                    </div>
-                    <div class="text-muted-foreground text-xs font-mono">{invoice.ncf}</div>
+                    <div class="font-medium">{invoice.issueDate}</div>
+                    {#if invoice.dueDate && invoice.paymentStatus !== 'paid'}
+                      <div class="text-xs {getDaysUntilDue(invoice).includes('overdue') ? 'text-destructive' : 'text-muted-foreground'}">
+                        {getDaysUntilDue(invoice)}
+                      </div>
+                    {/if}
                   </div>
                 </div>
-                
-                <div class="flex items-center space-x-4 w-full md:w-auto justify-between md:justify-end">
-                  <!-- Payment Status Badge -->
-                  <div class="flex flex-col items-end">
-                    <span class="px-2 py-1 rounded text-xs font-bold {getPaymentStatusColor(invoice)}">
-                      {getPaymentStatusText(invoice)}
-                    </span>
-                  </div>
-                  
-                  <div class="text-right">
-                    <div class="font-mono font-bold">{formatCurrency(invoice.total)}</div>
-                    <div class="text-muted-foreground text-xs">ITBIS: {invoice.itbisTotal?.toFixed(2)}</div>
-                  </div>
-                  
-                  <div class="flex items-center space-x-1">
-                    {#if invoice.paymentStatus !== 'paid'}
-                      <Tooltip.Root>
-                        <Tooltip.Trigger asChild let:builder>
-                          <button 
-                            use:builder.action
-                            {...builder}
-                            on:click={() => openPaymentModal(invoice)}
-                            class="p-2 text-green-500 hover:text-green-600 transition-colors bg-green-500/10 rounded-lg"
-                          >
-                            <DollarSign size={16} />
-                          </button>
-                        </Tooltip.Trigger>
-                        <Tooltip.Content>Record Payment</Tooltip.Content>
-                      </Tooltip.Root>
-                    {/if}
-                    
-                    {#if invoice.status === 'needs_extraction'}
-                      <Tooltip.Root>
-                        <Tooltip.Trigger asChild let:builder>
-                          <button 
-                            use:builder.action
-                            {...builder}
-                            on:click={() => syncInvoice(invoice)}
-                            class="p-2 text-yellow-500 hover:text-yellow-600 transition-colors bg-yellow-500/10 rounded-lg"
-                            disabled={isSyncing}
-                          >
-                            <RefreshCw size={16} class={isSyncing ? 'animate-spin' : ''} />
-                          </button>
-                        </Tooltip.Trigger>
-                        <Tooltip.Content>Sync with AI</Tooltip.Content>
-                      </Tooltip.Root>
-                    {/if}
-                    
+              </Table.Cell>
+              <Table.Cell>
+                <div class="font-semibold">{invoice.providerName}</div>
+                <div class="text-xs text-muted-foreground">{invoice.providerRnc}</div>
+              </Table.Cell>
+              <Table.Cell class="font-mono text-sm">{invoice.ncf}</Table.Cell>
+              <Table.Cell>
+                {#if invoice.dueDate}
+                  <div class="font-medium">{invoice.dueDate}</div>
+                {:else}
+                  <span class="text-muted-foreground text-xs">N/A</span>
+                {/if}
+              </Table.Cell>
+              <Table.Cell>
+                <span class="px-2 py-1 rounded text-xs font-bold {getPaymentStatusColor(invoice)}">
+                  {getPaymentStatusText(invoice)}
+                </span>
+              </Table.Cell>
+              <Table.Cell class="text-right">
+                <div class="font-mono font-bold">{formatCurrency(invoice.total)}</div>
+                <div class="text-xs text-muted-foreground">ITBIS: {invoice.itbisTotal?.toFixed(2)}</div>
+              </Table.Cell>
+              <Table.Cell>
+                <div class="flex items-center justify-center gap-1">
+                  {#if invoice.paymentStatus !== 'paid'}
                     <Tooltip.Root>
                       <Tooltip.Trigger asChild let:builder>
                         <button 
                           use:builder.action
                           {...builder}
-                          on:click={() => viewInvoice(invoice)}
-                          class="p-2 text-muted-foreground hover:text-primary transition-colors"
+                          on:click={() => openPaymentModal(invoice)}
+                          class="p-2 text-green-500 hover:text-green-600 transition-colors bg-green-500/10 rounded-lg"
                         >
-                          <Eye size={16} />
+                          <DollarSign size={16} />
                         </button>
                       </Tooltip.Trigger>
-                      <Tooltip.Content>View Details</Tooltip.Content>
+                      <Tooltip.Content>Record Payment</Tooltip.Content>
                     </Tooltip.Root>
+                  {/if}
+                  
+                  {#if invoice.status === 'needs_extraction'}
+                    <Tooltip.Root>
+                      <Tooltip.Trigger asChild let:builder>
+                        <button 
+                          use:builder.action
+                          {...builder}
+                          on:click={() => syncInvoice(invoice)}
+                          class="p-2 text-yellow-500 hover:text-yellow-600 transition-colors bg-yellow-500/10 rounded-lg"
+                          disabled={isSyncing}
+                        >
+                          <RefreshCw size={16} class={isSyncing ? 'animate-spin' : ''} />
+                        </button>
+                      </Tooltip.Trigger>
+                      <Tooltip.Content>Sync with AI</Tooltip.Content>
+                    </Tooltip.Root>
+                  {/if}
+                  
+                  <Tooltip.Root>
+                    <Tooltip.Trigger asChild let:builder>
+                      <button 
+                        use:builder.action
+                        {...builder}
+                        on:click={() => viewInvoice(invoice)}
+                        class="p-2 text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        <Eye size={16} />
+                      </button>
+                    </Tooltip.Trigger>
+                    <Tooltip.Content>View Details</Tooltip.Content>
+                  </Tooltip.Root>
 
-                    <Tooltip.Root>
-                      <Tooltip.Trigger asChild let:builder>
-                        <button 
-                          use:builder.action
-                          {...builder}
-                          on:click={() => exportInvoice(invoice)}
-                          class="p-2 text-muted-foreground hover:text-primary transition-colors"
-                        >
-                          <Download size={16} />
-                        </button>
-                      </Tooltip.Trigger>
-                      <Tooltip.Content>Export Excel</Tooltip.Content>
-                    </Tooltip.Root>
-                    
-                    <Tooltip.Root>
-                      <Tooltip.Trigger asChild let:builder>
-                        <button 
-                          use:builder.action
-                          {...builder}
-                          on:click={() => confirmDeleteInvoice(invoice.id)}
-                          class="p-2 text-muted-foreground hover:text-destructive transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </Tooltip.Trigger>
-                      <Tooltip.Content>Delete</Tooltip.Content>
-                    </Tooltip.Root>
-                  </div>
+                  <Tooltip.Root>
+                    <Tooltip.Trigger asChild let:builder>
+                      <button 
+                        use:builder.action
+                        {...builder}
+                        on:click={() => exportInvoice(invoice)}
+                        class="p-2 text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        <Download size={16} />
+                      </button>
+                    </Tooltip.Trigger>
+                    <Tooltip.Content>Export Excel</Tooltip.Content>
+                  </Tooltip.Root>
+                  
+                  <Tooltip.Root>
+                    <Tooltip.Trigger asChild let:builder>
+                      <button 
+                        use:builder.action
+                        {...builder}
+                        on:click={() => confirmDeleteInvoice(invoice.id)}
+                        class="p-2 text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </Tooltip.Trigger>
+                    <Tooltip.Content>Delete</Tooltip.Content>
+                  </Tooltip.Root>
                 </div>
-              </div>
-            {/each}
-          </div>
+              </Table.Cell>
+            </Table.Row>
+          {/each}
         {/if}
-      </div>
-    {/each}
-    
-    {#if Object.keys(groupedInvoices).length === 0}
-      <div class="text-center text-muted-foreground py-10">
-        No invoices found.
-      </div>
-    {/if}
+      </Table.Body>
+    </Table.Root>
   </div>
 </div>
 
@@ -801,10 +868,11 @@
           </div>
           <div>
             <label class="block text-xs text-muted-foreground uppercase mb-2">Fecha</label>
-            <input 
-              type="date"
+            <DatePicker 
               bind:value={paymentDate}
-              class="w-full bg-input/50 border border-input rounded-lg p-3 focus:border-green-500 outline-none"
+              placeholder={$locale === 'es' ? 'Seleccionar fecha' : 'Select date'}
+              locale={$locale === 'es' ? 'es-DO' : 'en-US'}
+              class="w-full"
             />
           </div>
         </div>
@@ -864,7 +932,7 @@
       <!-- Modal Header -->
       <div class="p-4 border-b border-border flex justify-between items-center bg-muted sticky top-0 z-10 rounded-t-2xl">
         <div>
-          <h2 class="text-xl font-bold">Invoice Details</h2>
+          <h2 class="text-xl font-bold">{$locale === 'es' ? 'Detalles de la Factura' : 'Invoice Details'}</h2>
           <p class="text-sm text-muted-foreground">{selectedInvoice.providerName} • {selectedInvoice.ncf}</p>
         </div>
         <button on:click={closeInvoice} class="text-muted-foreground hover:text-foreground bg-muted/50 p-2 rounded-full transition-colors">

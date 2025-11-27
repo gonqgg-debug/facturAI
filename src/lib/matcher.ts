@@ -1,4 +1,5 @@
 import Fuse from 'fuse.js';
+import type { IFuseOptions } from 'fuse.js';
 import type { Product } from './types';
 
 export interface ProductMatch {
@@ -122,7 +123,7 @@ export function findProductMatches(
     }
 
     // 2. Configure Fuse.js for fuzzy search
-    const fuseOptions: Fuse.IFuseOptions<{ product: Product; searchTexts: string[] }> = {
+    const fuseOptions: IFuseOptions<{ product: Product; searchTexts: string[] }> = {
         keys: ['searchTexts'],
         threshold: 0.4,           // Lower = stricter matching
         distance: 100,            // How far to search for matches

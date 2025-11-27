@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { db } from '$lib/db';
-  import { Search, Plus, Upload, Edit2, Trash2, Package, AlertTriangle, Barcode, Download, ArrowUpDown, ArrowUp, ArrowDown, Columns3 } from 'lucide-svelte';
-  import type { Product, Supplier } from '$lib/types';
+  import { Search, Plus, Upload, Edit2, Trash2, Package, AlertTriangle, Barcode, Download, ArrowUpDown, ArrowUp, ArrowDown, Columns3, Receipt, ShoppingCart, Sparkles, Brain, CheckCircle } from 'lucide-svelte';
+  import type { Product, Supplier, Sale, Invoice, StockMovement } from '$lib/types';
   import * as XLSX from 'xlsx';
-  import { checkLowStock, type StockAlert } from '$lib/alerts';
+  import { checkLowStock, generateEnhancedStockAlerts, getInventoryInsights, type StockAlert, type EnhancedStockAlert } from '$lib/alerts';
+import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListItem, initializeBackgroundProcessing } from '$lib/inventory-ai';
+import { apiKey } from '$lib/stores';
+  import { TAX_RATES, getPriceWithoutTax, getPriceWithTax, ITBIS_RATE } from '$lib/tax';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import * as Select from '$lib/components/ui/select';
@@ -19,6 +22,9 @@
   import { Badge } from '$lib/components/ui/badge';
   import * as Card from '$lib/components/ui/card';
   import { Button } from '$lib/components/ui/button';
+  import { Switch } from '$lib/components/ui/switch';
+  import { locale } from '$lib/stores';
+  import { t } from '$lib/i18n';
 
   type ProductWithSupplier = Product & { supplierName?: string };
 
@@ -37,6 +43,25 @@
   
   // Stock Alerts
   let stockAlerts: StockAlert[] = [];
+  let enhancedStockAlerts: EnhancedStockAlert[] = [];
+  let inventoryInsights: any = null;
+
+  // Smart Shopping List
+  let smartShoppingList: SmartShoppingList | null = null;
+  let isGeneratingShoppingList = false;
+  let activeTab: 'catalog' | 'alerts' | 'shopping-list' = 'catalog';
+  let buttonClickAnimation = false;
+
+  // Status tracking for AI generation
+  let generationStatus = '';
+  let generationProgress = 0;
+  let statusInterval: ReturnType<typeof setInterval> | null = null;
+
+  function handleTabChange(value: string | undefined) {
+    if (value && ['catalog', 'alerts', 'shopping-list'].includes(value)) {
+      activeTab = value as typeof activeTab;
+    }
+  }
 
   // Editing State
   let editingProduct: ProductWithSupplier | null = null;
@@ -68,21 +93,141 @@
   };
 
   onMount(async () => {
+    // Initialize background processing for inventory AI
+    initializeBackgroundProcessing();
     await loadData();
+  });
+
+  onDestroy(() => {
+    // Clean up status interval if component is destroyed
+    if (statusInterval) {
+      clearInterval(statusInterval);
+      statusInterval = null;
+    }
   });
 
   async function loadData() {
     if (!browser) return;
     suppliers = await db.suppliers.toArray();
     const rawProducts = await db.products.toArray();
-    
-    // Check for stock alerts
+
+    // Load related data for enhanced analysis
+    const sales = await db.sales.toArray();
+    const invoices = await db.invoices.toArray();
+    const stockMovements = await db.stockMovements.toArray();
+
+    // Check for stock alerts (both legacy and enhanced)
     stockAlerts = checkLowStock(rawProducts);
-    
+    enhancedStockAlerts = await generateEnhancedStockAlerts(rawProducts, sales, invoices, stockMovements);
+    inventoryInsights = getInventoryInsights(rawProducts, enhancedStockAlerts, sales);
+
     products = rawProducts.map(p => ({
       ...p,
       supplierName: suppliers.find(s => s.id === p.supplierId)?.name || 'Unknown'
     })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async function generateSmartShoppingListHandler() {
+    if (!$apiKey) {
+      alert('Se requiere API Key para generar la lista inteligente de compras. Configúrala en Ajustes.');
+      return;
+    }
+
+    // Trigger click animation
+    buttonClickAnimation = true;
+    setTimeout(() => buttonClickAnimation = false, 300);
+
+    isGeneratingShoppingList = true;
+    generationProgress = 0;
+    generationStatus = $locale === 'es' ? 'Empaquetando datos...' : 'Packaging data...';
+
+    // Status progression
+    let step = 0;
+    const statuses = $locale === 'es' ? [
+      'Empaquetando datos...',
+      'Analizando patrones de compra...',
+      'Calculando demanda...',
+      'Consultando IA...',
+      'Generando recomendaciones...',
+      'Finalizando lista...'
+    ] : [
+      'Packaging data...',
+      'Analyzing purchase patterns...',
+      'Calculating demand...',
+      'Consulting AI...',
+      'Generating recommendations...',
+      'Finalizing shopping list...'
+    ];
+
+    statusInterval = setInterval(() => {
+      step++;
+      if (step < statuses.length) {
+        generationStatus = statuses[step];
+        generationProgress = (step / (statuses.length - 1)) * 100;
+      }
+    }, 800); // Update every 800ms
+
+    try {
+      // Load necessary data
+      const sales = await db.sales.toArray();
+      const invoices = await db.invoices.toArray();
+      const stockMovements = await db.stockMovements.toArray();
+      const rawProducts = await db.products.toArray();
+
+      generationStatus = $locale === 'es' ? 'Procesando datos...' : 'Processing data...';
+      generationProgress = 90;
+
+      smartShoppingList = await generateSmartShoppingList(
+        rawProducts,
+        sales,
+        invoices,
+        stockMovements,
+        $apiKey
+      );
+
+      generationStatus = $locale === 'es' ? '¡Lista completada!' : 'Shopping list ready!';
+      generationProgress = 100;
+
+      // Keep success message for a moment, then switch to shopping list tab
+      setTimeout(() => {
+        activeTab = 'shopping-list';
+      }, 1500);
+
+    } catch (error) {
+      console.error('Error generating smart shopping list:', error);
+      generationStatus = $locale === 'es' ? 'Error generando lista' : 'Error generating list';
+      alert('Error generando lista de compras inteligente. Verifica tu conexión y API Key.');
+    } finally {
+      if (statusInterval) {
+        clearInterval(statusInterval);
+        statusInterval = null;
+      }
+      setTimeout(() => {
+        isGeneratingShoppingList = false;
+        generationStatus = '';
+        generationProgress = 0;
+      }, 2000); // Keep status visible for 2 seconds after completion
+    }
+  }
+
+  function exportShoppingList() {
+    if (!smartShoppingList) return;
+
+    const data = smartShoppingList.items.map(item => ({
+      Producto: item.productName,
+      Proveedor: item.supplierName,
+      Stock_Actual: item.currentStock,
+      Cantidad_Recomendada: item.recommendedQuantity,
+      Urgencia: item.urgency,
+      Costo_Estimado: item.estimatedCost,
+      Razonamiento_AI: item.reasoning,
+      Categoria: item.category
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Lista de Compras Inteligente');
+    XLSX.writeFile(wb, `lista-compras-${new Date().toISOString().split('T')[0]}.xlsx`);
   }
 
   // Filtering
@@ -297,7 +442,13 @@
         lastDate: new Date().toISOString().split('T')[0],
         supplierName: 'Unknown',
         currentStock: 0,
-        reorderPoint: 5
+        reorderPoint: 5,
+        // Tax defaults: both cost and price include tax, standard 18% rate
+        priceIncludesTax: true,
+        taxRate: ITBIS_RATE,
+        costIncludesTax: true,
+        costTaxRate: ITBIS_RATE,
+        isExempt: false
     };
     isCreating = true;
     dialogOpen = true;
@@ -328,7 +479,13 @@
         targetMargin: editingProduct.targetMargin,
         currentStock: editingProduct.currentStock ?? 0,
         reorderPoint: editingProduct.reorderPoint ?? 5,
-        aliases: editingProduct.aliases
+        aliases: editingProduct.aliases,
+        // Tax configuration
+        priceIncludesTax: editingProduct.priceIncludesTax ?? true,
+        taxRate: editingProduct.isExempt ? 0 : (editingProduct.taxRate ?? ITBIS_RATE),
+        costIncludesTax: editingProduct.costIncludesTax ?? true,
+        costTaxRate: editingProduct.costTaxRate ?? ITBIS_RATE,
+        isExempt: editingProduct.isExempt ?? false
     };
 
     if (isCreating) {
@@ -421,8 +578,8 @@
   <!-- Header -->
   <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight">Product Catalog</h1>
-      <p class="text-muted-foreground mt-1">Manage your inventory, prices, and suppliers.</p>
+      <h1 class="text-3xl font-bold tracking-tight">{t('catalog.title', $locale)}</h1>
+      <p class="text-muted-foreground mt-1">{$locale === 'es' ? 'Administra tu inventario, precios y proveedores.' : 'Manage your inventory, prices, and suppliers.'}</p>
     </div>
     <div class="flex space-x-3">
       <input type="file" accept=".xlsx,.xls" class="hidden" bind:this={fileInput} on:change={handleFileUpload} />
@@ -437,7 +594,7 @@
         {:else}
           <Upload size={18} />
         {/if}
-        <span>Import</span>
+        <span>{$locale === 'es' ? 'Importar' : 'Import'}</span>
       </Button>
       <Button 
         variant="outline" 
@@ -445,7 +602,7 @@
         on:click={exportProducts}
       >
         <Download size={18} />
-        <span>{selectedProducts.length > 0 ? `Export (${selectedProducts.length})` : 'Export'}</span>
+        <span>{selectedProducts.length > 0 ? `${$locale === 'es' ? 'Exportar' : 'Export'} (${selectedProducts.length})` : ($locale === 'es' ? 'Exportar' : 'Export')}</span>
       </Button>
       <Button 
         variant="default" 
@@ -454,16 +611,35 @@
         class="font-bold shadow-lg shadow-primary/20"
       >
         <Plus size={18} />
-        <span>Add Product</span>
+        <span>{t('catalog.addProduct', $locale)}</span>
       </Button>
     </div>
   </div>
-  
-  <!-- Stock Summary Cards -->
+
+  <!-- Main Navigation Tabs -->
+  <Tabs.Root value={activeTab} onValueChange={handleTabChange} class="mb-6">
+    <Tabs.List class="bg-card border border-border h-11 p-1 rounded-xl gap-1">
+      <Tabs.Trigger value="catalog" class="px-4 py-2 rounded-lg text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+        <Package size={16} class="mr-2" />
+        {$locale === 'es' ? 'Catálogo' : 'Catalog'}
+      </Tabs.Trigger>
+      <Tabs.Trigger value="alerts" class="px-4 py-2 rounded-lg text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+        <AlertTriangle size={16} class="mr-2" />
+        {$locale === 'es' ? 'Alertas' : 'Alerts'} {enhancedStockAlerts.length > 0 && `(${enhancedStockAlerts.length})`}
+      </Tabs.Trigger>
+      <Tabs.Trigger value="shopping-list" class="px-4 py-2 rounded-lg text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+        <ShoppingCart size={16} class="mr-2" />
+        {$locale === 'es' ? 'Lista de Compras' : 'Shopping List'}
+      </Tabs.Trigger>
+    </Tabs.List>
+
+    <!-- Catalog Tab -->
+    <Tabs.Content value="catalog" class="mt-6 space-y-6">
+      <!-- Stock Summary Cards -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
     <Card.Root>
       <Card.Content class="p-4">
-        <div class="text-muted-foreground text-xs uppercase font-bold mb-1">Total Products</div>
+        <div class="text-muted-foreground text-xs uppercase font-bold mb-1">{$locale === 'es' ? 'Total Productos' : 'Total Products'}</div>
         <div class="text-2xl font-bold">{totalProducts}</div>
       </Card.Content>
     </Card.Root>
@@ -471,7 +647,7 @@
       <Card.Content class="p-4">
         <div class="text-muted-foreground text-xs uppercase font-bold mb-1 flex items-center space-x-1">
           <AlertTriangle size={12} class="text-destructive" />
-          <span>Out of Stock</span>
+          <span>{t('catalog.outOfStock', $locale)}</span>
         </div>
         <div class="text-2xl font-bold {outOfStock > 0 ? 'text-destructive' : 'text-green-500'}">{outOfStock}</div>
       </Card.Content>
@@ -480,14 +656,14 @@
       <Card.Content class="p-4">
         <div class="text-muted-foreground text-xs uppercase font-bold mb-1 flex items-center space-x-1">
           <Package size={12} class="text-yellow-500" />
-          <span>Low Stock</span>
+          <span>{t('catalog.lowStock', $locale)}</span>
         </div>
         <div class="text-2xl font-bold {lowStock > 0 ? 'text-yellow-500' : 'text-green-500'}">{lowStock}</div>
       </Card.Content>
     </Card.Root>
     <Card.Root>
       <Card.Content class="p-4">
-        <div class="text-muted-foreground text-xs uppercase font-bold mb-1">In Stock</div>
+        <div class="text-muted-foreground text-xs uppercase font-bold mb-1">{t('catalog.inStock', $locale)}</div>
         <div class="text-2xl font-bold text-green-500">{totalProducts - outOfStock - lowStock}</div>
       </Card.Content>
     </Card.Root>
@@ -500,7 +676,7 @@
         value="all" 
         class="rounded-lg px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md"
       >
-        All
+        {t('catalog.all', $locale)}
       </Tabs.Trigger>
       <Tabs.Trigger 
         value="out_of_stock" 
@@ -529,7 +705,7 @@
   <div class="flex items-center gap-4 mb-4">
     <div class="relative flex-1 max-w-sm">
       <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground z-10" size={16} />
-      <Input bind:value={searchQuery} placeholder="Search by name, SKU, barcode, or supplier..." class="h-10 pl-9 bg-card" />
+      <Input bind:value={searchQuery} placeholder={$locale === 'es' ? 'Buscar por nombre, SKU, código de barras o proveedor...' : 'Search by name, SKU, barcode, or supplier...'} class="h-10 pl-9 bg-card" />
     </div>
     
     {#if selectedIds.size > 0}
@@ -539,7 +715,7 @@
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild let:builder>
         <Button builders={[builder]} variant="outline" size="default" class="inline-flex items-center gap-2">
-          <Columns3 size={16} /><span class="hidden sm:inline">Columns</span>
+          <Columns3 size={16} /><span class="hidden sm:inline">{t('catalog.columns', $locale)}</span>
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Content align="end" class="w-48">
@@ -726,7 +902,322 @@
       </div>
     </div>
   {/if}
-</div>
+    </Tabs.Content>
+
+    <!-- Alerts Tab -->
+    <Tabs.Content value="alerts" class="mt-6 space-y-6">
+      {#if inventoryInsights}
+        <!-- Inventory Insights Summary -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <Card.Root>
+            <Card.Content class="p-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-muted-foreground">{$locale === 'es' ? 'Productos Analizados' : 'Products Analyzed'}</p>
+                  <p class="text-2xl font-bold">{inventoryInsights.totalProducts}</p>
+                </div>
+                <Package class="h-8 w-8 text-muted-foreground" />
+              </div>
+            </Card.Content>
+          </Card.Root>
+
+          <Card.Root>
+            <Card.Content class="p-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-muted-foreground">{$locale === 'es' ? 'Alertas Críticas' : 'Critical Alerts'}</p>
+                  <p class="text-2xl font-bold text-red-500">{inventoryInsights.criticalAlerts.length}</p>
+                </div>
+                <AlertTriangle class="h-8 w-8 text-red-500" />
+              </div>
+            </Card.Content>
+          </Card.Root>
+
+          <Card.Root>
+            <Card.Content class="p-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-muted-foreground">{$locale === 'es' ? 'Costo Estimado' : 'Estimated Cost'}</p>
+                  <p class="text-2xl font-bold">DOP {inventoryInsights.totalEstimatedReorderCost.toLocaleString()}</p>
+                </div>
+                <Receipt class="h-8 w-8 text-muted-foreground" />
+              </div>
+            </Card.Content>
+          </Card.Root>
+        </div>
+
+        <!-- Inventory Insights -->
+        {#if inventoryInsights.insights.length > 0}
+          <Card.Root>
+            <Card.Header>
+              <Card.Title class="flex items-center gap-2">
+                <Brain class="h-5 w-5" />
+                {$locale === 'es' ? 'Insights de Inventario' : 'Inventory Insights'}
+              </Card.Title>
+            </Card.Header>
+            <Card.Content>
+              <ul class="space-y-2">
+                {#each inventoryInsights.insights as insight}
+                  <li class="flex items-start gap-2 text-sm">
+                    <Sparkles class="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                    {insight}
+                  </li>
+                {/each}
+              </ul>
+            </Card.Content>
+          </Card.Root>
+        {/if}
+      {/if}
+
+      <!-- Enhanced Alerts List -->
+      {#if enhancedStockAlerts.length > 0}
+        <Card.Root>
+          <Card.Header>
+            <Card.Title class="flex items-center justify-between">
+              <span class="flex items-center gap-2">
+                <AlertTriangle class="h-5 w-5" />
+                {$locale === 'es' ? 'Alertas Inteligentes de Inventario' : 'Smart Inventory Alerts'}
+              </span>
+              <div class="flex flex-col space-y-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  on:click={generateSmartShoppingListHandler}
+                  disabled={isGeneratingShoppingList}
+                  class="transition-all duration-300 ease-out {buttonClickAnimation ? 'scale-95 shadow-md ring-2 ring-primary/30' : 'hover:scale-105'}"
+                >
+                  {#if isGeneratingShoppingList}
+                    <Brain class="h-4 w-4 mr-2 animate-pulse" />
+                  {:else}
+                    <Brain class="h-4 w-4 mr-2 transition-transform duration-200 {buttonClickAnimation ? 'animate-pulse' : ''}" />
+                  {/if}
+                  {$locale === 'es' ? 'Generar Lista' : 'Generate List'}
+                </Button>
+
+                {#if isGeneratingShoppingList}
+                  <div class="w-full space-y-1">
+                    <div class="flex items-center justify-between text-xs">
+                      <span class="text-muted-foreground">{generationStatus}</span>
+                      <span class="font-medium">{Math.round(generationProgress)}%</span>
+                    </div>
+                    <div class="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                      <div
+                        class="h-full bg-primary transition-all duration-500 ease-out rounded-full"
+                        style="width: {generationProgress}%"
+                      ></div>
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            </Card.Title>
+          </Card.Header>
+          <Card.Content>
+            <div class="space-y-4">
+              {#each enhancedStockAlerts as alert}
+                <div class="flex items-start gap-3 p-4 border border-border rounded-lg {alert.severity === 'critical' ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' : alert.severity === 'warning' ? 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800' : 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800'}">
+                  <div class="flex-shrink-0 mt-1">
+                    {alert.severity === 'critical' ? '🚨' : alert.severity === 'warning' ? '⚠️' : 'ℹ️'}
+                  </div>
+                  <div class="flex-1 space-y-2">
+                    <div class="font-medium">{alert.message}</div>
+                    {#if alert.aiReasoning}
+                      <div class="text-sm text-muted-foreground bg-muted/50 p-2 rounded">
+                        <strong>AI:</strong> {alert.aiReasoning}
+                      </div>
+                    {/if}
+                    {#if alert.recommendedAction}
+                      <div class="text-sm font-medium text-primary">
+                        💡 {alert.recommendedAction}
+                      </div>
+                    {/if}
+                    {#if alert.predictedStockoutDate}
+                      <div class="text-xs text-muted-foreground">
+                        {$locale === 'es' ? 'Agotamiento previsto:' : 'Predicted stockout:'} {alert.predictedStockoutDate}
+                      </div>
+                    {/if}
+                    {#if alert.purchasePattern && alert.purchasePattern.confidence === 'high'}
+                      <div class="text-xs text-muted-foreground">
+                        {$locale === 'es' ? 'Patrón:' : 'Pattern:'} {$locale === 'es' ? 'Cada' : 'Every'} {alert.purchasePattern.averageDaysBetweenOrders} {$locale === 'es' ? 'días' : 'days'}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </Card.Content>
+        </Card.Root>
+      {:else}
+        <Card.Root>
+          <Card.Content class="p-8 text-center">
+            <div class="text-muted-foreground">
+              <CheckCircle class="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p class="text-lg font-medium">{$locale === 'es' ? '¡Todo en orden!' : 'All good!'}</p>
+              <p class="text-sm">{$locale === 'es' ? 'No hay alertas de inventario activas.' : 'No active inventory alerts.'}</p>
+            </div>
+          </Card.Content>
+        </Card.Root>
+      {/if}
+    </Tabs.Content>
+
+    <!-- Shopping List Tab -->
+    <Tabs.Content value="shopping-list" class="mt-6 space-y-6">
+      {#if smartShoppingList}
+        <!-- Shopping List Summary -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <Card.Root>
+            <Card.Content class="p-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-muted-foreground">{$locale === 'es' ? 'Productos a Ordenar' : 'Items to Order'}</p>
+                  <p class="text-2xl font-bold">{smartShoppingList.items.length}</p>
+                </div>
+                <Package class="h-8 w-8 text-muted-foreground" />
+              </div>
+            </Card.Content>
+          </Card.Root>
+
+          <Card.Root>
+            <Card.Content class="p-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-muted-foreground">{$locale === 'es' ? 'Costo Total Estimado' : 'Total Estimated Cost'}</p>
+                  <p class="text-2xl font-bold">DOP {smartShoppingList.totalEstimatedCost.toLocaleString()}</p>
+                </div>
+                <Receipt class="h-8 w-8 text-muted-foreground" />
+              </div>
+            </Card.Content>
+          </Card.Root>
+
+          <Card.Root>
+            <Card.Content class="p-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-muted-foreground">{$locale === 'es' ? 'Proveedores' : 'Suppliers'}</p>
+                  <p class="text-2xl font-bold">{Object.keys(smartShoppingList.groupedBySupplier).length}</p>
+                </div>
+                <ShoppingCart class="h-8 w-8 text-muted-foreground" />
+              </div>
+            </Card.Content>
+          </Card.Root>
+        </div>
+
+        <!-- AI Summary -->
+        {#if smartShoppingList.aiSummary}
+          <Card.Root>
+            <Card.Header>
+              <Card.Title class="flex items-center gap-2">
+                <Brain class="h-5 w-5" />
+                {$locale === 'es' ? 'Resumen Ejecutivo' : 'Executive Summary'}
+              </Card.Title>
+            </Card.Header>
+            <Card.Content>
+              <p class="text-sm text-muted-foreground">{smartShoppingList.aiSummary}</p>
+            </Card.Content>
+          </Card.Root>
+        {/if}
+
+        <!-- Shopping List Items -->
+        <Card.Root>
+          <Card.Header>
+            <Card.Title class="flex items-center justify-between">
+              <span class="flex items-center gap-2">
+                <ShoppingCart class="h-5 w-5" />
+                {$locale === 'es' ? 'Lista Inteligente de Compras' : 'Smart Shopping List'}
+              </span>
+              <Button variant="outline" size="sm" on:click={exportShoppingList}>
+                <Download class="h-4 w-4 mr-2" />
+                {$locale === 'es' ? 'Exportar' : 'Export'}
+              </Button>
+            </Card.Title>
+          </Card.Header>
+          <Card.Content>
+            <div class="space-y-4">
+              {#each smartShoppingList.items as item}
+                <div class="flex items-start gap-3 p-4 border border-border rounded-lg {item.urgency === 'critical' ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' : item.urgency === 'high' ? 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800' : 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800'}">
+                  <div class="flex-shrink-0 mt-1">
+                    {item.urgency === 'critical' ? '🚨' : item.urgency === 'high' ? '⚠️' : 'ℹ️'}
+                  </div>
+                  <div class="flex-1 space-y-2">
+                    <div class="flex items-start justify-between">
+                      <div>
+                        <div class="font-medium">{item.productName}</div>
+                        <div class="text-sm text-muted-foreground">{item.supplierName} • {item.category}</div>
+                      </div>
+                      <Badge variant={item.urgency === 'critical' ? 'destructive' : item.urgency === 'high' ? 'secondary' : 'outline'}>
+                        {item.urgency === 'critical' ? 'Crítico' : item.urgency === 'high' ? 'Alto' : 'Medio'}
+                      </Badge>
+                    </div>
+                    <div class="flex items-center gap-4 text-sm text-muted-foreground">
+                      <span>Stock: {item.currentStock}</span>
+                      <span>→</span>
+                      <span class="font-medium text-foreground">Ordenar: {item.recommendedQuantity}</span>
+                      <span class="ml-auto font-medium">DOP {item.estimatedCost.toFixed(2)}</span>
+                    </div>
+                    {#if item.reasoning}
+                      <div class="text-sm text-muted-foreground bg-muted/50 p-2 rounded">
+                        {item.reasoning}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </Card.Content>
+        </Card.Root>
+      {:else}
+        <!-- Generate Shopping List Prompt -->
+        <Card.Root class="transition-all duration-500 {buttonClickAnimation ? 'shadow-xl ring-2 ring-primary/20' : ''}">
+          <Card.Content class="p-8 text-center">
+            <div class="space-y-4">
+              <ShoppingCart class="h-16 w-16 mx-auto text-muted-foreground" />
+              <div>
+                <h3 class="text-lg font-medium">{$locale === 'es' ? 'Lista Inteligente de Compras' : 'Smart Shopping List'}</h3>
+                <p class="text-sm text-muted-foreground mt-1">
+                  {$locale === 'es' ? 'Genera una lista de compras optimizada basada en análisis de ventas, patrones de compra y predicciones de demanda.' : 'Generate an optimized shopping list based on sales analysis, purchase patterns, and demand forecasting.'}
+                </p>
+              </div>
+              <div class="flex flex-col items-center space-y-4">
+                <Button
+                  on:click={generateSmartShoppingListHandler}
+                  disabled={isGeneratingShoppingList || !$apiKey}
+                  size="lg"
+                  class="transition-all duration-300 ease-out {buttonClickAnimation ? 'scale-95 shadow-lg ring-2 ring-primary/50' : 'hover:scale-105'}"
+                >
+                  {#if isGeneratingShoppingList}
+                    <Brain class="h-5 w-5 mr-2 animate-pulse" />
+                    {$locale === 'es' ? 'Generando...' : 'Generating...'}
+                  {:else}
+                    <Brain class="h-5 w-5 mr-2 transition-transform duration-200 {buttonClickAnimation ? 'animate-pulse' : ''}" />
+                    {$locale === 'es' ? 'Generar con IA' : 'Generate with AI'}
+                  {/if}
+                </Button>
+
+                {#if isGeneratingShoppingList}
+                  <div class="w-full max-w-xs space-y-2">
+                    <div class="flex items-center justify-between text-sm">
+                      <span class="text-muted-foreground">{generationStatus}</span>
+                      <span class="font-medium">{Math.round(generationProgress)}%</span>
+                    </div>
+                    <div class="w-full bg-muted rounded-full h-2 overflow-hidden">
+                      <div
+                        class="h-full bg-primary transition-all duration-500 ease-out rounded-full"
+                        style="width: {generationProgress}%"
+                      ></div>
+                    </div>
+                  </div>
+                {/if}
+              </div>
+              {#if !$apiKey}
+                <p class="text-xs text-muted-foreground">
+                  {$locale === 'es' ? 'Requiere API Key configurada en Ajustes' : 'Requires API Key configured in Settings'}
+                </p>
+              {/if}
+            </div>
+          </Card.Content>
+        </Card.Root>
+      {/if}
+    </Tabs.Content>
+  </Tabs.Root>
 
 <!-- Edit/Create Dialog -->
 <Dialog.Root bind:open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
@@ -743,18 +1234,23 @@
         <Input id="product-name" bind:value={editingProduct.name} class="h-11 bg-input/50" placeholder="e.g. President Beer" />
       </div>
       
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-2 gap-4 items-start">
         <div class="space-y-1.5">
-          <Label for="product-sku" class="text-xs uppercase">SKU / ID</Label>
+          <Label for="product-sku" class="text-xs uppercase flex items-center gap-1">
+            <span>SKU / ID</span>
+          </Label>
           <Input id="product-sku" bind:value={editingProduct.productId} class="h-11 bg-input/50" placeholder="Optional" />
         </div>
         <div class="space-y-1.5">
-          <Label for="product-barcode" class="text-xs uppercase flex items-center space-x-1"><Barcode size={12} /><span>Barcode</span></Label>
+          <Label for="product-barcode" class="text-xs uppercase flex items-center gap-1">
+            <Barcode size={12} />
+            <span>Barcode</span>
+          </Label>
           <Input id="product-barcode" bind:value={editingProduct.barcode} class="h-11 bg-input/50 font-mono" placeholder="e.g. 7350510066301" />
         </div>
       </div>
       
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-2 gap-4 items-start">
         <div class="space-y-1.5">
           <Label for="product-category" class="text-xs uppercase">Category</Label>
           <Input id="product-category" bind:value={editingProduct.category} class="h-11 bg-input/50" placeholder="e.g. Beverages" />
@@ -762,21 +1258,117 @@
         <div class="space-y-1.5">
           <Label for="product-supplier" class="text-xs uppercase">Supplier</Label>
           <Select.Root selected={editingProduct?.supplierId ? { value: String(editingProduct.supplierId), label: suppliers.find(s => s.id === editingProduct?.supplierId)?.name || '' } : undefined} onSelectedChange={(v) => { if (editingProduct) editingProduct.supplierId = v?.value ? Number(v.value) : undefined; }}>
-            <Select.Trigger class="w-full bg-input/50"><Select.Value placeholder="Select Supplier..." /></Select.Trigger>
+            <Select.Trigger class="w-full bg-input/50 h-11"><Select.Value placeholder="Select Supplier..." /></Select.Trigger>
             <Select.Content>{#each suppliers as s}<Select.Item value={String(s.id)} label={s.name}>{s.name}</Select.Item>{/each}</Select.Content>
           </Select.Root>
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
-        <div class="space-y-1.5">
-          <Label for="product-cost" class="text-xs uppercase">Cost</Label>
-          <Input id="product-cost" type="number" step="0.01" bind:value={editingProduct.lastPrice} class="h-11 bg-input/50" />
+      <!-- Tax Configuration Section -->
+      <div class="pt-4 border-t border-border">
+        <h4 class="text-sm font-bold text-muted-foreground mb-3 flex items-center space-x-2"><Receipt size={16} /><span>Tax Configuration (ITBIS)</span></h4>
+        
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div class="space-y-1.5">
+            <Label class="text-xs uppercase">Tax Rate</Label>
+            <Select.Root 
+              selected={editingProduct.isExempt 
+                ? { value: '0', label: 'Exento (0%)' } 
+                : { value: String(editingProduct.taxRate ?? ITBIS_RATE), label: TAX_RATES.find(r => r.value === (editingProduct?.taxRate ?? ITBIS_RATE))?.label || '18% ITBIS' }
+              }
+              onSelectedChange={(v) => { 
+                if (editingProduct) {
+                  const rate = Number(v?.value ?? ITBIS_RATE);
+                  editingProduct.taxRate = rate;
+                  editingProduct.isExempt = rate === 0;
+                }
+              }}
+            >
+              <Select.Trigger class="w-full bg-input/50"><Select.Value placeholder="Select rate..." /></Select.Trigger>
+              <Select.Content>
+                {#each TAX_RATES as rate}
+                  <Select.Item value={String(rate.value)} label={rate.label}>{rate.label}</Select.Item>
+                {/each}
+              </Select.Content>
+            </Select.Root>
+          </div>
+          <div class="space-y-1.5 flex flex-col justify-end">
+            <div class="flex items-center space-x-2 h-11 px-3 rounded-md bg-input/50">
+              <Switch 
+                id="price-includes-tax" 
+                bind:checked={editingProduct.priceIncludesTax}
+              />
+              <Label for="price-includes-tax" class="text-sm cursor-pointer">Price includes ITBIS</Label>
+            </div>
+          </div>
         </div>
-        <div class="space-y-1.5">
+      </div>
+
+      <!-- Pricing Section -->
+      <div class="pt-4 border-t border-border">
+        <h4 class="text-sm font-bold text-muted-foreground mb-3 flex items-center space-x-2"><span>Pricing</span></h4>
+        
+        <!-- Cost -->
+        <div class="grid grid-cols-2 gap-4 mb-3">
+          <div class="space-y-1.5">
+            <Label for="product-cost" class="text-xs uppercase">Cost Price</Label>
+            <Input id="product-cost" type="number" step="0.01" bind:value={editingProduct.lastPrice} class="h-11 bg-input/50" />
+          </div>
+          <div class="space-y-1.5 flex flex-col justify-end">
+            <div class="flex items-center space-x-2 h-11 px-3 rounded-md bg-input/50">
+              <Switch 
+                id="cost-includes-tax" 
+                bind:checked={editingProduct.costIncludesTax}
+              />
+              <Label for="cost-includes-tax" class="text-sm cursor-pointer">Cost includes ITBIS</Label>
+            </div>
+          </div>
+        </div>
+        
+        {#if editingProduct.lastPrice}
+          <div class="text-xs text-muted-foreground mb-4 bg-muted/30 p-2 rounded">
+            {#if editingProduct.costIncludesTax}
+              Cost ex-tax: <span class="font-mono font-bold">${getPriceWithoutTax(editingProduct.lastPrice, editingProduct.costTaxRate ?? ITBIS_RATE, true).toLocaleString()}</span>
+            {:else}
+              Cost inc-tax: <span class="font-mono font-bold">${getPriceWithTax(editingProduct.lastPrice, editingProduct.costTaxRate ?? ITBIS_RATE, false).toLocaleString()}</span>
+            {/if}
+          </div>
+        {/if}
+        
+        <!-- Selling Price -->
+        <div class="space-y-1.5 mb-3">
           <Label for="product-price" class="text-xs uppercase">Selling Price</Label>
           <Input id="product-price" type="number" step="0.01" bind:value={editingProduct.sellingPrice} class="h-11 bg-input/50" />
         </div>
+        
+        {#if editingProduct.sellingPrice}
+          <div class="text-xs bg-muted/30 p-2 rounded space-y-1">
+            {#if editingProduct.priceIncludesTax && !editingProduct.isExempt}
+              <div class="flex justify-between">
+                <span class="text-muted-foreground">Price ex-tax:</span>
+                <span class="font-mono font-bold">${getPriceWithoutTax(editingProduct.sellingPrice, editingProduct.taxRate ?? ITBIS_RATE, true).toLocaleString()}</span>
+              </div>
+              <div class="flex justify-between text-green-600 dark:text-green-400">
+                <span>ITBIS ({((editingProduct.taxRate ?? ITBIS_RATE) * 100).toFixed(0)}%):</span>
+                <span class="font-mono font-bold">${(editingProduct.sellingPrice - getPriceWithoutTax(editingProduct.sellingPrice, editingProduct.taxRate ?? ITBIS_RATE, true)).toLocaleString()}</span>
+              </div>
+            {:else if !editingProduct.isExempt}
+              <div class="flex justify-between">
+                <span class="text-muted-foreground">Price inc-tax:</span>
+                <span class="font-mono font-bold">${getPriceWithTax(editingProduct.sellingPrice, editingProduct.taxRate ?? ITBIS_RATE, false).toLocaleString()}</span>
+              </div>
+              <div class="flex justify-between text-green-600 dark:text-green-400">
+                <span>ITBIS ({((editingProduct.taxRate ?? ITBIS_RATE) * 100).toFixed(0)}%):</span>
+                <span class="font-mono font-bold">${(editingProduct.sellingPrice * (editingProduct.taxRate ?? ITBIS_RATE)).toLocaleString()}</span>
+              </div>
+            {:else}
+              <div class="flex justify-between text-muted-foreground">
+                <span>Tax exempt product</span>
+                <span class="font-mono">ITBIS: $0</span>
+              </div>
+            {/if}
+          </div>
+        {/if}
       </div>
       
       <div class="pt-4 border-t border-border">
@@ -830,3 +1422,4 @@
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>
+</div>

@@ -14,6 +14,7 @@
     "@sveltejs/adapter-vercel": "^6.1.1",
     "@sveltejs/kit": "^2.0.0",
     "@sveltejs/vite-plugin-svelte": "^3.0.0",
+    "@tailwindcss/container-queries": "^0.1.1",
     "@types/tesseract.js": "^2.0.0",
     "autoprefixer": "^10.4.16",
     "bits-ui": "^0.22.0",
@@ -28,15 +29,21 @@
     "vite-plugin-pwa": "^0.17.4"
   },
   "dependencies": {
+    "@internationalized/date": "^3.10.0",
+    "@tabler/icons-svelte": "^3.35.0",
     "@tanstack/svelte-table": "^8.21.3",
     "clsx": "^2.1.1",
+    "d3-scale": "^4.0.2",
+    "d3-shape": "^3.2.0",
     "dexie": "^3.2.4",
     "fuse.js": "^7.1.0",
     "jsqr": "^1.4.0",
+    "layerchart": "^1.0.12",
     "pdfjs-dist": "^5.4.394",
     "tailwind-merge": "^3.4.0",
     "tailwind-variants": "^3.2.2",
     "tesseract.js": "^5.0.3",
+    "three": "^0.181.2",
     "xlsx": "^0.18.5"
   },
   "type": "module"

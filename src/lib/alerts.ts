@@ -1,4 +1,5 @@
-import type { Product, Invoice } from './types';
+import type { Product, Invoice, Sale, StockMovement } from './types';
+import { analyzePurchasePatterns, detectSeasonalTrends, calculateSalesVelocity, predictDemand, type PurchasePattern, type DemandForecast } from './inventory-ai';
 
 export interface StockAlert {
     type: 'low_stock' | 'out_of_stock' | 'reorder_suggestion' | 'stock_updated';
@@ -17,23 +18,34 @@ export interface InvoiceAlert {
     invoiceId: number;
     providerName: string;
     message: string;
+    suggestion?: string;
     daysUntilDue?: number;
     daysOverdue?: number;
     amount: number;
 }
 
+// Enhanced stock alerts with AI reasoning
+export interface EnhancedStockAlert extends StockAlert {
+  aiReasoning?: string;
+  predictedStockoutDate?: string;
+  recommendedAction?: string;
+  purchasePattern?: PurchasePattern | null;
+  demandForecast?: DemandForecast;
+  seasonalInsights?: string;
+}
+
 /**
- * Check for low stock products
+ * Check for low stock products (legacy function - use generateEnhancedStockAlerts for AI-powered alerts)
  */
 export function checkLowStock(products: Product[]): StockAlert[] {
     const alerts: StockAlert[] = [];
-    
+
     for (const product of products) {
         if (product.id === undefined) continue;
-        
+
         const currentStock = product.currentStock ?? 0;
         const reorderPoint = product.reorderPoint ?? 5; // Default reorder point
-        
+
         if (currentStock === 0) {
             alerts.push({
                 type: 'out_of_stock',
@@ -58,7 +70,7 @@ export function checkLowStock(products: Product[]): StockAlert[] {
             });
         }
     }
-    
+
     return alerts.sort((a, b) => {
         // Sort by severity (critical first), then by stock level
         const severityOrder = { critical: 0, warning: 1, info: 2 };
@@ -67,6 +79,30 @@ export function checkLowStock(products: Product[]): StockAlert[] {
         }
         return (a.currentStock ?? 0) - (b.currentStock ?? 0);
     });
+}
+
+/**
+ * Enhanced checkLowStock with AI analysis (recommended for new implementations)
+ */
+export async function checkLowStockEnhanced(
+  products: Product[],
+  sales: Sale[],
+  invoices: Invoice[],
+  stockMovements: StockMovement[]
+): Promise<StockAlert[]> {
+  // Use enhanced alerts but return basic StockAlert format for compatibility
+  const enhancedAlerts = await generateEnhancedStockAlerts(products, sales, invoices, stockMovements);
+
+  return enhancedAlerts.map(alert => ({
+    type: alert.type,
+    severity: alert.severity,
+    productId: alert.productId,
+    productName: alert.productName,
+    message: alert.message,
+    suggestion: alert.suggestion,
+    currentStock: alert.currentStock,
+    reorderPoint: alert.reorderPoint
+  }));
 }
 
 /**
@@ -257,9 +293,218 @@ export function formatCurrency(amount: number, currency: 'DOP' | 'USD' = 'DOP'):
 /**
  * Get alert icon based on type and severity
  */
-export function getAlertIcon(alert: StockAlert | InvoiceAlert): string {
+export function getAlertIcon(alert: StockAlert | InvoiceAlert | EnhancedStockAlert): string {
     if (alert.severity === 'critical') return '🚨';
     if (alert.severity === 'warning') return '⚠️';
     return 'ℹ️';
+}
+
+/**
+ * Generate enhanced stock alerts with AI reasoning
+ */
+export async function generateEnhancedStockAlerts(
+  products: Product[],
+  sales: Sale[],
+  invoices: Invoice[],
+  stockMovements: StockMovement[]
+): Promise<EnhancedStockAlert[]> {
+  const alerts: EnhancedStockAlert[] = [];
+
+  for (const product of products) {
+    if (!product.id) continue;
+
+    const currentStock = product.currentStock ?? 0;
+    const reorderPoint = product.reorderPoint ?? 5;
+
+    // Get AI analysis
+    const demandForecast = predictDemand(product, sales, stockMovements);
+    const purchasePattern = analyzePurchasePatterns(product.id, invoices);
+    const seasonalTrends = detectSeasonalTrends(product.id, sales, stockMovements);
+    const salesVelocity = calculateSalesVelocity(product.id, sales);
+
+    // Determine if this needs an alert
+    let shouldAlert = false;
+    let severity: 'info' | 'warning' | 'critical' = 'info';
+    let alertType: StockAlert['type'] = 'low_stock';
+    let message = '';
+    let aiReasoning = '';
+    let recommendedAction = '';
+
+    // Critical: Stock at or below reorder point
+    if (currentStock <= reorderPoint && currentStock > 0) {
+      shouldAlert = true;
+      alertType = 'low_stock';
+      severity = currentStock <= reorderPoint * 0.5 ? 'critical' : 'warning';
+      message = `${product.name}: Stock bajo (${currentStock} unidades)`;
+
+      aiReasoning = demandForecast.reasoning;
+      recommendedAction = `Reordenar ${demandForecast.recommendedReorderQuantity} unidades`;
+
+      if (purchasePattern && purchasePattern.confidence === 'high') {
+        const daysSinceLastOrder = purchasePattern.daysSinceLastOrder;
+        if (daysSinceLastOrder >= purchasePattern.averageDaysBetweenOrders) {
+          recommendedAction += ` - Normalmente ordenas cada ${purchasePattern.averageDaysBetweenOrders} días`;
+        }
+      }
+    }
+
+    // Critical: Out of stock
+    if (currentStock === 0) {
+      shouldAlert = true;
+      alertType = 'out_of_stock';
+      severity = 'critical';
+      message = `${product.name} está agotado`;
+
+      aiReasoning = `Producto sin stock. ${demandForecast.reasoning}`;
+      recommendedAction = `Reordenar inmediatamente ${demandForecast.recommendedReorderQuantity} unidades`;
+
+      if (purchasePattern && purchasePattern.confidence === 'high') {
+        recommendedAction += ` - Último pedido hace ${purchasePattern.daysSinceLastOrder} días`;
+      }
+    }
+
+    // Reorder suggestion based on patterns
+    if (purchasePattern && purchasePattern.confidence === 'high' && !shouldAlert) {
+      const daysSinceLastOrder = purchasePattern.daysSinceLastOrder;
+      const daysUntilNextOrder = purchasePattern.averageDaysBetweenOrders - daysSinceLastOrder;
+
+      if (daysUntilNextOrder <= 2 && daysUntilNextOrder > 0) {
+        shouldAlert = true;
+        alertType = 'reorder_suggestion';
+        severity = 'info';
+        message = `${product.name}: Próximo pedido pronto`;
+
+        aiReasoning = `Basado en patrón de compras: ordenas cada ${purchasePattern.averageDaysBetweenOrders} días, típicamente ${purchasePattern.typicalOrderQuantity} unidades`;
+        recommendedAction = `Considerar ordenar en los próximos ${daysUntilNextOrder} días`;
+      }
+    }
+
+    // Weekend preparation for high-demand items
+    if (seasonalTrends && seasonalTrends.seasonalMultiplier > 1.3 && !shouldAlert) {
+      const today = new Date().getDay();
+      const isWeekendApproaching = today >= 4 && today <= 6; // Thursday-Saturday
+
+      if (isWeekendApproaching && currentStock > reorderPoint) {
+        shouldAlert = true;
+        alertType = 'reorder_suggestion';
+        severity = 'info';
+        message = `${product.name}: Preparación para fin de semana`;
+
+        aiReasoning = `Demanda ${Math.round(seasonalTrends.seasonalMultiplier * 100)}% mayor en fines de semana`;
+        recommendedAction = `Considerar stock adicional para fin de semana turístico`;
+      }
+    }
+
+    if (shouldAlert) {
+      // Calculate predicted stockout date
+      let predictedStockoutDate: string | undefined;
+      if (demandForecast.predictedDaysUntilStockout <= 30) {
+        const stockoutDate = new Date();
+        stockoutDate.setDate(stockoutDate.getDate() + demandForecast.predictedDaysUntilStockout);
+        predictedStockoutDate = stockoutDate.toLocaleDateString();
+      }
+
+      // Add seasonal insights
+      let seasonalInsights: string | undefined;
+      if (seasonalTrends && seasonalTrends.peakDays.length > 0) {
+        const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        seasonalInsights = `Días de mayor demanda: ${seasonalTrends.peakDays.map(d => dayNames[d]).join(', ')}`;
+      }
+
+      alerts.push({
+        type: alertType,
+        severity,
+        productId: product.id,
+        productName: product.name,
+        message,
+        suggestion: recommendedAction,
+        currentStock,
+        reorderPoint,
+        aiReasoning,
+        predictedStockoutDate,
+        recommendedAction,
+        purchasePattern,
+        demandForecast,
+        seasonalInsights
+      });
+    }
+  }
+
+  return alerts.sort((a, b) => {
+    // Sort by severity first, then by stock level
+    const severityOrder = { critical: 0, warning: 1, info: 2 };
+    if (severityOrder[a.severity] !== severityOrder[b.severity]) {
+      return severityOrder[a.severity] - severityOrder[b.severity];
+    }
+    return (a.currentStock ?? 0) - (b.currentStock ?? 0);
+  });
+}
+
+/**
+ * Get inventory insights summary
+ */
+export function getInventoryInsights(
+  products: Product[],
+  alerts: EnhancedStockAlert[],
+  sales: Sale[]
+): {
+  totalProducts: number;
+  outOfStockCount: number;
+  lowStockCount: number;
+  reorderSuggestionsCount: number;
+  totalEstimatedReorderCost: number;
+  criticalAlerts: EnhancedStockAlert[];
+  insights: string[];
+} {
+  const totalProducts = products.length;
+  const outOfStockCount = alerts.filter(a => a.type === 'out_of_stock').length;
+  const lowStockCount = alerts.filter(a => a.type === 'low_stock').length;
+  const reorderSuggestionsCount = alerts.filter(a => a.type === 'reorder_suggestion').length;
+  const criticalAlerts = alerts.filter(a => a.severity === 'critical');
+
+  // Estimate reorder cost (rough calculation)
+  const totalEstimatedReorderCost = alerts.reduce((sum, alert) => {
+    if (alert.demandForecast?.recommendedReorderQuantity) {
+      const product = products.find(p => p.id === alert.productId);
+      const cost = product?.lastPrice || product?.averageCost || 0;
+      return sum + (alert.demandForecast.recommendedReorderQuantity * cost);
+    }
+    return sum;
+  }, 0);
+
+  // Generate insights
+  const insights: string[] = [];
+
+  if (outOfStockCount > 0) {
+    insights.push(`${outOfStockCount} productos agotados - impacta ventas inmediatamente`);
+  }
+
+  if (lowStockCount > 0) {
+    insights.push(`${lowStockCount} productos con stock bajo - reordenar pronto`);
+  }
+
+  if (reorderSuggestionsCount > 0) {
+    insights.push(`${reorderSuggestionsCount} sugerencias de reorden - optimizar flujo de caja`);
+  }
+
+  const highVelocityProducts = products.filter(p => {
+    if (!p.id) return false;
+    const velocity = calculateSalesVelocity(p.id, sales);
+    return velocity.velocity > 5; // More than 5 units/day
+  });
+
+  if (highVelocityProducts.length > 0) {
+    insights.push(`${highVelocityProducts.length} productos de alta rotación identificados`);
+  }
+
+  return {
+    totalProducts,
+    outOfStockCount,
+    lowStockCount,
+    reorderSuggestionsCount,
+    totalEstimatedReorderCost: Math.round(totalEstimatedReorderCost * 100) / 100,
+    criticalAlerts,
+    insights
+  };
 }
 

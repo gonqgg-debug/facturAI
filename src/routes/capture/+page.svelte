@@ -4,12 +4,13 @@
   import { Camera, Zap, Image as ImageIcon, Settings, Upload, Brain } from 'lucide-svelte';
   import { processImage } from '$lib/ocr';
   import { parseInvoiceWithGrok } from '$lib/grok';
-  import { apiKey, currentInvoice, isProcessing } from '$lib/stores';
+  import { apiKey, currentInvoice, isProcessing, locale } from '$lib/stores';
   import { db } from '$lib/db';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { Button } from '$lib/components/ui/button';
+  import { t } from '$lib/i18n';
 
   let video: HTMLVideoElement;
   let canvas: HTMLCanvasElement;
@@ -77,7 +78,7 @@
       }
 
     } catch (e) {
-      error = 'Camera access denied or not available.';
+      error = t('capture.cameraAccessDenied', $locale);
       console.error(e);
       isCameraActive = false;
     }
@@ -126,7 +127,7 @@
 
   async function captureAndProcess() {
     if (!$apiKey) {
-      alert('Please set your xAI API Key first.');
+      alert(t('capture.pleaseSetApiKey', $locale));
       goto('/settings');
       return;
     }
@@ -158,7 +159,7 @@
     if (input.files && input.files[0]) {
       const file = input.files[0];
       if (!$apiKey) {
-        alert('Please set your xAI API Key first.');
+        alert(t('capture.pleaseSetApiKey', $locale));
         goto('/settings');
         return;
       }
@@ -280,8 +281,8 @@
 
       await db.invoices.add(offlineInvoice);
       isProcessing.set(false);
-      alert('You are offline. Invoice saved to History for later extraction.');
-      goto('/history');
+      alert('You are offline. Invoice saved to Invoices for later extraction.');
+      goto('/invoices');
       return;
     }
 
@@ -473,9 +474,9 @@
   <Dialog.Root bind:open={showOnboarding} onOpenChange={(open) => { if (!open) cancelOnboarding(); }}>
     <Dialog.Content class="max-w-md max-h-[90vh] overflow-hidden flex flex-col">
       <Dialog.Header>
-        <Dialog.Title>Invoice Details</Dialog.Title>
+        <Dialog.Title>{t('capture.invoiceDetails', $locale)}</Dialog.Title>
         <Dialog.Description>
-          Help the AI by providing some context about this invoice.
+          {t('capture.helpAiContext', $locale)}
         </Dialog.Description>
       </Dialog.Header>
 
@@ -486,13 +487,13 @@
             class="flex-1 py-2 rounded-md text-sm font-medium transition-colors { !hints.isMultiPage ? 'bg-background shadow text-foreground' : 'text-muted-foreground' }"
             on:click={() => hints.isMultiPage = false}
           >
-            Single Page
+            {t('capture.singlePage', $locale)}
           </button>
           <button 
             class="flex-1 py-2 rounded-md text-sm font-medium transition-colors { hints.isMultiPage ? 'bg-background shadow text-foreground' : 'text-muted-foreground' }"
             on:click={() => hints.isMultiPage = true}
           >
-            Multi Page
+            {t('capture.multiPage', $locale)}
           </button>
         </div>
 
@@ -532,7 +533,7 @@
 
         <!-- Supplier -->
         <div class="space-y-1.5">
-          <Label for="hint-supplier" class="text-xs uppercase">Supplier Name (Optional)</Label>
+          <Label for="hint-supplier" class="text-xs uppercase">{t('capture.supplierName', $locale)}</Label>
           <Input 
             id="hint-supplier"
             bind:value={hints.supplierName}
@@ -544,7 +545,7 @@
         <!-- Amounts -->
         <div class="grid grid-cols-2 gap-4">
           <div class="space-y-1.5">
-            <Label for="hint-total" class="text-xs uppercase">Total Amount</Label>
+            <Label for="hint-total" class="text-xs uppercase">{t('capture.expectedTotal', $locale)}</Label>
             <Input 
               id="hint-total"
               type="number"
@@ -554,7 +555,7 @@
             />
           </div>
           <div class="space-y-1.5">
-            <Label for="hint-itbis" class="text-xs uppercase">ITBIS Amount</Label>
+            <Label for="hint-itbis" class="text-xs uppercase">{t('capture.expectedItbis', $locale)}</Label>
             <Input 
               id="hint-itbis"
               type="number"
@@ -573,7 +574,7 @@
           on:click={cancelOnboarding}
           class="flex-1 font-bold"
         >
-          Cancel
+          {t('capture.cancel', $locale)}
         </Button>
         <Button 
           variant="default"
@@ -581,7 +582,7 @@
           on:click={confirmProcessing}
           class="flex-1 font-bold"
         >
-          Process Invoice
+          {t('capture.process', $locale)}
         </Button>
       </Dialog.Footer>
     </Dialog.Content>

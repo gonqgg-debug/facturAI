@@ -1,10 +1,12 @@
 import { fontFamily } from "tailwindcss/defaultTheme";
+import containerQueries from "@tailwindcss/container-queries";
 
 /** @type {import('tailwindcss').Config} */
 const config = {
 	darkMode: ["class"],
 	content: ["./src/**/*.{html,js,svelte,ts}"],
 	safelist: ["dark"],
+	plugins: [containerQueries],
 	theme: {
 		container: {
 			center: true,

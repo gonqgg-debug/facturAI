@@ -19,6 +19,7 @@
     } from "lucide-svelte";
     import type { Product, Supplier } from "$lib/types";
     import { apiKey } from "$lib/stores";
+    import { calculateMarginExTax, getProductCostExTax, getProductPriceExTax, ITBIS_RATE } from '$lib/tax';
     import * as XLSX from 'xlsx';
     import * as Select from "$lib/components/ui/select";
     import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
@@ -91,7 +92,7 @@
     $: categoryFiltered = products.filter((p) => {
         const matchesCategory = selectedCategory === "All" || p.category === selectedCategory;
         if (activeTab === "suggestions") {
-            const currentMargin = calculateMargin(p.lastPrice, p.sellingPrice);
+            const currentMargin = calculateMargin(p);
             const target = p.targetMargin || 0.3;
             const hasAiSuggestion = !!p.aiSuggestedPrice;
             return matchesCategory && (currentMargin < target || hasAiSuggestion);
@@ -115,7 +116,7 @@
                 case 'salesVolume': aVal = a.salesVolume ?? 0; bVal = b.salesVolume ?? 0; break;
                 case 'cost': aVal = a.lastPrice; bVal = b.lastPrice; break;
                 case 'price': aVal = a.sellingPrice ?? 0; bVal = b.sellingPrice ?? 0; break;
-                case 'margin': aVal = calculateMargin(a.lastPrice, a.sellingPrice); bVal = calculateMargin(b.lastPrice, b.sellingPrice); break;
+                case 'margin': aVal = calculateMargin(a); bVal = calculateMargin(b); break;
                 case 'aiSuggestion': aVal = a.aiSuggestedPrice ?? 0; bVal = b.aiSuggestedPrice ?? 0; break;
                 default: return 0;
             }
@@ -168,9 +169,19 @@
         selectedIds = new Set();
     }
 
-    function calculateMargin(cost: number, price?: number): number {
-        if (!price || price === 0) return 0;
-        return (price - cost) / price;
+    // Calculate margin using tax-exclusive values for accurate comparison
+    function calculateMargin(product: Product): number {
+        return calculateMarginExTax(product);
+    }
+    
+    // Helper to get tax-exclusive cost for display
+    function getCostExTax(product: Product): number {
+        return getProductCostExTax(product);
+    }
+    
+    // Helper to get tax-exclusive price for display
+    function getPriceExTax(product: Product): number {
+        return getProductPriceExTax(product);
     }
 
     async function analyzeWithAI() {
@@ -197,12 +208,27 @@
         try {
             for (let i = 0; i < productsToAnalyze.length; i += batchSize) {
                 const batch = productsToAnalyze.slice(i, i + batchSize);
-                const itemsText = batch.map((p) => `- ${p.name} (Category: ${p.category || "Unknown"}, Cost: ${p.lastPrice}, Current Price: ${p.sellingPrice || "N/A"}, Sales Vol: ${p.salesVolume || "Unknown"})`).join("\n");
+                // Include tax-exclusive costs and current margins for accurate analysis
+                const itemsText = batch.map((p) => {
+                    const costExTax = getCostExTax(p);
+                    const priceExTax = getPriceExTax(p);
+                    const currentMargin = calculateMargin(p);
+                    const taxRate = p.isExempt ? 0 : (p.taxRate ?? ITBIS_RATE);
+                    const taxLabel = taxRate === 0 ? 'Exempt' : `${(taxRate * 100).toFixed(0)}% ITBIS`;
+                    return `- ${p.name} (Category: ${p.category || "Unknown"}, Cost ex-tax: $${costExTax.toFixed(2)}, Current Price ex-tax: $${priceExTax > 0 ? priceExTax.toFixed(2) : "N/A"}, Current Margin: ${(currentMargin * 100).toFixed(1)}%, Tax: ${taxLabel}, Sales Vol: ${p.salesVolume || "Unknown"})`;
+                }).join("\n");
 
                 const prompt = `Analyze the pricing for these Dominican Republic Colmado products.
                 
                 GLOBAL PRICING RULES (FROM KNOWLEDGE BASE):
                 ${pricingRules || "No specific custom rules found. Use general logic."}
+
+                TAX RULES (ITBIS):
+                - All costs and prices shown are TAX-EXCLUSIVE (sin ITBIS)
+                - Your suggested prices should also be TAX-EXCLUSIVE
+                - Standard ITBIS rate is 18%, some products have 16% or are exempt (0%)
+                - Margins should be calculated on tax-exclusive values for accuracy
+                - The system will automatically add ITBIS when displaying final prices to customers
 
                 GENERAL LOGIC:
                 1. "Fria" (Beer) = Low margin (15-20%), traffic driver.
@@ -210,9 +236,9 @@
                 3. "Antojos" (Snacks, Rum) = High margin (30-50%).
                 
                 CRITICAL CONSTRAINTS:
-                1. Suggested Price MUST be greater than Cost.
+                1. Suggested Price (ex-tax) MUST be greater than Cost (ex-tax).
                 2. Round prices to nearest $5 or $10. No pennies.
-                3. Return JSON array with: { name, suggestedPrice, suggestedMargin, reasoning }.
+                3. Return JSON array with: { name, suggestedPriceExTax, suggestedMargin, reasoning }.
 
                 Products:
 ${itemsText}`;
@@ -243,15 +269,30 @@ ${itemsText}`;
                     for (const s of suggestions) {
                         const product = batch.find((p) => p.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(p.name.toLowerCase()));
                         if (product && product.id) {
-                            let finalPrice = s.suggestedPrice;
-                            if (finalPrice <= product.lastPrice) {
-                                finalPrice = product.lastPrice * 1.15;
+                            // AI returns tax-exclusive price
+                            let suggestedPriceExTax = s.suggestedPriceExTax ?? s.suggestedPrice; // Support both formats
+                            const costExTax = getCostExTax(product);
+                            
+                            // Validate: price must be greater than cost
+                            if (suggestedPriceExTax <= costExTax) {
+                                suggestedPriceExTax = costExTax * 1.15;
                                 s.reasoning += " [Auto-corrected: Price was <= Cost]";
                             }
+                            
+                            // Convert to tax-inclusive if product is configured that way
+                            const taxRate = product.isExempt ? 0 : (product.taxRate ?? ITBIS_RATE);
+                            const priceIncludesTax = product.priceIncludesTax ?? true;
+                            const finalPrice = priceIncludesTax 
+                                ? suggestedPriceExTax * (1 + taxRate) 
+                                : suggestedPriceExTax;
+                            
+                            // Calculate margin on tax-exclusive values
+                            const margin = (suggestedPriceExTax - costExTax) / suggestedPriceExTax;
+                            
                             await db.products.update(product.id, {
-                                aiSuggestedPrice: finalPrice,
-                                aiSuggestedMargin: (finalPrice - product.lastPrice) / finalPrice,
-                                aiReasoning: s.reasoning,
+                                aiSuggestedPrice: Number(finalPrice.toFixed(2)),
+                                aiSuggestedMargin: Number(margin.toFixed(4)),
+                                aiReasoning: s.reasoning + (priceIncludesTax ? ` [Price inc. ${(taxRate * 100).toFixed(0)}% ITBIS]` : ' [Price ex-tax]'),
                             });
                         }
                     }
@@ -296,7 +337,7 @@ ${itemsText}`;
 
     function calculateProductScore(product: Product): number {
         let score = 50;
-        const margin = calculateMargin(product.lastPrice, product.sellingPrice);
+        const margin = calculateMargin(product);
         if (margin > 0.4) score += 20;
         else if (margin > 0.25) score += 10;
         else if (margin < 0.15) score -= 10;
@@ -443,18 +484,30 @@ ${itemsText}`;
     function exportPricing() {
         const toExport = selectedProducts.length > 0 ? selectedProducts : sortedProducts;
         
-        const data = toExport.map(p => ({
-            Name: p.name,
-            Supplier: p.supplierName || '',
-            Category: p.category || '',
-            Cost: p.lastPrice,
-            CurrentPrice: p.sellingPrice || '',
-            Margin: p.sellingPrice ? ((p.sellingPrice - p.lastPrice) / p.sellingPrice * 100).toFixed(1) + '%' : '',
-            AISuggestedPrice: p.aiSuggestedPrice || '',
-            AISuggestedMargin: p.aiSuggestedMargin ? (p.aiSuggestedMargin * 100).toFixed(1) + '%' : '',
-            AIReasoning: p.aiReasoning || '',
-            SalesVolume: p.salesVolume || ''
-        }));
+        const data = toExport.map(p => {
+            const costExTax = getCostExTax(p);
+            const priceExTax = getPriceExTax(p);
+            const margin = calculateMargin(p);
+            const taxRate = p.isExempt ? 0 : (p.taxRate ?? ITBIS_RATE);
+            
+            return {
+                Name: p.name,
+                Supplier: p.supplierName || '',
+                Category: p.category || '',
+                'Cost (stored)': p.lastPrice,
+                'Cost (ex-tax)': costExTax.toFixed(2),
+                'Cost Inc Tax': p.costIncludesTax ?? true ? 'Yes' : 'No',
+                'Price (stored)': p.sellingPrice || '',
+                'Price (ex-tax)': priceExTax > 0 ? priceExTax.toFixed(2) : '',
+                'Price Inc Tax': p.priceIncludesTax ?? true ? 'Yes' : 'No',
+                'Tax Rate': `${(taxRate * 100).toFixed(0)}%`,
+                'Margin (ex-tax)': margin > 0 ? (margin * 100).toFixed(1) + '%' : '',
+                AISuggestedPrice: p.aiSuggestedPrice || '',
+                AISuggestedMargin: p.aiSuggestedMargin ? (p.aiSuggestedMargin * 100).toFixed(1) + '%' : '',
+                AIReasoning: p.aiReasoning || '',
+                SalesVolume: p.salesVolume || ''
+            };
+        });
         
         const ws = XLSX.utils.json_to_sheet(data);
         const wb = XLSX.utils.book_new();
@@ -615,7 +668,7 @@ ${itemsText}`;
             </Table.Header>
             <Table.Body>
                 {#each paginatedProducts as product}
-                    {@const margin = calculateMargin(product.lastPrice, product.sellingPrice)}
+                    {@const margin = calculateMargin(product)}
                     {@const target = product.targetMargin || 0.3}
                     {@const isLowMargin = margin < target}
                     {@const isSelected = selectedIds.has(product.id ?? product.name)}
@@ -723,7 +776,7 @@ ${itemsText}`;
                         <div class="flex items-baseline space-x-2 pb-1">
                             <span class="text-2xl font-mono font-bold text-foreground">${selectedProduct.sellingPrice?.toFixed(2) || "-"}</span>
                             {#if selectedProduct.sellingPrice && selectedProduct.lastPrice}
-                                {@const margin = calculateMargin(selectedProduct.lastPrice, selectedProduct.sellingPrice)}
+                                {@const margin = calculateMargin(selectedProduct)}
                                 <span class="text-sm font-bold {margin > 0.3 ? 'text-green-500' : 'text-red-500'}">{margin > 0.3 ? "+" : ""}{(margin * 100).toFixed(1)}%</span>
                             {/if}
                         </div>

@@ -20,6 +20,9 @@
   import * as Card from '$lib/components/ui/card';
   import { Separator } from '$lib/components/ui/separator';
   import { Button } from '$lib/components/ui/button';
+  import { DatePicker } from '$lib/components/ui/date-picker';
+  import { locale } from '$lib/stores';
+  import { t } from '$lib/i18n';
 
   let invoice = $currentInvoice;
   let suppliers: Supplier[] = [];
@@ -269,7 +272,7 @@
             }
 
             if (existing && existing.id) {
-              const previousStock = existing.currentStock ?? 0;
+              const previousStock = Number(existing.currentStock ?? 0);
               const updateData: Partial<Product> = {
                 lastPrice: item.unitPrice,
                 lastDate: invoice.issueDate || today
@@ -277,7 +280,7 @@
               
               // Update stock if this is an inventory invoice
               if (isInventoryInvoice) {
-                updateData.currentStock = previousStock + item.quantity;
+                updateData.currentStock = previousStock + Number(item.quantity);
                 updateData.lastStockUpdate = today;
                 
                 updatedProducts.push({
@@ -345,9 +348,8 @@
       if (isInventoryInvoice && updatedProducts.length > 0) {
         stockAlerts = generateStockUpdateAlerts(updatedProducts);
         
-        // Also check for low stock across all products
-        const allUpdatedProducts = await db.products.toArray();
-        const lowStockAlerts = checkLowStock(allUpdatedProducts);
+        // Also check for low stock on the invoice's products
+        const lowStockAlerts = checkLowStock(updatedProducts.map(({ product }) => product));
         if (lowStockAlerts.length > 0) {
           stockAlerts = [...stockAlerts, ...lowStockAlerts];
         }
@@ -359,7 +361,7 @@
 
       if (!showStockAlerts) {
         alert('Invoice Saved!');
-        goto('/history');
+        goto('/invoices');
       }
     } catch (e) {
       console.error('Invoice save error:', e);
@@ -372,7 +374,7 @@
   
   function dismissStockAlerts() {
     showStockAlerts = false;
-    goto('/history');
+  goto('/invoices');
   }
 
   async function handleReanalyze() {
@@ -836,7 +838,12 @@
             </div>
             <div class="space-y-1.5">
               <Label for="issue-date" class="text-[10px] uppercase">Issue Date</Label>
-              <Input id="issue-date" type="date" bind:value={invoice.issueDate} class="h-9 bg-input/50" />
+              <DatePicker 
+                bind:value={invoice.issueDate} 
+                placeholder="Select date"
+                locale={$locale === 'es' ? 'es-DO' : 'en-US'}
+                class="h-9 w-full"
+              />
             </div>
           </div>
           
@@ -867,11 +874,11 @@
                   <span class="text-primary">({invoice.creditDays} days)</span>
                 {/if}
               </Label>
-              <Input 
-                id="due-date"
-                type="date" 
+              <DatePicker 
                 bind:value={invoice.dueDate} 
-                class="h-9 bg-input/50" 
+                placeholder="Select due date"
+                locale={$locale === 'es' ? 'es-DO' : 'en-US'}
+                class="h-9 w-full"
               />
             </div>
           </div>
@@ -1434,7 +1441,7 @@
           on:click={dismissStockAlerts}
           class="w-full bg-primary text-primary-foreground px-4 py-3 rounded-xl font-bold hover:bg-primary/90 transition-colors"
         >
-          Continue to History
+          Continue to Invoices
         </button>
       </Dialog.Footer>
     </Dialog.Content>
