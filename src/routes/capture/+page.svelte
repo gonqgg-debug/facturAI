@@ -1,16 +1,19 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
-  import { Camera, Zap, Image as ImageIcon, Settings, Upload, Brain } from 'lucide-svelte';
+  import { Camera, Zap, Image as ImageIcon, Settings, Upload, Brain, Info, FileText, Truck, CheckCircle2 } from 'lucide-svelte';
   import { processImage } from '$lib/ocr';
   import { parseInvoiceWithGrok } from '$lib/grok';
-  import { apiKey, currentInvoice, isProcessing, locale } from '$lib/stores';
+  import { currentInvoice, isProcessing, locale } from '$lib/stores';
   import { db } from '$lib/db';
   import * as Dialog from '$lib/components/ui/dialog';
+  import * as Select from '$lib/components/ui/select';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { Button } from '$lib/components/ui/button';
+  import * as Card from '$lib/components/ui/card';
   import { t } from '$lib/i18n';
+  import type { Invoice } from '$lib/types';
 
   let video: HTMLVideoElement;
   let canvas: HTMLCanvasElement;
@@ -27,22 +30,22 @@
   // Onboarding State
   let showOnboarding = false;
   let pendingFiles: Blob[] = [];
-  let hints = {
+  let hints: {
+    isMultiPage: boolean;
+    supplierName: string;
+    total: string;
+    itbis: string;
+    category: Invoice['category'];
+  } = {
     isMultiPage: false,
     supplierName: '',
     total: '',
-    itbis: ''
+    itbis: '',
+    category: 'Inventory'
   };
 
-  // Reactive check for API Key
-  $: hasApiKey = !!$apiKey;
-
-  onMount(async () => {
-    const storedKey = localStorage.getItem('xai_api_key');
-    if (storedKey) {
-      apiKey.set(storedKey);
-    }
-  });
+  // API keys are now configured server-side via environment variables
+  // No client-side check needed
 
   onDestroy(() => {
     stopCamera();
@@ -126,12 +129,7 @@
 
 
   async function captureAndProcess() {
-    if (!$apiKey) {
-      alert(t('capture.pleaseSetApiKey', $locale));
-      goto('/settings');
-      return;
-    }
-
+    // API key is now configured server-side, no check needed
     if (!video || !canvas) return;
     
     canvas.width = video.videoWidth;
@@ -158,11 +156,7 @@
     const input = e.target as HTMLInputElement;
     if (input.files && input.files[0]) {
       const file = input.files[0];
-      if (!$apiKey) {
-        alert(t('capture.pleaseSetApiKey', $locale));
-        goto('/settings');
-        return;
-      }
+      // API key is now configured server-side, no check needed
       pendingFiles = [...pendingFiles, file];
       showOnboarding = true;
     }
@@ -185,7 +179,7 @@
   function cancelOnboarding() {
     showOnboarding = false;
     pendingFiles = [];
-    hints = { isMultiPage: false, supplierName: '', total: '', itbis: '' };
+    hints = { isMultiPage: false, supplierName: '', total: '', itbis: '', category: 'Inventory' };
   }
 
   let processingStatus = '';
@@ -292,7 +286,7 @@
     }, 100);
 
     try {
-      const invoiceData = await parseInvoiceWithGrok(fullText, $apiKey, undefined, userHints);
+      const invoiceData = await parseInvoiceWithGrok(fullText, undefined, userHints);
       clearInterval(progressInterval);
       progress = 95;
       
@@ -311,21 +305,65 @@
         rawText: fullText,
         imageUrl: URL.createObjectURL(blobs[0]),
         status: 'draft',
+        category: hints.category,
         createdAt: new Date()
       });
 
       isProcessing.set(false);
       goto('/validation');
-    } catch (e) {
+    } catch (e: any) {
       clearInterval(progressInterval);
-      throw e;
+      console.error('Error processing invoice:', e);
+      error = e.message || e.toString() || 'Failed to process invoice. Check console for details.';
+      isProcessing.set(false);
+      alert(error);
     }
   }
 </script>
 
-<div class="relative h-full flex flex-col bg-background">
+<div class="w-full flex flex-col bg-background">
+  <!-- Helper Info Card - Collapsible -->
+  <div class="w-full p-4 pb-2">
+    <Card.Root class="border-amber-500/30 bg-amber-500/5 shadow-sm">
+      <Card.Content class="py-4">
+        <div class="flex items-center gap-3">
+          <div class="p-2 bg-amber-500/10 rounded-lg">
+            <Zap class="text-amber-500" size={24} />
+          </div>
+          <div class="flex-1">
+            <h3 class="font-bold text-foreground text-lg">Quick Capture</h3>
+            <p class="text-sm text-muted-foreground">
+              Snap the invoice, let AI extract everything — <strong>no Purchase Order needed</strong>
+            </p>
+          </div>
+        </div>
+        <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+          <div class="bg-background/50 rounded-lg p-3">
+            <Camera class="mx-auto text-primary mb-1" size={20} />
+            <span class="text-xs text-muted-foreground">Snap Photo</span>
+          </div>
+          <div class="bg-background/50 rounded-lg p-3">
+            <Brain class="mx-auto text-primary mb-1" size={20} />
+            <span class="text-xs text-muted-foreground">AI Extracts</span>
+          </div>
+          <div class="bg-background/50 rounded-lg p-3">
+            <FileText class="mx-auto text-primary mb-1" size={20} />
+            <span class="text-xs text-muted-foreground">Validate</span>
+          </div>
+          <div class="bg-background/50 rounded-lg p-3">
+            <Truck class="mx-auto text-primary mb-1" size={20} />
+            <span class="text-xs text-muted-foreground">Update Stock</span>
+          </div>
+        </div>
+        <p class="text-xs text-muted-foreground mt-3 text-center">
+          Perfect for: <strong>Live truck ordering</strong> • Emergency restocking • Utility bills
+        </p>
+      </Card.Content>
+    </Card.Root>
+  </div>
+
   <!-- Main Content Area -->
-  <div class="flex-1 relative overflow-hidden flex flex-col">
+  <div class="flex-1 relative overflow-hidden flex flex-col" style="min-height: calc(100vh - 300px);">
     
     {#if isCameraActive}
       <!-- Camera View -->
@@ -334,7 +372,7 @@
         bind:this={video} 
         autoplay 
         playsinline 
-        class="absolute inset-0 w-full h-full object-cover"
+        class="absolute inset-0 w-full h-full object-cover z-0"
       ></video>
       
       <!-- Camera Overlay -->
@@ -385,57 +423,46 @@
         </button>
       </div>
 
-    {:else if !hasApiKey}
-      <!-- No API Key State -->
-      <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-6 bg-background text-center">
-        <div class="w-20 h-20 rounded-full bg-yellow-500/10 flex items-center justify-center mb-4">
-          <Settings size={40} class="text-yellow-500" />
-        </div>
-        <h1 class="text-2xl font-bold text-foreground">Setup Required</h1>
-        <p class="text-muted-foreground max-w-xs">To start scanning invoices, you need to configure your AI API Key.</p>
-        
-        <Button 
-          variant="default"
-          size="default"
-          on:click={() => goto('/settings')}
-          class="font-bold"
-        >
-          Go to Settings
-        </Button>
-      </div>
-
     {:else}
       <!-- Upload / Start View -->
-      <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-8 bg-background">
-        <div class="text-center space-y-2">
-          <h1 class="text-3xl font-bold text-foreground">New Invoice</h1>
-          <p class="text-muted-foreground">Upload a photo or scan to start</p>
-          {#if error}
-            <div class="bg-destructive/10 border border-destructive text-destructive p-3 rounded-lg text-sm max-w-xs mx-auto mt-4">
-              {error}
+      <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-6 bg-background overflow-y-auto">
+        {#if error}
+          <div class="bg-destructive/10 border border-destructive text-destructive p-3 rounded-lg text-sm max-w-md mx-auto">
+            {error}
+          </div>
+        {/if}
+
+        <!-- Two Big Action Buttons -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-lg">
+          <!-- Camera Button (Primary) -->
+          <button 
+            on:click={startCamera}
+            class="aspect-square bg-primary/10 border-2 border-primary/30 rounded-3xl flex flex-col items-center justify-center space-y-3 cursor-pointer hover:bg-primary/20 hover:border-primary/50 transition-all group"
+          >
+            <div class="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <Camera size={40} class="text-primary" />
             </div>
-          {/if}
+            <span class="text-foreground font-bold text-lg">Take Photo</span>
+            <span class="text-xs text-muted-foreground">Recommended for speed</span>
+          </button>
+
+          <!-- Upload Button -->
+          <label class="aspect-square bg-card border-2 border-dashed border-border rounded-3xl flex flex-col items-center justify-center space-y-3 cursor-pointer hover:bg-accent hover:border-primary/30 transition-all group">
+            <input type="file" accept="image/*" class="hidden" on:change={handleFileUpload} />
+            <div class="w-20 h-20 rounded-full bg-muted flex items-center justify-center group-hover:scale-110 transition-transform">
+              <Upload size={40} class="text-muted-foreground group-hover:text-primary transition-colors" />
+            </div>
+            <span class="text-foreground font-bold text-lg">Upload Image</span>
+            <span class="text-xs text-muted-foreground">From gallery or files</span>
+          </label>
         </div>
 
-        <!-- Big Upload Button -->
-        <label class="w-full max-w-xs aspect-square bg-card border-2 border-dashed border-border rounded-3xl flex flex-col items-center justify-center space-y-4 cursor-pointer hover:bg-accent transition-colors group">
-          <input type="file" accept="image/*" class="hidden" on:change={handleFileUpload} />
-          <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-            <Upload size={40} class="text-primary" />
-          </div>
-          <span class="text-foreground font-medium text-lg">Upload Photo</span>
-        </label>
-
-        <!-- Camera Button -->
-        <Button 
-          variant="outline"
-          size="default"
-          on:click={startCamera}
-          class="text-primary bg-primary/10 hover:bg-primary/20"
-        >
-          <Camera size={20} />
-          <span>Use Camera</span>
-        </Button>
+        <!-- Quick Tips -->
+        <div class="text-center max-w-md">
+          <p class="text-xs text-muted-foreground">
+            <strong>Pro tip:</strong> Flatten the invoice and ensure good lighting for best OCR results
+          </p>
+        </div>
       </div>
     {/if}
     
@@ -564,6 +591,40 @@
               class="h-11"
             />
           </div>
+        </div>
+        
+        <!-- Category -->
+        <div class="space-y-1.5">
+          <Label class="text-xs uppercase">Category</Label>
+          <Select.Root 
+            selected={hints.category ? { value: hints.category, label: hints.category === 'Inventory' ? 'Inventory (Resale)' : hints.category } : { value: 'Inventory', label: 'Inventory (Resale)' }}
+            onSelectedChange={(v) => { 
+              if (v?.value) {
+                const val = v.value;
+                if (val === 'Inventory' || val === 'Utilities' || val === 'Maintenance' || val === 'Payroll' || val === 'Other') {
+                  hints.category = val;
+                }
+              }
+            }}
+          >
+            <Select.Trigger class="w-full h-11">
+              <Select.Value placeholder="Select category..." />
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Item value="Inventory" label="Inventory (Resale)">Inventory (Resale)</Select.Item>
+              <Select.Item value="Utilities" label="Utilities">Utilities</Select.Item>
+              <Select.Item value="Maintenance" label="Maintenance">Maintenance</Select.Item>
+              <Select.Item value="Payroll" label="Payroll">Payroll</Select.Item>
+              <Select.Item value="Other" label="Other">Other</Select.Item>
+            </Select.Content>
+          </Select.Root>
+          <p class="text-xs text-muted-foreground mt-1">
+            {#if hints.category === 'Inventory'}
+              Stock will be automatically updated when saved.
+            {:else}
+              Non-inventory expense - stock will not be affected.
+            {/if}
+          </p>
         </div>
       </div>
 

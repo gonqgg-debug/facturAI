@@ -1,4 +1,5 @@
 import type { CustomerSegment, TransactionFeatures, AIAnalysisResponse } from './types';
+import { getCsrfHeader, ensureCsrfToken } from '$lib/csrf';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -7,8 +8,7 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
  */
 export async function analyzeSegmentPersonality(
   segment: CustomerSegment,
-  sampleTransactions: TransactionFeatures[],
-  apiKey: string
+  sampleTransactions: TransactionFeatures[]
 ): Promise<AIAnalysisResponse> {
   const prompt = `
     Analyze this customer segment for a Dominican colmado (mini market):
@@ -44,11 +44,15 @@ export async function analyzeSegmentPersonality(
   `;
   
   try {
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    // Ensure CSRF token is available before making request
+    await ensureCsrfToken();
+    
+    const response = await fetch('/api/grok', {
       method: 'POST',
+      credentials: 'same-origin', // Ensure cookies are sent
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        ...getCsrfHeader()
       },
       body: JSON.stringify({
         model: 'grok-3-fast',
@@ -163,8 +167,7 @@ function generateFallbackInsights(segment: CustomerSegment): AIAnalysisResponse 
  */
 export async function enhanceSegmentsWithAI(
   segments: CustomerSegment[],
-  allFeatures: TransactionFeatures[],
-  apiKey: string
+  allFeatures: TransactionFeatures[]
 ): Promise<CustomerSegment[]> {
   const enhancedSegments: CustomerSegment[] = [];
   
@@ -173,7 +176,7 @@ export async function enhanceSegmentsWithAI(
     const sampleTransactions = getSampleTransactionsForSegment(segment, allFeatures);
     
     // Get AI analysis
-    const aiAnalysis = await analyzeSegmentPersonality(segment, sampleTransactions, apiKey);
+    const aiAnalysis = await analyzeSegmentPersonality(segment, sampleTransactions);
     
     enhancedSegments.push({
       ...segment,
@@ -219,7 +222,6 @@ function getSampleTransactionsForSegment(
 export async function batchAnalyzeSegments(
   segments: CustomerSegment[],
   allFeatures: TransactionFeatures[],
-  apiKey: string,
   cache?: Map<string, AIAnalysisResponse>
 ): Promise<CustomerSegment[]> {
   const enhancedSegments: CustomerSegment[] = [];
@@ -241,7 +243,7 @@ export async function batchAnalyzeSegments(
     const sampleTransactions = getSampleTransactionsForSegment(segment, allFeatures);
     
     // Get AI analysis
-    const aiAnalysis = await analyzeSegmentPersonality(segment, sampleTransactions, apiKey);
+    const aiAnalysis = await analyzeSegmentPersonality(segment, sampleTransactions);
     
     // Cache the result
     if (cache) {

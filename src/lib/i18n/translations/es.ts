@@ -84,6 +84,13 @@ export const es = {
     settings: 'Configuración',
     sales: 'Ventas',
     inputs: 'Entradas',
+    purchases: 'Compras',
+    purchasingHub: 'Centro de Compras',
+    purchaseOrders: 'Órdenes de Compra',
+    receiving: 'Recepción',
+    quickCapture: 'Captura Rápida',
+    importInvoices: 'Importar Facturas',
+    purchaseHistory: 'Historial de Compras',
     inventory: 'Inventario',
     finance: 'Finanzas',
     resources: 'Recursos',
@@ -573,6 +580,48 @@ export const es = {
     next: 'Siguiente',
     page: 'Página',
     of: 'de'
+  },
+  // Módulo de Compras
+  purchasing: {
+    // Tarjeta de información de Órdenes de Compra
+    poInfoTitle: 'Cuándo Usar Órdenes de Compra',
+    poInfoDescription: 'Usa Órdenes de Compra para compras planificadas donde deseas rastrear el ciclo completo de la orden:',
+    poInfoItem1: 'Pedidos planificados o recurrentes a proveedores',
+    poInfoItem2: 'Pedidos grandes que pueden llegar en múltiples envíos',
+    poInfoItem3: 'Cuando necesitas rastrear cantidades esperadas vs. recibidas',
+    poInfoItem4: 'Para presupuesto y planificación de gastos',
+    poWorkflow: 'Flujo de trabajo:',
+    poTip: 'Para pedidos de camión en vivo sin Orden de Compra, usa Captura de Facturas para procesamiento más rápido.',
+    // Tarjeta de información de Importar Factura
+    importInfoTitle: 'Cuándo Usar Importar Factura',
+    importInfoDescription: 'Usa Importar Factura cuando recibes una factura después de que la mercancía ya llegó, o cuando procesas facturas que necesitan vincularse a recibos existentes:',
+    importInfoItem1: 'La factura llega por correo electrónico o postal después de recibir mercancía',
+    importInfoItem2: 'Necesitas vincular una factura a un Recibo existente',
+    importInfoItem3: 'Facturas de compras a crédito (términos de pago a 30 días)',
+    importInfoItem4: 'Conciliar facturas con entregas anteriores',
+    importLinkTitle: 'Vincular a Recibo:',
+    importLinkDescription: 'Si ya recibiste mercancía a través del módulo de Recepción, puedes vincular esta factura a ese recibo para una auditoría completa.',
+    importTip: 'Para pedidos de camión en vivo donde la mercancía y factura llegan juntas, usa Captura de Facturas para procesamiento más rápido.',
+    // Categorías
+    category: 'Categoría',
+    categories: {
+      Inventory: 'Inventario (Reventa)',
+      Utilities: 'Servicios Públicos',
+      Maintenance: 'Mantenimiento',
+      Payroll: 'Nómina',
+      Other: 'Otro'
+    },
+    categoryInventoryNote: 'El inventario se actualizará automáticamente al guardar.',
+    categoryNonInventoryNote: 'Gasto no de inventario - el stock no se verá afectado.',
+    // Estados
+    statuses: {
+      draft: 'Borrador',
+      sent: 'Enviado',
+      partial: 'Parcial',
+      received: 'Recibido',
+      closed: 'Cerrado',
+      cancelled: 'Cancelado'
+    }
   }
 };
 

@@ -149,7 +149,7 @@
         
         weatherLoading = true;
         try {
-            const weatherData = await fetchWeatherByCity($storeLocation, $weatherApiKey);
+            const weatherData = await fetchWeatherByCity($storeLocation);
             if (weatherData) {
                 weather = weatherData;
                 currentWeather.set(weatherData);
@@ -246,7 +246,7 @@
         
         try {
             // Enhance segments with AI
-            segments = await enhanceSegmentsWithAI(segments, allFeatures, $apiKey);
+            segments = await enhanceSegmentsWithAI(segments, allFeatures);
             customerSegments.set(segments);
             
             // Save to database

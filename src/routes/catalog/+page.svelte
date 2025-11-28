@@ -181,8 +181,7 @@ import { apiKey } from '$lib/stores';
         rawProducts,
         sales,
         invoices,
-        stockMovements,
-        $apiKey
+        stockMovements
       );
 
       generationStatus = $locale === 'es' ? '¡Lista completada!' : 'Shopping list ready!';

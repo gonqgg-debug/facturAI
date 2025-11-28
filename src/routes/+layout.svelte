@@ -1,11 +1,11 @@
 <script lang="ts">
   import '../app.css';
   import { page } from '$app/stores';
-  import { Home, Camera, CheckSquare, FileText, BookOpen, Settings, Tag, Package, Search, Sun, Moon, ChevronDown, ChevronRight, Users, X, ShoppingCart, ClipboardList, BarChart3, Receipt, Brain } from 'lucide-svelte';
+  import { Home, Camera, CheckSquare, FileText, BookOpen, Settings, Tag, Package, Search, Sun, Moon, ChevronDown, ChevronRight, Users, X, ShoppingCart, ClipboardList, BarChart3, Receipt, Brain, FileCheck, Zap } from 'lucide-svelte';
 
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { isAuthenticated, restoreSession, currentUser } from '$lib/auth';
+  import { isAuthenticated, restoreSession, currentUser, updateSessionActivity, checkSessionTimeout } from '$lib/auth';
   import { browser } from '$app/environment';
   import { db } from '$lib/db';
   import Fuse from 'fuse.js';
@@ -28,11 +28,14 @@
       ]
     },
     {
-      key: 'inputs',
-      title: t('nav.inputs', $locale as Locale),
+      key: 'purchases',
+      title: t('nav.purchases', $locale as Locale),
       items: [
-        { href: '/capture', labelKey: 'nav.capture', icon: Camera },
-        { href: '/validation', labelKey: 'nav.validate', icon: CheckSquare }
+        { href: '/purchases', labelKey: 'nav.purchasingHub', icon: ClipboardList },
+        { href: '/purchases/orders', labelKey: 'nav.purchaseOrders', icon: FileCheck },
+        { href: '/purchases/receiving', labelKey: 'nav.receiving', icon: Package },
+        { href: '/capture', labelKey: 'nav.quickCapture', icon: Zap },
+        { href: '/purchases/history', labelKey: 'nav.purchaseHistory', icon: BarChart3 }
       ]
     },
     {
@@ -111,8 +114,45 @@
   onMount(() => {
     // Try to restore existing session (fire and forget)
     if (browser) {
-      restoreSession();
+      restoreSession().then((restored) => {
+        if (restored) {
+          updateSessionActivity();
+        }
+      });
     }
+    
+    // Set up session timeout check interval (check every 5 minutes)
+    const sessionCheckInterval = setInterval(() => {
+      if (browser && $isAuthenticated) {
+        const sessionCheck = checkSessionTimeout();
+        if (sessionCheck.expired) {
+          // Session expired, redirect to login
+          goto('/login');
+        } else {
+          // Update activity to keep session alive
+          updateSessionActivity();
+        }
+      }
+    }, 5 * 60 * 1000); // Check every 5 minutes
+    
+    // Track user activity (clicks, keypresses) to keep session alive
+    const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart'];
+    const handleActivity = () => {
+      if (browser && $isAuthenticated) {
+        updateSessionActivity();
+      }
+    };
+    
+    activityEvents.forEach(event => {
+      window.addEventListener(event, handleActivity, { passive: true });
+    });
+    
+    // Track route navigation for session activity
+    const unsubscribePage = page.subscribe(() => {
+      if (browser && $isAuthenticated) {
+        updateSessionActivity();
+      }
+    });
     
     const unsubscribe = isAuthenticated.subscribe(value => {
       if (!value && $page.url.pathname !== '/login') {
@@ -120,6 +160,8 @@
       } else if (value) {
         // Load search data when authenticated
         loadSearchData();
+        // Update activity on authentication
+        updateSessionActivity();
       }
     });
 
@@ -144,6 +186,11 @@
 
     return () => {
       unsubscribe();
+      unsubscribePage();
+      clearInterval(sessionCheckInterval);
+      activityEvents.forEach(event => {
+        window.removeEventListener(event, handleActivity);
+      });
       if (browser) {
         document.removeEventListener('click', handleClickOutside);
       }
@@ -303,7 +350,7 @@
   }
 </script>
 
-{#if $isAuthenticated}
+{#if $isAuthenticated && $page.url.pathname !== '/login'}
 <div class="flex flex-col h-screen w-full overflow-hidden bg-background text-foreground transition-colors duration-300">
   
   <!-- Top Bar (Desktop/Tablet) - Hidden in POS mode -->

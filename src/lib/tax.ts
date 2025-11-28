@@ -1,4 +1,4 @@
-import type { Invoice, InvoiceItem, Product } from './types';
+import type { Invoice, InvoiceItem, Product, PurchaseOrder, PurchaseOrderItem } from './types';
 
 // Standard tax rates in Dominican Republic
 export const ITBIS_RATE = 0.18;
@@ -260,4 +260,69 @@ export function getCartItemBreakdown(
     }
     
     return { unitPrice, value, itbis, amount, taxRate, priceIncludesTax };
+}
+
+// ============ PURCHASE ORDER TAX UTILITIES ============
+
+/**
+ * Calculate tax breakdown for a purchase order item
+ */
+export function calculatePOItemTax(item: PurchaseOrderItem): PurchaseOrderItem {
+    // Ensure numbers
+    item.quantity = Number(item.quantity) || 0;
+    item.unitPrice = Number(item.unitPrice) || 0;
+    
+    // Default tax rate to 18% if not set
+    const rate = item.taxRate !== undefined ? item.taxRate : 0.18;
+    const priceIncludesTax = item.priceIncludesTax ?? false; // Default: price excludes tax
+    
+    if (priceIncludesTax && rate > 0) {
+        // Price includes tax - extract base value
+        const totalAmount = item.quantity * item.unitPrice;
+        const netValue = totalAmount / (1 + rate);
+        
+        item.value = Number(netValue.toFixed(2));
+        item.itbis = Number((totalAmount - netValue).toFixed(2));
+        item.amount = Number(totalAmount.toFixed(2));
+    } else {
+        // Standard calculation (Tax Excluded)
+        item.value = Number((item.quantity * item.unitPrice).toFixed(2));
+        item.itbis = rate > 0 ? Number((item.value * rate).toFixed(2)) : 0;
+        item.amount = Number((item.value + item.itbis).toFixed(2));
+    }
+    
+    // Ensure tax rate is stored
+    item.taxRate = rate;
+    item.priceIncludesTax = priceIncludesTax;
+    
+    return item;
+}
+
+/**
+ * Recalculate purchase order totals from items
+ */
+export function recalculatePurchaseOrder(po: PurchaseOrder): PurchaseOrder {
+    let subtotal = 0;
+    let itbisTotal = 0;
+    let total = 0;
+    
+    po.items.forEach(item => {
+        // Calculate each item's tax breakdown
+        const calculatedItem = calculatePOItemTax({ ...item });
+        
+        // Update item with calculated values
+        item.value = calculatedItem.value;
+        item.itbis = calculatedItem.itbis;
+        item.amount = calculatedItem.amount;
+        
+        subtotal += item.value;
+        itbisTotal += item.itbis;
+        total += item.amount;
+    });
+    
+    po.subtotal = Number(subtotal.toFixed(2));
+    po.itbisTotal = Number(itbisTotal.toFixed(2));
+    po.total = Number(total.toFixed(2));
+    
+    return po;
 }

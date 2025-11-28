@@ -49,6 +49,9 @@ export interface Invoice {
     paidDate?: string;         // Date when invoice was paid
     paidAmount?: number;       // Amount paid (for partial payments)
     creditDays?: number;       // Credit days from supplier
+    
+    // Purchase Management
+    receiptId?: number;         // Link to receipt if available
 }
 
 export interface Supplier {
@@ -205,10 +208,70 @@ export interface StockMovement {
     type: 'in' | 'out' | 'adjustment' | 'return';
     quantity: number;
     invoiceId?: number;  // Reference to invoice (if applicable)
+    receiptId?: number;  // Reference to receipt (if applicable)
     saleId?: number;     // Reference to sale (if applicable)
     returnId?: number;   // Reference to return (if applicable)
     date: string;
     notes?: string;
+}
+
+// ============ PURCHASE ORDERS & RECEIPTS ============
+
+export interface PurchaseOrderItem {
+    productId?: number;
+    productName: string;
+    quantity: number;
+    unitPrice: number;
+    taxRate?: number; // 0.18, 0.16, 0
+    priceIncludesTax?: boolean;
+    value: number; // Subtotal before tax (quantity * unitPrice or net)
+    itbis: number; // Tax amount for this line
+    amount: number; // Total for this line (value + itbis)
+    expectedDate?: string;
+    notes?: string;
+}
+
+export interface PurchaseOrder {
+    id?: number;
+    poNumber: string; // Auto-generated: PO-YYYY-XXXX
+    supplierId: number;
+    supplierName?: string; // Denormalized
+    orderDate: string;
+    expectedDate?: string;
+    status: 'draft' | 'sent' | 'partial' | 'received' | 'closed' | 'cancelled';
+    items: PurchaseOrderItem[];
+    subtotal: number; // Total before tax
+    itbisTotal: number; // Total tax amount
+    total: number; // Total including tax
+    notes?: string;
+    createdBy?: number;
+    createdAt: Date;
+    updatedAt?: Date;
+}
+
+export interface ReceiptItem {
+    productId?: number;
+    productName: string;
+    quantity: number;
+    unitPrice: number;
+    receivedQuantity: number; // May differ from ordered quantity
+    condition: 'good' | 'damaged' | 'expired' | 'wrong_item';
+    notes?: string;
+}
+
+export interface Receipt {
+    id?: number;
+    receiptNumber: string; // Auto-generated: REC-YYYY-XXXX
+    purchaseOrderId?: number; // Optional: can receive without PO
+    supplierId: number;
+    supplierName?: string;
+    receiptDate: string;
+    invoiceId?: number; // Link to invoice if available
+    items: ReceiptItem[];
+    total: number;
+    notes?: string;
+    receivedBy?: number;
+    createdAt: Date;
 }
 
 // ============ CUSTOMERS & SALES (Phase 1) ============

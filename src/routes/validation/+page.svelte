@@ -5,8 +5,9 @@
   import { db } from '$lib/db';
   import { recalculateInvoice, validateNcf, getNcfType, recalculateFromTotal } from '$lib/tax';
   import { parseInvoiceWithGrok } from '$lib/grok';
-  import { Save, RefreshCw, AlertTriangle, Check, TrendingUp, TrendingDown, Brain, Link, Package, Calendar, Search, Plus, X, Sparkles, ArrowRight } from 'lucide-svelte';
-  import type { Supplier, Product, StockMovement } from '$lib/types';
+  import { Save, RefreshCw, AlertTriangle, Check, TrendingUp, TrendingDown, Brain, Link, Package, Calendar, Search, Plus, X, Sparkles, ArrowRight, UserPlus, ClipboardList, Minus, Pencil, Eye } from 'lucide-svelte';
+  import SupplierFormModal from '$lib/components/SupplierFormModal.svelte';
+  import type { Supplier, Product, StockMovement, PurchaseOrder } from '$lib/types';
   import { findProductMatches, autoLinkInvoiceItems, type MatchResult, type ProductMatch } from '$lib/matcher';
   import { checkLowStock, generateStockUpdateAlerts, type StockAlert } from '$lib/alerts';
   import * as Sheet from '$lib/components/ui/sheet';
@@ -29,6 +30,11 @@
   let selectedSupplierId: number | null = null;
   let products: Product[] = [];
   let allProducts: Product[] = []; // All products for fuzzy matching
+  
+  // Purchase Order linking
+  let purchaseOrders: PurchaseOrder[] = [];
+  let selectedPurchaseOrderId: number | null = null;
+  let selectedPO: PurchaseOrder | null = null;
   let priceAlerts: Record<number, { type: 'up' | 'down', diff: number, lastPrice: number, lastDate: string }> = {};
   let isSaving = false;
   let showReasoning = false;
@@ -37,6 +43,49 @@
   
   // Discard confirmation state
   let discardDialogOpen = false;
+  
+  // Supplier creation modal state
+  let showSupplierModal = false;
+  
+  // Real-time calculation state
+  let isCalculating = false;
+  let calculatingRows: Set<number> = new Set();
+  let recalcTimeout: ReturnType<typeof setTimeout> | null = null;
+  
+  // OCR tracking state - store original values to show what was AI-detected
+  let originalInvoiceData: {
+    providerName?: string;
+    providerRnc?: string;
+    ncf?: string;
+    issueDate?: string;
+    items?: Array<{
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      amount: number;
+    }>;
+  } | null = null;
+  
+  // Track which fields have been edited by the user
+  let editedFields: Set<string> = new Set();
+  
+  // Unsaved changes tracking
+  let hasUnsavedChanges = false;
+  
+  // Update unsaved changes when invoice is modified
+  $: if (invoice && originalInvoiceData) {
+    const itemsChanged = invoice.items?.some((item, i) => {
+      const orig = originalInvoiceData?.items?.[i];
+      if (!orig) return true; // New item
+      return item.quantity !== orig.quantity || 
+             item.unitPrice !== orig.unitPrice || 
+             item.description !== orig.description;
+    }) || (invoice.items?.length !== originalInvoiceData?.items?.length);
+    
+    hasUnsavedChanges = editedFields.size > 0 || itemsChanged || 
+                        selectedSupplierId !== null || 
+                        selectedPurchaseOrderId !== null;
+  }
 
   // Fuzzy Match State
   let fuzzyMatches: Record<number, MatchResult> = {};
@@ -56,8 +105,24 @@
       goto('/capture');
       return;
     }
+    
+    // Store original OCR values for tracking edits
+    originalInvoiceData = {
+      providerName: invoice.providerName,
+      providerRnc: invoice.providerRnc,
+      ncf: invoice.ncf,
+      issueDate: invoice.issueDate,
+      items: invoice.items?.map(item => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        amount: item.amount
+      }))
+    };
+    
     suppliers = await db.suppliers.toArray();
     allProducts = await db.products.toArray(); // Load all products for fuzzy matching
+    purchaseOrders = await db.purchaseOrders.toArray(); // Load all purchase orders
     
     // Auto-match supplier by name or RNC
     const match = suppliers.find(s => 
@@ -86,6 +151,45 @@
     updateDueDate(selectedSupplierId);
   }
 
+  // Filter POs by selected supplier
+  $: availablePOs = purchaseOrders.filter(po => 
+    po.supplierId === selectedSupplierId && 
+    po.status !== 'closed' && 
+    po.status !== 'cancelled'
+  );
+
+  // Handle PO selection change
+  function handlePOChange(poId: number | null) {
+    selectedPurchaseOrderId = poId;
+    if (poId) {
+      selectedPO = purchaseOrders.find(po => po.id === poId) || null;
+    } else {
+      selectedPO = null;
+    }
+  }
+
+  // Get variance between PO and invoice quantities
+  function getPoVariance(itemDescription: string): { ordered: number; variance: number } | null {
+    if (!selectedPO) return null;
+    
+    const poItem = selectedPO.items.find(item => 
+      item.productName.toLowerCase() === itemDescription.toLowerCase()
+    );
+    
+    if (!poItem) return null;
+    
+    const invoiceItem = invoice?.items?.find(item => 
+      item.description.toLowerCase() === itemDescription.toLowerCase()
+    );
+    
+    const invoiceQty = invoiceItem?.quantity || 0;
+    
+    return {
+      ordered: poItem.quantity,
+      variance: invoiceQty - poItem.quantity
+    };
+  }
+
   async function loadProducts(supplierId: number) {
     products = await db.products.where('supplierId').equals(supplierId).toArray();
     autoLinkProducts();
@@ -100,6 +204,29 @@
       invoice.dueDate = issueDate.toISOString().split('T')[0];
       invoice.creditDays = supplier.defaultCreditDays;
     }
+  }
+
+  function openSupplierModal() {
+    showSupplierModal = true;
+  }
+
+  async function handleSupplierSaved(event: CustomEvent<{ supplier: Supplier }>) {
+    const newSupplier = event.detail.supplier;
+    // Refresh suppliers list
+    suppliers = await db.suppliers.toArray();
+    // Auto-select the new supplier
+    if (newSupplier.id) {
+      selectedSupplierId = newSupplier.id;
+      // Update invoice with new supplier info
+      if (invoice) {
+        invoice.providerName = newSupplier.name;
+        invoice.providerRnc = newSupplier.rnc;
+      }
+      // Load products and update due date
+      loadProducts(newSupplier.id);
+      updateDueDate(newSupplier.id);
+    }
+    showSupplierModal = false;
   }
 
   function runFuzzyMatching() {
@@ -186,18 +313,118 @@
 
   function handleRecalc() {
     if (invoice) {
+      isCalculating = true;
       invoice = recalculateInvoice(invoice as any);
       currentInvoice.set(invoice);
       checkPrices();
+      // Brief visual feedback
+      setTimeout(() => {
+        isCalculating = false;
+      }, 150);
     }
+  }
+
+  // Debounced recalc for real-time input
+  function debouncedRecalc(rowIndex?: number) {
+    // Show calculating indicator for the row
+    if (rowIndex !== undefined) {
+      calculatingRows.add(rowIndex);
+      calculatingRows = calculatingRows; // Trigger reactivity
+    }
+    
+    // Clear previous timeout
+    if (recalcTimeout) {
+      clearTimeout(recalcTimeout);
+    }
+    
+    // Debounce the actual recalculation
+    recalcTimeout = setTimeout(() => {
+      handleRecalc();
+      // Clear row indicators
+      if (rowIndex !== undefined) {
+        calculatingRows.delete(rowIndex);
+        calculatingRows = calculatingRows;
+      }
+    }, 100);
   }
 
   function handleTotalChange(index: number) {
     if (!invoice || !invoice.items) return;
+    // Show calculating state for this row
+    calculatingRows.add(index);
+    calculatingRows = calculatingRows;
+    
     // Recalculate this specific item from its total
     invoice.items[index] = recalculateFromTotal(invoice.items[index]);
-    // Then update the global totals
-    handleRecalc();
+    // Then update the global totals with debounce
+    debouncedRecalc(index);
+  }
+
+  // Handle real-time input changes for line items
+  function handleItemInput(index: number, field: 'quantity' | 'unitPrice') {
+    if (!invoice || !invoice.items) return;
+    debouncedRecalc(index);
+  }
+
+  // Format number to 2 decimal places on blur
+  function formatOnBlur(event: Event, index: number, field: 'quantity' | 'unitPrice' | 'amount') {
+    if (!invoice || !invoice.items) return;
+    const input = event.target as HTMLInputElement;
+    const value = parseFloat(input.value);
+    if (!isNaN(value)) {
+      if (field === 'quantity') {
+        invoice.items[index].quantity = Math.round(value * 100) / 100;
+      } else if (field === 'unitPrice') {
+        invoice.items[index].unitPrice = Math.round(value * 100) / 100;
+      } else if (field === 'amount') {
+        invoice.items[index].amount = Math.round(value * 100) / 100;
+      }
+      handleRecalc();
+    }
+  }
+
+  // OCR Tracking Functions
+  function markFieldEdited(fieldKey: string) {
+    editedFields.add(fieldKey);
+    editedFields = editedFields; // Trigger reactivity
+  }
+
+  function isFieldEdited(fieldKey: string): boolean {
+    return editedFields.has(fieldKey);
+  }
+
+  function getOriginalValue(fieldKey: string): string | number | undefined {
+    if (!originalInvoiceData) return undefined;
+    
+    const [type, indexOrField, subField] = fieldKey.split('.');
+    
+    if (type === 'header') {
+      switch (indexOrField) {
+        case 'providerName': return originalInvoiceData.providerName;
+        case 'providerRnc': return originalInvoiceData.providerRnc;
+        case 'ncf': return originalInvoiceData.ncf;
+        case 'issueDate': return originalInvoiceData.issueDate;
+      }
+    } else if (type === 'item' && originalInvoiceData.items) {
+      const index = parseInt(indexOrField);
+      const item = originalInvoiceData.items[index];
+      if (item) {
+        switch (subField) {
+          case 'description': return item.description;
+          case 'quantity': return item.quantity;
+          case 'unitPrice': return item.unitPrice;
+          case 'amount': return item.amount;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  function checkAndMarkEdit(fieldKey: string, currentValue: any) {
+    const original = getOriginalValue(fieldKey);
+    if (original !== undefined && String(original) !== String(currentValue)) {
+      markFieldEdited(fieldKey);
+    }
   }
 
   async function handleSave() {
@@ -344,7 +571,38 @@
         }
       }
 
-      // 5. Generate and show stock alerts
+      // 5. Update linked Purchase Order status if applicable
+      if (selectedPurchaseOrderId && selectedPO) {
+        // Determine if all items have been received
+        let allItemsReceived = true;
+        let anyItemsReceived = false;
+
+        for (const poItem of selectedPO.items) {
+          const invoiceItem = invoice.items?.find(item => 
+            item.description.toLowerCase() === poItem.productName.toLowerCase()
+          );
+          
+          if (invoiceItem && invoiceItem.quantity > 0) {
+            anyItemsReceived = true;
+            if (invoiceItem.quantity < poItem.quantity) {
+              allItemsReceived = false;
+            }
+          } else {
+            allItemsReceived = false;
+          }
+        }
+
+        // Update PO status
+        const newStatus = allItemsReceived ? 'received' : anyItemsReceived ? 'partial' : selectedPO.status;
+        if (newStatus !== selectedPO.status) {
+          await db.purchaseOrders.update(selectedPurchaseOrderId, {
+            status: newStatus,
+            updatedAt: new Date()
+          });
+        }
+      }
+
+      // 6. Generate and show stock alerts
       if (isInventoryInvoice && updatedProducts.length > 0) {
         stockAlerts = generateStockUpdateAlerts(updatedProducts);
         
@@ -378,12 +636,12 @@
   }
 
   async function handleReanalyze() {
-    if (!invoice || !$apiKey) return;
+    if (!invoice) return;
     const supplier = suppliers.find(s => s.id === selectedSupplierId);
     
     isProcessing.set(true);
     try {
-      const newData = await parseInvoiceWithGrok(invoice.rawText || '', $apiKey, supplier);
+      const newData = await parseInvoiceWithGrok(invoice.rawText || '', supplier);
       // Merge carefully, keeping user edits if possible? 
       // For now, overwrite is safer if they asked for re-analysis
       currentInvoice.set({
@@ -747,7 +1005,15 @@
     {#if invoice}
       <!-- Header Actions -->
       <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">Validate</h1>
+        <div class="flex items-center gap-3">
+          <h1 class="text-2xl font-bold">Validate Invoice</h1>
+          {#if hasUnsavedChanges}
+            <span class="px-2 py-1 bg-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-medium rounded-full flex items-center gap-1">
+              <span class="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse"></span>
+              Unsaved
+            </span>
+          {/if}
+        </div>
         <div class="flex space-x-2">
           <Button variant="destructive" size="sm" on:click={confirmDiscard}>
             Cancel
@@ -762,12 +1028,38 @@
               <span class="hidden sm:inline text-sm">AI Logic</span>
             </Button>
           {/if}
-          <Button variant="default" size="default" on:click={handleSave} disabled={isSaving} class="bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/20">
+          <Button variant="default" size="lg" on:click={handleSave} disabled={isSaving} class="bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/20 px-6">
             <Save size={18} />
-            <span>Save</span>
+            <span class="font-semibold">Save Invoice</span>
+            {#if invoice?.items?.length}
+              <span class="ml-1 text-green-200 text-sm">({invoice.items.length} items)</span>
+            {/if}
           </Button>
         </div>
       </div>
+
+      <!-- OCR Legend -->
+      {#if originalInvoiceData}
+        <div class="bg-muted/30 border border-border rounded-lg p-3 mb-4">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <span class="text-xs font-medium text-muted-foreground">AI-Extracted Data Indicators:</span>
+            <div class="flex items-center gap-4 text-xs">
+              <div class="flex items-center gap-1">
+                <Eye size={12} class="text-primary/60" />
+                <span class="text-muted-foreground">OCR Detected</span>
+              </div>
+              <div class="flex items-center gap-1">
+                <div class="w-0.5 h-4 bg-primary/30 rounded"></div>
+                <span class="text-muted-foreground">AI-filled field</span>
+              </div>
+              <div class="flex items-center gap-1">
+                <span class="text-amber-500 text-[10px] font-bold">EDITED</span>
+                <span class="text-muted-foreground">User modified</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      {/if}
 
       <!-- Main Form -->
       <div class="space-y-6">
@@ -780,29 +1072,76 @@
           <Card.Content>
           <div class="mb-3">
             <label class="block text-[10px] text-muted-foreground mb-1 uppercase">Select Provider</label>
-            <Select.Root 
-              selected={selectedSupplierId ? { value: String(selectedSupplierId), label: suppliers.find(s => s.id === selectedSupplierId)?.name || '' } : undefined}
-              onSelectedChange={(v) => { selectedSupplierId = v?.value ? Number(v.value) : null; }}
-            >
-              <Select.Trigger class="w-full bg-input/50 h-9 text-sm">
-                <Select.Value placeholder="-- New / Unknown --" />
-              </Select.Trigger>
-              <Select.Content>
-                {#each suppliers as s}
-                  <Select.Item value={String(s.id)} label="{s.name} ({s.rnc})">{s.name} ({s.rnc})</Select.Item>
-                {/each}
-              </Select.Content>
-            </Select.Root>
+            <div class="flex gap-2">
+              <Select.Root 
+                selected={selectedSupplierId ? { value: String(selectedSupplierId), label: suppliers.find(s => s.id === selectedSupplierId)?.name || '' } : undefined}
+                onSelectedChange={(v) => { selectedSupplierId = v?.value ? Number(v.value) : null; }}
+              >
+                <Select.Trigger class="flex-1 bg-input/50 h-10 text-sm">
+                  <Select.Value placeholder="-- Select or Create Provider --" />
+                </Select.Trigger>
+                <Select.Content>
+                  {#each suppliers as s}
+                    <Select.Item value={String(s.id)} label="{s.name} ({s.rnc})">{s.name} ({s.rnc})</Select.Item>
+                  {/each}
+                </Select.Content>
+              </Select.Root>
+              <button
+                type="button"
+                on:click={openSupplierModal}
+                class="h-10 px-3 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg flex items-center gap-2 transition-colors border border-primary/30"
+                title="Create New Supplier"
+              >
+                <UserPlus size={18} />
+                <span class="hidden sm:inline text-sm font-medium">New</span>
+              </button>
+            </div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-              <Label for="provider-name" class="text-[10px] uppercase">Name</Label>
-              <Input id="provider-name" bind:value={invoice.providerName} class="h-9 bg-input/50" />
+            <div class="space-y-1.5 relative">
+              <Label for="provider-name" class="text-[10px] uppercase flex items-center gap-1">
+                Name
+                {#if originalInvoiceData?.providerName}
+                  <Tooltip.Root>
+                    <Tooltip.Trigger>
+                      <Eye size={10} class="text-primary/60" />
+                    </Tooltip.Trigger>
+                    <Tooltip.Content>OCR detected: "{originalInvoiceData.providerName}"</Tooltip.Content>
+                  </Tooltip.Root>
+                {/if}
+                {#if isFieldEdited('header.providerName')}
+                  <span class="text-amber-500 text-[8px] font-bold">EDITED</span>
+                {/if}
+              </Label>
+              <Input 
+                id="provider-name" 
+                bind:value={invoice.providerName} 
+                on:blur={() => checkAndMarkEdit('header.providerName', invoice.providerName)}
+                class="h-10 bg-input/50 {originalInvoiceData?.providerName ? 'border-l-2 border-l-primary/30' : ''} {isFieldEdited('header.providerName') ? 'border-amber-500/50' : ''}" 
+              />
             </div>
-            <div class="space-y-1.5">
-              <Label for="provider-rnc" class="text-[10px] uppercase">RNC</Label>
-              <Input id="provider-rnc" bind:value={invoice.providerRnc} class="h-9 bg-input/50" />
+            <div class="space-y-1.5 relative">
+              <Label for="provider-rnc" class="text-[10px] uppercase flex items-center gap-1">
+                RNC
+                {#if originalInvoiceData?.providerRnc}
+                  <Tooltip.Root>
+                    <Tooltip.Trigger>
+                      <Eye size={10} class="text-primary/60" />
+                    </Tooltip.Trigger>
+                    <Tooltip.Content>OCR detected: "{originalInvoiceData.providerRnc}"</Tooltip.Content>
+                  </Tooltip.Root>
+                {/if}
+                {#if isFieldEdited('header.providerRnc')}
+                  <span class="text-amber-500 text-[8px] font-bold">EDITED</span>
+                {/if}
+              </Label>
+              <Input 
+                id="provider-rnc" 
+                bind:value={invoice.providerRnc} 
+                on:blur={() => checkAndMarkEdit('header.providerRnc', invoice.providerRnc)}
+                class="h-10 bg-input/50 {originalInvoiceData?.providerRnc ? 'border-l-2 border-l-primary/30' : ''} {isFieldEdited('header.providerRnc') ? 'border-amber-500/50' : ''}" 
+              />
             </div>
           </div>
           </Card.Content>
@@ -828,21 +1167,45 @@
           <Card.Content>
           <div class="grid grid-cols-2 gap-3">
             <div class="space-y-1.5">
-              <Label for="invoice-ncf" class="text-[10px] uppercase">NCF</Label>
+              <Label for="invoice-ncf" class="text-[10px] uppercase flex items-center gap-1">
+                NCF
+                {#if originalInvoiceData?.ncf}
+                  <Tooltip.Root>
+                    <Tooltip.Trigger>
+                      <Eye size={10} class="text-primary/60" />
+                    </Tooltip.Trigger>
+                    <Tooltip.Content>OCR detected: "{originalInvoiceData.ncf}"</Tooltip.Content>
+                  </Tooltip.Root>
+                {/if}
+                {#if isFieldEdited('header.ncf')}
+                  <span class="text-amber-500 text-[8px] font-bold">EDITED</span>
+                {/if}
+              </Label>
               <Input 
                 id="invoice-ncf"
                 bind:value={invoice.ncf} 
-                class="h-9 bg-input/50 {validateNcf(invoice.ncf || '') ? 'border-green-500/50' : 'border-red-500/50'}" 
+                on:blur={() => checkAndMarkEdit('header.ncf', invoice.ncf)}
+                class="h-10 bg-input/50 {originalInvoiceData?.ncf ? 'border-l-2 border-l-primary/30' : ''} {validateNcf(invoice.ncf || '') ? 'border-green-500/50' : 'border-red-500/50'} {isFieldEdited('header.ncf') ? 'border-amber-500/50' : ''}" 
               />
               <p class="text-[10px] text-muted-foreground truncate">{getNcfType(invoice.ncf || '')}</p>
             </div>
             <div class="space-y-1.5">
-              <Label for="issue-date" class="text-[10px] uppercase">Issue Date</Label>
+              <Label for="issue-date" class="text-[10px] uppercase flex items-center gap-1">
+                Issue Date
+                {#if originalInvoiceData?.issueDate}
+                  <Tooltip.Root>
+                    <Tooltip.Trigger>
+                      <Eye size={10} class="text-primary/60" />
+                    </Tooltip.Trigger>
+                    <Tooltip.Content>OCR detected: "{originalInvoiceData.issueDate}"</Tooltip.Content>
+                  </Tooltip.Root>
+                {/if}
+              </Label>
               <DatePicker 
                 bind:value={invoice.issueDate} 
                 placeholder="Select date"
                 locale={$locale === 'es' ? 'es-DO' : 'en-US'}
-                class="h-9 w-full"
+                class="h-10 w-full"
               />
             </div>
           </div>
@@ -892,34 +1255,88 @@
           </Card.Content>
         </Card.Root>
 
+        <!-- Purchase Order Linking -->
+        {#if selectedSupplierId && availablePOs.length > 0}
+          <Card.Root class="{selectedPO ? 'border-blue-500/30 bg-blue-500/5' : ''}">
+            <Card.Header>
+              <Card.Title class="text-muted-foreground text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                <ClipboardList size={14} />
+                Link to Purchase Order (Optional)
+              </Card.Title>
+            </Card.Header>
+            <Card.Content>
+              <Select.Root 
+                selected={selectedPurchaseOrderId ? { value: String(selectedPurchaseOrderId), label: availablePOs.find(po => po.id === selectedPurchaseOrderId)?.poNumber || '' } : undefined}
+                onSelectedChange={(v) => handlePOChange(v?.value ? Number(v.value) : null)}
+              >
+                <Select.Trigger class="w-full bg-input/50 h-10 text-sm">
+                  <Select.Value placeholder="-- No Purchase Order --" />
+                </Select.Trigger>
+                <Select.Content>
+                  <Select.Item value="" label="-- No Purchase Order --">-- No Purchase Order --</Select.Item>
+                  {#each availablePOs as po}
+                    <Select.Item value={String(po.id)} label="{po.poNumber} - {po.orderDate}">
+                      <div class="flex items-center justify-between w-full gap-2">
+                        <span class="font-mono font-bold">{po.poNumber}</span>
+                        <span class="text-muted-foreground text-xs">{po.orderDate}</span>
+                        <span class="text-xs px-2 py-0.5 rounded {po.status === 'partial' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'}">
+                          {po.status}
+                        </span>
+                      </div>
+                    </Select.Item>
+                  {/each}
+                </Select.Content>
+              </Select.Root>
+
+              {#if selectedPO}
+                <div class="mt-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-semibold text-blue-600 dark:text-blue-400">PO {selectedPO.poNumber}</span>
+                    <span class="text-xs text-muted-foreground">{selectedPO.items.length} items • ${selectedPO.total.toFixed(2)}</span>
+                  </div>
+                  <p class="text-xs text-muted-foreground">
+                    Linking this invoice will update the PO status based on received quantities.
+                  </p>
+                </div>
+              {/if}
+            </Card.Content>
+          </Card.Root>
+        {/if}
+
         <!-- Totals -->
-        <Card.Root>
+        <Card.Root class="{isCalculating ? 'ring-1 ring-primary/30' : ''} transition-all">
           <Card.Header>
-            <Card.Title class="text-muted-foreground text-xs font-bold uppercase tracking-wider">Totals</Card.Title>
+            <Card.Title class="text-muted-foreground text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+              Totals
+              {#if isCalculating}
+                <span class="w-2 h-2 bg-primary rounded-full animate-pulse"></span>
+              {/if}
+            </Card.Title>
           </Card.Header>
           <Card.Content>
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
               <span class="text-muted-foreground">Subtotal</span>
-              <span class="font-mono">{invoice.subtotal?.toFixed(2)}</span>
+              <span class="font-mono {isCalculating ? 'text-primary' : ''} transition-colors">{invoice.subtotal?.toFixed(2) || '0.00'}</span>
             </div>
             <div class="flex justify-between items-center">
               <span class="text-muted-foreground">Discount</span>
               <Input 
                 type="number" 
                 bind:value={invoice.discount} 
-                on:input={handleRecalc}
+                on:input={() => debouncedRecalc()}
                 class="w-24 h-8 text-right font-mono bg-input/50" 
+                step="0.01"
               />
             </div>
             <div class="flex justify-between">
               <span class="text-muted-foreground">ITBIS (18%)</span>
-              <span class="font-mono">{invoice.itbisTotal?.toFixed(2)}</span>
+              <span class="font-mono {isCalculating ? 'text-primary' : ''} transition-colors">{invoice.itbisTotal?.toFixed(2) || '0.00'}</span>
             </div>
             <Separator class="my-2" />
             <div class="pt-2 flex justify-between items-center">
               <span class="font-bold">Total</span>
-              <span class="text-green-500 font-bold text-xl font-mono">DOP {invoice.total?.toFixed(2)}</span>
+              <span class="text-green-500 font-bold text-xl font-mono {isCalculating ? 'animate-pulse' : ''} transition-all">DOP {invoice.total?.toFixed(2) || '0.00'}</span>
             </div>
           </div>
           </Card.Content>
@@ -928,27 +1345,34 @@
         <!-- Items Grid -->
         <Card.Root class="overflow-hidden">
           <Card.Header class="flex justify-between items-center">
-            <Card.Title class="text-muted-foreground text-xs font-bold uppercase tracking-wider">Line Items</Card.Title>
+            <div>
+              <Card.Title class="text-muted-foreground text-xs font-bold uppercase tracking-wider">Line Items</Card.Title>
+              <p class="text-[10px] text-muted-foreground mt-0.5 md:hidden">← Scroll horizontally for more →</p>
+            </div>
             <Button variant="ghost" size="sm" on:click={addLine} class="text-primary text-xs font-bold uppercase">+ Add Item</Button>
           </Card.Header>
-          <Card.Content class="p-0">
+          <Card.Content class="p-0 overflow-x-auto">
           <Table.Root>
             <Table.Header class="bg-muted/50">
               <Table.Row class="hover:bg-muted/50">
-                <Table.Head class="text-xs uppercase p-3">Desc</Table.Head>
-                <Table.Head class="text-xs uppercase p-3 w-14 text-center">Qty</Table.Head>
-                <Table.Head class="text-xs uppercase p-3 w-20 text-right">Price</Table.Head>
-                <Table.Head class="text-xs uppercase p-3 w-16 text-center">Tax Inc</Table.Head>
-                <Table.Head class="text-xs uppercase p-3 w-20 text-right">Net</Table.Head>
-                <Table.Head class="text-xs uppercase p-3 w-16 text-center">Rate</Table.Head>
-                <Table.Head class="text-xs uppercase p-3 w-20 text-right">ITBIS</Table.Head>
+                <Table.Head class="text-xs uppercase p-3 min-w-[150px]">Description</Table.Head>
+                <Table.Head class="text-xs uppercase p-3 w-16 text-center">Qty</Table.Head>
+                <Table.Head class="text-xs uppercase p-3 w-24 text-right">Unit Price</Table.Head>
+                <Table.Head class="text-xs uppercase p-3 w-16 text-center hidden md:table-cell">Tax Inc</Table.Head>
+                <Table.Head class="text-xs uppercase p-3 w-20 text-right hidden lg:table-cell">Net</Table.Head>
+                <Table.Head class="text-xs uppercase p-3 w-16 text-center hidden md:table-cell">Rate</Table.Head>
+                <Table.Head class="text-xs uppercase p-3 w-20 text-right hidden lg:table-cell">ITBIS</Table.Head>
                 <Table.Head class="text-xs uppercase p-3 w-28 text-right">Total</Table.Head>
-                <Table.Head class="p-3 w-8"></Table.Head>
+                <Table.Head class="p-3 w-10"></Table.Head>
               </Table.Row>
             </Table.Header>
             <Table.Body>
               {#each invoice.items || [] as item, i}
-                <Table.Row class="group hover:bg-muted/30">
+                {@const originalItem = originalInvoiceData?.items?.[i]}
+                {@const hasOcrData = !!originalItem}
+                {@const qtyEdited = originalItem && originalItem.quantity !== item.quantity}
+                {@const priceEdited = originalItem && originalItem.unitPrice !== item.unitPrice}
+                <Table.Row class="group hover:bg-muted/30 {calculatingRows.has(i) ? 'bg-primary/5' : ''} {hasOcrData ? 'border-l-2 border-l-primary/20' : ''} transition-colors">
                   <Table.Cell class="p-2 relative group/cell">
                     <div class="flex items-center space-x-2">
                         <button 
@@ -1000,25 +1424,47 @@
                     </div>
                   </Table.Cell>
                   <Table.Cell class="p-2">
-                    <input 
-                      type="number" 
-                      bind:value={item.quantity} 
-                      on:change={() => handleTotalChange(i)} 
-                      class="w-full bg-transparent text-foreground outline-none text-center border-b border-transparent focus:border-primary focus:bg-muted/30 transition-colors" 
-                      data-row={i} data-col="1"
-                      on:keydown={(e) => handleKeydown(e, i, 1)}
-                    />
+                    <div class="relative">
+                      <input 
+                        type="number" 
+                        bind:value={item.quantity} 
+                        on:input={() => handleItemInput(i, 'quantity')} 
+                        on:blur={(e) => formatOnBlur(e, i, 'quantity')}
+                        class="w-full bg-transparent text-foreground outline-none text-center border-b border-transparent focus:border-primary focus:bg-muted/30 transition-colors {calculatingRows.has(i) ? 'animate-pulse' : ''} {qtyEdited ? 'text-amber-600 dark:text-amber-400' : ''}" 
+                        data-row={i} data-col="1"
+                        on:keydown={(e) => handleKeydown(e, i, 1)}
+                        step="0.01"
+                      />
+                      {#if qtyEdited && originalItem}
+                        <Tooltip.Root>
+                          <Tooltip.Trigger>
+                            <span class="absolute -top-1 -right-1 w-2 h-2 bg-amber-500 rounded-full"></span>
+                          </Tooltip.Trigger>
+                          <Tooltip.Content>OCR: {originalItem.quantity}</Tooltip.Content>
+                        </Tooltip.Root>
+                      {/if}
+                    </div>
                   </Table.Cell>
                   <Table.Cell class="p-2 relative">
                     <div class="relative">
                       <input 
                         type="number" 
                         bind:value={item.unitPrice} 
-                        on:input={handleRecalc} 
-                        class="w-full bg-transparent text-foreground outline-none text-right border-b border-transparent focus:border-primary focus:bg-muted/30 transition-colors {priceAlerts[i] ? (priceAlerts[i].type === 'up' ? 'text-red-500' : 'text-green-500') : ''}" 
+                        on:input={() => handleItemInput(i, 'unitPrice')} 
+                        on:blur={(e) => formatOnBlur(e, i, 'unitPrice')}
+                        class="w-full bg-transparent text-foreground outline-none text-right border-b border-transparent focus:border-primary focus:bg-muted/30 transition-colors {calculatingRows.has(i) ? 'animate-pulse' : ''} {priceEdited ? 'text-amber-600 dark:text-amber-400' : ''} {priceAlerts[i] ? (priceAlerts[i].type === 'up' ? 'text-red-500' : 'text-green-500') : ''}" 
                         data-row={i} data-col="2"
                         on:keydown={(e) => handleKeydown(e, i, 2)}
+                        step="0.01"
                       />
+                      {#if priceEdited && originalItem}
+                        <Tooltip.Root>
+                          <Tooltip.Trigger>
+                            <span class="absolute -top-1 right-0 w-2 h-2 bg-amber-500 rounded-full"></span>
+                          </Tooltip.Trigger>
+                          <Tooltip.Content>OCR: ${originalItem.unitPrice?.toFixed(2)}</Tooltip.Content>
+                        </Tooltip.Root>
+                      {/if}
                       {#if priceAlerts[i]}
                         <div class="absolute right-full mr-2 top-1/2 transform -translate-y-1/2 group/tooltip">
                           {#if priceAlerts[i].type === 'up'}
@@ -1040,7 +1486,7 @@
                       {/if}
                     </div>
                   </Table.Cell>
-                  <Table.Cell class="p-2 text-center">
+                  <Table.Cell class="p-2 text-center hidden md:table-cell">
                     <input 
                       type="checkbox" 
                       bind:checked={item.priceIncludesTax} 
@@ -1048,10 +1494,10 @@
                       class="w-4 h-4 rounded border-input bg-input text-primary focus:ring-primary"
                     />
                   </Table.Cell>
-                  <Table.Cell class="p-2 text-right font-mono text-muted-foreground text-xs">
-                    {item.value?.toFixed(2)}
+                  <Table.Cell class="p-2 text-right font-mono text-muted-foreground text-xs hidden lg:table-cell {calculatingRows.has(i) ? 'text-primary animate-pulse' : ''}">
+                    {item.value?.toFixed(2) || '0.00'}
                   </Table.Cell>
-                  <Table.Cell class="p-2">
+                  <Table.Cell class="p-2 hidden md:table-cell">
                     <select 
                       bind:value={item.taxRate} 
                       on:change={handleRecalc}
@@ -1062,16 +1508,17 @@
                       <option value={0}>0%</option>
                     </select>
                   </Table.Cell>
-                  <Table.Cell class="p-2 text-right font-mono text-muted-foreground text-xs">
-                    {item.itbis?.toFixed(2)}
+                  <Table.Cell class="p-2 text-right font-mono text-muted-foreground text-xs hidden lg:table-cell {calculatingRows.has(i) ? 'text-primary animate-pulse' : ''}">
+                    {item.itbis?.toFixed(2) || '0.00'}
                   </Table.Cell>
                   <Table.Cell class="p-2">
                     <input 
                       type="number" 
                       step="0.01"
                       bind:value={item.amount} 
-                      on:change={() => handleTotalChange(i)}
-                      class="w-full bg-muted/50 rounded px-2 py-1 text-foreground outline-none text-right font-mono border border-transparent focus:border-primary transition-colors" 
+                      on:input={() => handleItemInput(i, 'unitPrice')}
+                      on:blur={(e) => { formatOnBlur(e, i, 'amount'); handleTotalChange(i); }}
+                      class="w-full bg-muted/50 rounded px-2 py-1 text-foreground outline-none text-right font-mono border border-transparent focus:border-primary transition-colors {calculatingRows.has(i) ? 'ring-1 ring-primary/50' : ''}" 
                       data-row={i} data-col="5"
                       on:keydown={(e) => handleKeydown(e, i, 5)}
                     />
@@ -1461,3 +1908,12 @@
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>
+
+<!-- Supplier Creation Modal -->
+<SupplierFormModal 
+  bind:open={showSupplierModal}
+  initialName={invoice?.providerName || ''}
+  initialRnc={invoice?.providerRnc || ''}
+  on:saved={handleSupplierSaved}
+  on:close={() => showSupplierModal = false}
+/>

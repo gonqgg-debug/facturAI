@@ -84,6 +84,13 @@ export const en = {
     settings: 'Settings',
     sales: 'Sales',
     inputs: 'Inputs',
+    purchases: 'Purchases',
+    purchasingHub: 'Purchasing Hub',
+    purchaseOrders: 'Purchase Orders',
+    receiving: 'Receiving',
+    quickCapture: 'Quick Capture',
+    importInvoices: 'Import Invoices',
+    purchaseHistory: 'Purchase History',
     inventory: 'Inventory',
     finance: 'Finance',
     resources: 'Resources',
@@ -573,6 +580,48 @@ export const en = {
     next: 'Next',
     page: 'Page',
     of: 'of'
+  },
+  // Purchasing Module
+  purchasing: {
+    // Purchase Orders Info Card
+    poInfoTitle: 'When to Use Purchase Orders',
+    poInfoDescription: 'Use Purchase Orders for planned purchases where you want to track the full order lifecycle:',
+    poInfoItem1: 'Planned or recurring orders to suppliers',
+    poInfoItem2: 'Large orders that may arrive in multiple shipments',
+    poInfoItem3: 'When you need to track expected vs. received quantities',
+    poInfoItem4: 'For budgeting and expense planning',
+    poWorkflow: 'Workflow:',
+    poTip: 'For live truck ordering without a Purchase Order, use Invoice Capture for faster processing.',
+    // Import Invoice Info Card
+    importInfoTitle: 'When to Use Import Invoice',
+    importInfoDescription: 'Use Import Invoice when you receive an invoice after the goods have already arrived, or when processing invoices that need to be linked to existing receipts:',
+    importInfoItem1: 'Invoice arrives by email or mail after receiving goods',
+    importInfoItem2: 'Need to link an invoice to an existing Receipt',
+    importInfoItem3: 'Invoices from credit purchases (30-day payment terms)',
+    importInfoItem4: 'Reconciling invoices with previous deliveries',
+    importLinkTitle: 'Link to Receipt:',
+    importLinkDescription: 'If you\'ve already received goods through the Receiving module, you can link this invoice to that receipt for a complete audit trail.',
+    importTip: 'For live truck ordering where goods and invoice arrive together, use Invoice Capture for faster processing.',
+    // Categories
+    category: 'Category',
+    categories: {
+      Inventory: 'Inventory (Resale)',
+      Utilities: 'Utilities',
+      Maintenance: 'Maintenance',
+      Payroll: 'Payroll',
+      Other: 'Other'
+    },
+    categoryInventoryNote: 'Stock will be automatically updated when saved.',
+    categoryNonInventoryNote: 'Non-inventory expense - stock will not be affected.',
+    // Statuses
+    statuses: {
+      draft: 'Draft',
+      sent: 'Sent',
+      partial: 'Partial',
+      received: 'Received',
+      closed: 'Closed',
+      cancelled: 'Cancelled'
+    }
   }
 };
 

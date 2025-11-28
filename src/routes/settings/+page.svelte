@@ -4,7 +4,8 @@
   import { apiKey, locale, weatherApiKey, storeLocation } from '$lib/stores';
   import { db } from '$lib/db';
   import { currentUser, userPermissions } from '$lib/auth';
-  import { Save, Download, Upload, Trash2, AlertTriangle, Eye, EyeOff, Plus, Building2, CreditCard, X, Check, Edit2, Star, Languages, Users, Shield, UserPlus, CloudRain, MapPin, RefreshCw } from 'lucide-svelte';
+  import { Save, Download, Upload, Trash2, AlertTriangle, Eye, EyeOff, Plus, Building2, CreditCard, X, Check, Edit2, Star, Languages, Users, Shield, UserPlus, CloudRain, MapPin, RefreshCw, FlaskConical, Database, RotateCcw } from 'lucide-svelte';
+  import { isTestMode, hasBackup, getBackupInfo, activateTestData, deactivateTestData, type SeedProgress, type SeedResult } from '$lib/seed-test-data';
   import type { BankAccount, User, Role } from '$lib/types';
   import * as Select from '$lib/components/ui/select';
   import * as Tooltip from '$lib/components/ui/tooltip';
@@ -49,6 +50,16 @@
   let isSavingWeather = false;
   let showWeatherSaveSuccess = false;
 
+  // Test Data Mode
+  let testModeActive = false;
+  let backupAvailable = false;
+  let backupInfo: { date: string; tables: string[] } | null = null;
+  let isSeedingData = false;
+  let seedProgress: SeedProgress = { stage: '', percent: 0 };
+  let seedResult: SeedResult | null = null;
+  let showTestDataConfirmDialog = false;
+  let showRestoreConfirmDialog = false;
+
   function getEmptyUserForm(): Partial<User> {
     return {
       username: '',
@@ -86,8 +97,7 @@
 
   // Initialize the input value on mount (browser-only)
   onMount(async () => {
-    keyInput = get(apiKey);
-    weatherKeyInput = get(weatherApiKey);
+    // API keys are now server-side, only load location
     weatherLocationInput = get(storeLocation);
     await loadBankAccounts();
     
@@ -95,6 +105,11 @@
     await db.initializeDefaults();
     
     await loadUsersAndRoles();
+
+    // Check test data mode status
+    testModeActive = isTestMode();
+    backupAvailable = hasBackup();
+    backupInfo = getBackupInfo();
   });
 
   async function loadBankAccounts() {
@@ -336,7 +351,7 @@
 
   function saveWeatherSettings() {
     isSavingWeather = true;
-    weatherApiKey.set(weatherKeyInput.trim());
+    // Weather API key is now server-side, only save location
     storeLocation.set(weatherLocationInput.trim());
     showWeatherSaveSuccess = true;
     setTimeout(() => {
@@ -346,10 +361,10 @@
   }
 
   async function testWeatherApi() {
-    if (!weatherKeyInput.trim() || !weatherLocationInput.trim()) {
+    if (!weatherLocationInput.trim()) {
       weatherTestResult = {
         success: false,
-        message: $locale === 'es' ? 'Por favor ingresa la clave API y la ubicación' : 'Please enter API key and location'
+        message: $locale === 'es' ? 'Por favor ingresa la ubicación' : 'Please enter location'
       };
       return;
     }
@@ -358,7 +373,7 @@
     weatherTestResult = null;
 
     try {
-      const result = await testWeatherConnection(weatherLocationInput.trim(), weatherKeyInput.trim());
+      const result = await testWeatherConnection(weatherLocationInput.trim());
       weatherTestResult = result;
     } catch (error) {
       weatherTestResult = {
@@ -367,6 +382,80 @@
       };
     } finally {
       isTestingWeather = false;
+    }
+  }
+
+  // Test Data Mode Functions
+  function confirmActivateTestData() {
+    showTestDataConfirmDialog = true;
+  }
+
+  function confirmRestoreRealData() {
+    showRestoreConfirmDialog = true;
+  }
+
+  async function handleActivateTestData() {
+    showTestDataConfirmDialog = false;
+    isSeedingData = true;
+    seedResult = null;
+    
+    try {
+      const result = await activateTestData((progress) => {
+        seedProgress = progress;
+      });
+      seedResult = result;
+      
+      if (result.success) {
+        testModeActive = true;
+        backupAvailable = true;
+        backupInfo = getBackupInfo();
+        
+        // Show success and reload after a short delay
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('Failed to activate test data:', error);
+      seedResult = {
+        success: false,
+        suppliers: 0,
+        products: 0,
+        customers: 0,
+        sales: 0,
+        invoices: 0,
+        duration: 0,
+      };
+    } finally {
+      isSeedingData = false;
+    }
+  }
+
+  async function handleRestoreRealData() {
+    showRestoreConfirmDialog = false;
+    isSeedingData = true;
+    seedProgress = { stage: 'Restoring real data...', percent: 50 };
+    
+    try {
+      const success = await deactivateTestData();
+      
+      if (success) {
+        testModeActive = false;
+        backupInfo = null;
+        seedProgress = { stage: 'Complete!', percent: 100 };
+        
+        // Reload to show real data
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        seedProgress = { stage: 'Failed to restore', percent: 0 };
+      }
+    } catch (error) {
+      console.error('Failed to restore real data:', error);
+      seedProgress = { stage: 'Error: ' + (error instanceof Error ? error.message : 'Unknown'), percent: 0 };
+    } finally {
+      isSeedingData = false;
     }
   }
 
@@ -494,54 +583,22 @@
     <h2 class="text-lg font-semibold mb-4">{$locale === 'es' ? 'Configuración de IA' : 'AI Configuration'}</h2>
     <div class="space-y-4">
       <div class="space-y-2">
-        <Label for="api-key-input">{$locale === 'es' ? 'Clave API xAI' : 'xAI API Key'}</Label>
-        <div class="flex space-x-2">
-          <div class="flex-1 relative">
-            {#if showKey}
-              <Input 
-                id="api-key-input-text"
-                type="text" 
-                bind:value={keyInput} 
-                placeholder="xai-..." 
-                class="pr-10 bg-input/50"
-              />
-            {:else}
-              <Input 
-                id="api-key-input-password"
-                type="password" 
-                bind:value={keyInput} 
-                placeholder="xai-..." 
-                class="pr-10 bg-input/50"
-              />
-            {/if}
-            <button 
-              type="button"
-              on:click={() => showKey = !showKey}
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1"
-              title={showKey ? 'Hide API Key' : 'Show API Key'}
-            >
-              {#if showKey}
-                <EyeOff size={16} />
-              {:else}
-                <Eye size={16} />
-              {/if}
-            </button>
+        <Label>{$locale === 'es' ? 'Clave API xAI' : 'xAI API Key'}</Label>
+        <div class="bg-green-500/10 border border-green-500/20 rounded-lg p-4 flex items-start gap-3">
+          <div class="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <Check size={14} class="text-white" />
           </div>
-          <button 
-            on:click={saveKey}
-            disabled={isSaving || !keyInput.trim()}
-            class="bg-primary text-primary-foreground px-4 py-2.5 rounded-lg font-bold text-sm flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors"
-          >
-            <Save size={16} />
-            <span>{isSaving ? ($locale === 'es' ? 'Guardando...' : 'Saving...') : ($locale === 'es' ? 'Guardar' : 'Save')}</span>
-          </button>
+          <div class="flex-1">
+            <p class="text-sm font-medium text-green-600 dark:text-green-400 mb-1">
+              {$locale === 'es' ? 'Configurada en el servidor' : 'Configured on Server'}
+            </p>
+            <p class="text-xs text-muted-foreground">
+              {$locale === 'es' 
+                ? 'La clave API está configurada de forma segura en el servidor mediante variables de entorno. No se requiere configuración adicional.'
+                : 'API key is securely configured on the server via environment variables. No additional setup required.'}
+            </p>
+          </div>
         </div>
-        {#if showSaveSuccess}
-          <p class="text-green-500 text-xs mt-2 flex items-center gap-1">
-            <span class="inline-block w-1.5 h-1.5 bg-green-500 rounded-full"></span>
-            {$locale === 'es' ? 'Clave API guardada exitosamente.' : 'API Key saved successfully.'}
-          </p>
-        {/if}
         <p class="text-xs text-muted-foreground mt-2">
           {$locale === 'es' ? 'Requerida para extracción de facturas. Obtén una en' : 'Required for invoice extraction. Get one at'} <a href="https://console.x.ai" target="_blank" class="text-primary hover:underline">console.x.ai</a>.
         </p>
@@ -561,40 +618,22 @@
         : 'Connect to OpenWeatherMap to correlate weather with customer behavior.'}
     </p>
     <div class="space-y-4">
-      <!-- Weather API Key -->
+      <!-- Weather API Key Info -->
       <div class="space-y-2">
-        <Label for="weather-api-key">{$locale === 'es' ? 'Clave API de OpenWeatherMap' : 'OpenWeatherMap API Key'}</Label>
-        <div class="flex space-x-2">
-          <div class="flex-1 relative">
-            {#if showWeatherKey}
-              <Input 
-                id="weather-api-key-text"
-                type="text" 
-                bind:value={weatherKeyInput} 
-                placeholder="abc123..." 
-                class="pr-10 bg-input/50"
-              />
-            {:else}
-              <Input 
-                id="weather-api-key-password"
-                type="password" 
-                bind:value={weatherKeyInput} 
-                placeholder="abc123..." 
-                class="pr-10 bg-input/50"
-              />
-            {/if}
-            <button 
-              type="button"
-              on:click={() => showWeatherKey = !showWeatherKey}
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1"
-              title={showWeatherKey ? 'Hide API Key' : 'Show API Key'}
-            >
-              {#if showWeatherKey}
-                <EyeOff size={16} />
-              {:else}
-                <Eye size={16} />
-              {/if}
-            </button>
+        <Label>{$locale === 'es' ? 'Clave API de OpenWeatherMap' : 'OpenWeatherMap API Key'}</Label>
+        <div class="bg-green-500/10 border border-green-500/20 rounded-lg p-4 flex items-start gap-3">
+          <div class="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <Check size={14} class="text-white" />
+          </div>
+          <div class="flex-1">
+            <p class="text-sm font-medium text-green-600 dark:text-green-400 mb-1">
+              {$locale === 'es' ? 'Configurada en el servidor' : 'Configured on Server'}
+            </p>
+            <p class="text-xs text-muted-foreground">
+              {$locale === 'es' 
+                ? 'La clave API está configurada de forma segura en el servidor mediante variables de entorno.'
+                : 'API key is securely configured on the server via environment variables.'}
+            </p>
           </div>
         </div>
         <p class="text-xs text-muted-foreground">
@@ -624,7 +663,7 @@
       <div class="flex gap-2">
         <button 
           on:click={testWeatherApi}
-          disabled={isTestingWeather || !weatherKeyInput.trim() || !weatherLocationInput.trim()}
+          disabled={isTestingWeather || !weatherLocationInput.trim()}
           class="bg-muted hover:bg-muted/80 text-foreground px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {#if isTestingWeather}
@@ -918,6 +957,138 @@
       </div>
 
     </div>
+  </div>
+
+  <!-- Test Data Mode Section -->
+  <div class="bg-card text-card-foreground border border-border rounded-xl p-4 mb-6">
+    <h2 class="text-lg font-semibold mb-2 flex items-center gap-2">
+      <FlaskConical size={18} class="text-purple-500" />
+      {$locale === 'es' ? 'Modo de Datos de Prueba' : 'Test Data Mode'}
+    </h2>
+    <p class="text-xs text-muted-foreground mb-4">
+      {$locale === 'es' 
+        ? 'Genera datos de prueba realistas para explorar la aplicación sin afectar tus datos reales.'
+        : 'Generate realistic test data to explore the app without affecting your real data.'}
+    </p>
+
+    <!-- Current Mode Status -->
+    <div class="mb-4 p-3 rounded-lg {testModeActive ? 'bg-purple-500/10 border border-purple-500/20' : 'bg-green-500/10 border border-green-500/20'}">
+      <div class="flex items-center gap-2">
+        {#if testModeActive}
+          <FlaskConical size={16} class="text-purple-500" />
+          <span class="font-medium text-purple-600 dark:text-purple-400">
+            {$locale === 'es' ? 'Modo de Prueba Activo' : 'Test Mode Active'}
+          </span>
+        {:else}
+          <Database size={16} class="text-green-500" />
+          <span class="font-medium text-green-600 dark:text-green-400">
+            {$locale === 'es' ? 'Usando Datos Reales' : 'Using Real Data'}
+          </span>
+        {/if}
+      </div>
+      {#if testModeActive && backupInfo}
+        <p class="text-xs text-muted-foreground mt-1">
+          {$locale === 'es' ? 'Respaldo creado:' : 'Backup created:'} {new Date(backupInfo.date).toLocaleString()}
+        </p>
+      {/if}
+    </div>
+
+    <!-- Progress indicator -->
+    {#if isSeedingData}
+      <div class="mb-4 p-4 bg-muted/30 rounded-lg border border-border/50">
+        <div class="flex items-center gap-2 mb-2">
+          <RefreshCw size={16} class="animate-spin text-primary" />
+          <span class="text-sm font-medium">{seedProgress.stage}</span>
+        </div>
+        <div class="w-full h-2 bg-muted rounded-full overflow-hidden">
+          <div 
+            class="h-full bg-primary transition-all duration-300"
+            style="width: {seedProgress.percent}%"
+          ></div>
+        </div>
+        <p class="text-xs text-muted-foreground mt-1">{seedProgress.percent}%</p>
+      </div>
+    {/if}
+
+    <!-- Success Result -->
+    {#if seedResult?.success}
+      <div class="mb-4 p-4 bg-green-500/10 rounded-lg border border-green-500/20">
+        <div class="flex items-center gap-2 mb-2">
+          <Check size={16} class="text-green-500" />
+          <span class="font-medium text-green-600 dark:text-green-400">
+            {$locale === 'es' ? '¡Datos de prueba creados!' : 'Test data created!'}
+          </span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs text-muted-foreground">
+          <div>📦 {seedResult.products} {$locale === 'es' ? 'productos' : 'products'}</div>
+          <div>🏭 {seedResult.suppliers} {$locale === 'es' ? 'proveedores' : 'suppliers'}</div>
+          <div>👥 {seedResult.customers} {$locale === 'es' ? 'clientes' : 'customers'}</div>
+          <div>🛒 {seedResult.sales} {$locale === 'es' ? 'ventas' : 'sales'}</div>
+          <div>📄 {seedResult.invoices} {$locale === 'es' ? 'facturas' : 'invoices'}</div>
+        </div>
+        <p class="text-xs text-muted-foreground mt-2">
+          {$locale === 'es' ? 'Recargando página...' : 'Reloading page...'}
+        </p>
+      </div>
+    {/if}
+
+    <!-- Action Buttons -->
+    <div class="space-y-3">
+      {#if !testModeActive}
+        <!-- Activate Test Data -->
+        <div class="flex items-center justify-between p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
+          <div>
+            <div class="font-medium text-purple-600 dark:text-purple-400 flex items-center gap-2">
+              <FlaskConical size={16} />
+              {$locale === 'es' ? 'Activar Datos de Prueba' : 'Activate Test Data'}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$locale === 'es' 
+                ? 'Genera 3 meses de datos simulados (desde hace 3 meses hasta hoy). Tus datos reales se respaldarán automáticamente.'
+                : 'Generate 3 months of simulated data (from 3 months ago to today). Your real data will be backed up automatically.'}
+            </div>
+          </div>
+          <button 
+            on:click={confirmActivateTestData}
+            disabled={isSeedingData}
+            class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <FlaskConical size={16} />
+            {$locale === 'es' ? 'Activar' : 'Activate'}
+          </button>
+        </div>
+      {:else}
+        <!-- Restore Real Data -->
+        <div class="flex items-center justify-between p-3 bg-green-500/10 rounded-lg border border-green-500/20">
+          <div>
+            <div class="font-medium text-green-600 dark:text-green-400 flex items-center gap-2">
+              <RotateCcw size={16} />
+              {$locale === 'es' ? 'Restaurar Datos Reales' : 'Restore Real Data'}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$locale === 'es' 
+                ? 'Elimina los datos de prueba y restaura tus datos reales desde el respaldo.'
+                : 'Clear test data and restore your real data from backup.'}
+            </div>
+          </div>
+          <button 
+            on:click={confirmRestoreRealData}
+            disabled={isSeedingData || !backupAvailable}
+            class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <RotateCcw size={16} />
+            {$locale === 'es' ? 'Restaurar' : 'Restore'}
+          </button>
+        </div>
+      {/if}
+    </div>
+
+    <p class="text-xs text-muted-foreground mt-4 flex items-center gap-1">
+      <AlertTriangle size={12} />
+      {$locale === 'es' 
+        ? 'Tip: Se descargará automáticamente una copia de seguridad de tus datos reales.'
+        : 'Tip: A backup file of your real data will be automatically downloaded.'}
+    </p>
   </div>
 
   <div class="text-center text-muted-foreground text-xs">
@@ -1244,6 +1415,81 @@
     <AlertDialog.Footer>
       <AlertDialog.Cancel on:click={() => { deleteUserDialogOpen = false; userToDelete = null; }}>{t('common.cancel', $locale)}</AlertDialog.Cancel>
       <AlertDialog.Action class="bg-destructive text-destructive-foreground hover:bg-destructive/90" on:click={executeDeleteUser}>{t('common.delete', $locale)}</AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<!-- Activate Test Data Confirmation Dialog -->
+<AlertDialog.Root bind:open={showTestDataConfirmDialog}>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title class="flex items-center gap-2">
+        <FlaskConical size={20} class="text-purple-500" />
+        {$locale === 'es' ? '¿Activar Datos de Prueba?' : 'Activate Test Data?'}
+      </AlertDialog.Title>
+      <AlertDialog.Description class="space-y-3">
+        <p>
+          {$locale === 'es' 
+            ? 'Esta acción realizará lo siguiente:'
+            : 'This action will:'}
+        </p>
+        <ul class="list-disc list-inside space-y-1 text-sm">
+          <li>{$locale === 'es' ? 'Crear un respaldo de tus datos actuales' : 'Create a backup of your current data'}</li>
+          <li>{$locale === 'es' ? 'Descargar el respaldo como archivo JSON' : 'Download the backup as a JSON file'}</li>
+          <li>{$locale === 'es' ? 'Reemplazar temporalmente con datos de prueba' : 'Temporarily replace with test data'}</li>
+          <li>{$locale === 'es' ? 'Generar 3 meses de ventas simuladas (~2,250 transacciones)' : 'Generate 3 months of simulated sales (~2,250 transactions)'}</li>
+        </ul>
+        <p class="text-sm text-muted-foreground">
+          {$locale === 'es' 
+            ? 'Podrás restaurar tus datos reales en cualquier momento.'
+            : 'You can restore your real data at any time.'}
+        </p>
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel on:click={() => showTestDataConfirmDialog = false}>
+        {$locale === 'es' ? 'Cancelar' : 'Cancel'}
+      </AlertDialog.Cancel>
+      <AlertDialog.Action class="bg-purple-500 text-white hover:bg-purple-600" on:click={handleActivateTestData}>
+        {$locale === 'es' ? 'Activar Datos de Prueba' : 'Activate Test Data'}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<!-- Restore Real Data Confirmation Dialog -->
+<AlertDialog.Root bind:open={showRestoreConfirmDialog}>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title class="flex items-center gap-2">
+        <RotateCcw size={20} class="text-green-500" />
+        {$locale === 'es' ? '¿Restaurar Datos Reales?' : 'Restore Real Data?'}
+      </AlertDialog.Title>
+      <AlertDialog.Description class="space-y-3">
+        <p>
+          {$locale === 'es' 
+            ? 'Esta acción realizará lo siguiente:'
+            : 'This action will:'}
+        </p>
+        <ul class="list-disc list-inside space-y-1 text-sm">
+          <li>{$locale === 'es' ? 'Eliminar todos los datos de prueba' : 'Delete all test data'}</li>
+          <li>{$locale === 'es' ? 'Restaurar tus datos reales desde el respaldo' : 'Restore your real data from backup'}</li>
+          <li>{$locale === 'es' ? 'Desactivar el modo de prueba' : 'Disable test mode'}</li>
+        </ul>
+        {#if backupInfo}
+          <p class="text-sm text-muted-foreground">
+            {$locale === 'es' ? 'Respaldo de:' : 'Backup from:'} {new Date(backupInfo.date).toLocaleString()}
+          </p>
+        {/if}
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel on:click={() => showRestoreConfirmDialog = false}>
+        {$locale === 'es' ? 'Cancelar' : 'Cancel'}
+      </AlertDialog.Cancel>
+      <AlertDialog.Action class="bg-green-500 text-white hover:bg-green-600" on:click={handleRestoreRealData}>
+        {$locale === 'es' ? 'Restaurar Datos Reales' : 'Restore Real Data'}
+      </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>
