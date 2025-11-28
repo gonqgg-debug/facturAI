@@ -1,12 +1,15 @@
 import type { Invoice, Supplier, UserHints } from './types';
 import { db } from './db';
 import { generateSystemPrompt, generateUserPrompt, DEFAULT_MODEL } from './prompts';
+import { retryWithBackoff } from './retry';
+import { logger } from './logger';
 
-const GROK_API_URL = 'https://api.x.ai/v1/chat/completions';
-
+/**
+ * Parse invoice using Grok API via server-side proxy
+ * API key is now stored server-side for security
+ */
 export async function parseInvoiceWithGrok(
     ocrText: string,
-    apiKey: string,
     supplier?: Supplier,
     hints?: UserHints,
     model: string = DEFAULT_MODEL
@@ -20,36 +23,72 @@ export async function parseInvoiceWithGrok(
     const userPrompt = generateUserPrompt(ocrText, supplier);
 
     try {
-        console.log('Sending to Grok...', { model, textLength: ocrText.length });
+        logger.info('Sending to Grok via server proxy...', { model, textLength: ocrText.length });
 
-        const response = await fetch(GROK_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt }
-                ],
-                temperature: 0.1
-            })
+        // Use server-side API route instead of direct API call with retry logic
+        const { getCsrfHeader } = await import('./csrf');
+        
+        const data = await retryWithBackoff(async () => {
+            const response = await fetch('/api/grok', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...getCsrfHeader()
+                },
+                body: JSON.stringify({
+                    model: model,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userPrompt }
+                    ],
+                    temperature: 0.1
+                })
+            });
+
+            logger.debug('Grok API Response status', { status: response.status, statusText: response.statusText });
+
+            if (!response.ok) {
+                let errorData;
+                try {
+                    errorData = await response.json();
+                } catch (e) {
+                    const text = await response.text();
+                    errorData = { error: text || 'Unknown error' };
+                }
+                
+                const error: any = new Error(`Grok API Failed: ${response.status} ${errorData.error || errorData.message || 'Unknown error'}`);
+                error.status = response.status;
+                error.errorData = errorData;
+                throw error;
+            }
+
+            const responseData = await response.json();
+            logger.debug('Grok Response received', { 
+                hasChoices: !!responseData.choices, 
+                choiceCount: responseData.choices?.length,
+                firstChoice: responseData.choices?.[0] 
+            });
+
+            if (!responseData.choices || !responseData.choices[0] || !responseData.choices[0].message) {
+                throw new Error('Invalid response format from Grok');
+            }
+
+            return responseData;
+        }, {
+            maxRetries: 3,
+            initialDelay: 1000,
+            retryable: (error: any) => {
+                // Retry on network errors, timeouts, and 5xx errors
+                if (error?.status >= 500 && error?.status < 600) return true;
+                if (error?.status === 429) return true; // Rate limiting
+                if (error instanceof Error) {
+                    const msg = error.message.toLowerCase();
+                    return msg.includes('fetch') || msg.includes('network') || msg.includes('timeout');
+                }
+                return false;
+            }
         });
-
-        if (!response.ok) {
-            const errText = await response.text();
-            console.error('Grok API Error:', response.status, errText);
-            throw new Error(`Grok API Failed: ${response.status} ${errText}`);
-        }
-
-        const data = await response.json();
-        console.log('Grok Response:', data);
-
-        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-            throw new Error('Invalid response format from Grok');
-        }
 
         const content = data.choices[0].message.content;
 
@@ -60,7 +99,7 @@ export async function parseInvoiceWithGrok(
         return JSON.parse(jsonStr);
 
     } catch (error) {
-        console.error('Grok extraction error:', error);
+        logger.error('Grok extraction error', error instanceof Error ? error : new Error(String(error)));
         throw error;
     }
 }

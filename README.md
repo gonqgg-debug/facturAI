@@ -6,6 +6,9 @@ A modern PWA for managing invoices, extracting data with AI, and tracking expens
 
 - Node.js (v18 or later recommended)
 - npm (usually comes with Node.js)
+- API Keys:
+  - **Grok API Key** (xAI) - Get at [console.x.ai](https://console.x.ai)
+  - **OpenWeatherMap API Key** (optional) - Get at [openweathermap.org/api](https://openweathermap.org/api)
 
 ## How to Run
 
@@ -15,7 +18,21 @@ A modern PWA for managing invoices, extracting data with AI, and tracking expens
     npm install
     ```
 
-2.  **Start Development Server**
+2.  **Set Up Environment Variables**
+    Create a `.env` file in the root directory with your API keys:
+    ```bash
+    # Copy the example file
+    cp .env.example .env
+    
+    # Or create manually with:
+    XAI_API_KEY=your_grok_api_key_here
+    OPENWEATHER_API_KEY=your_openweather_api_key_here
+    NODE_ENV=development
+    ```
+    
+    **Note:** The `.env` file is gitignored and will not be committed. API keys are stored server-side for security.
+
+3.  **Start Development Server**
     This starts the app locally.
     ```bash
     npm run dev
@@ -28,11 +45,25 @@ A modern PWA for managing invoices, extracting data with AI, and tracking expens
     ```
     Look for the "Network" URL in the terminal output (e.g., `http://192.168.1.x:5173`) and open that on your phone.
 
-3.  **Build for Production**
+4.  **Build for Production**
     To create an optimized build for deployment:
     ```bash
     npm run build
     ```
+
+## Deployment
+
+### Vercel Deployment
+
+1. Push your code to GitHub
+2. Import the project in Vercel
+3. Add environment variables in Vercel Dashboard:
+   - Go to **Settings → Environment Variables**
+   - Add `XAI_API_KEY` with your Grok API key
+   - Add `OPENWEATHER_API_KEY` with your OpenWeatherMap API key
+4. Deploy!
+
+The app will automatically use the environment variables from Vercel in production.
 
 ## Project Structure
 

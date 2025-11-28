@@ -3,6 +3,9 @@
  * Integrates with OpenWeatherMap API for precipitation and weather data
  */
 
+import { retryWithBackoff } from './retry';
+import { logger } from './logger';
+
 // Weather condition categories
 export type WeatherCondition = 'clear' | 'cloudy' | 'rain' | 'heavy_rain' | 'storm' | 'drizzle' | 'snow' | 'fog' | 'unknown';
 
@@ -126,30 +129,54 @@ function getPrecipitationLevel(mmPerHour: number): PrecipitationLevel {
 }
 
 /**
- * Fetch current weather from OpenWeatherMap
+ * Fetch current weather from OpenWeatherMap via server-side proxy
+ * API key is now stored server-side for security
  */
 export async function fetchCurrentWeather(
     lat: number,
-    lon: number,
-    apiKey: string
+    lon: number
 ): Promise<CurrentWeather | null> {
-    if (!apiKey) {
-        console.warn('Weather API key not configured');
-        return null;
-    }
-
     try {
-        const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`;
-        const response = await fetch(url);
+        // Use server-side API route instead of direct API call with retry logic
+        const url = `/api/weather?lat=${lat}&lon=${lon}`;
+        
+        const data: OpenWeatherResponse = await retryWithBackoff(async () => {
+            const response = await fetch(url);
 
-        if (!response.ok) {
-            if (response.status === 401) {
-                throw new Error('Invalid API key');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                
+                // Don't retry on client errors (4xx) except 429 (rate limit)
+                if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+                    const error: any = new Error(`Weather API error: ${response.status} ${errorData.error || errorData.message || ''}`);
+                    error.status = response.status;
+                    throw error;
+                }
+                
+                // Retry on server errors (5xx) and rate limiting (429)
+                if (response.status >= 500 || response.status === 429) {
+                    const error: any = new Error(`Weather API error: ${response.status} ${errorData.error || errorData.message || ''}`);
+                    error.status = response.status;
+                    throw error;
+                }
+                
+                throw new Error(`Weather API error: ${response.status}`);
             }
-            throw new Error(`Weather API error: ${response.status}`);
-        }
 
-        const data: OpenWeatherResponse = await response.json();
+            return await response.json();
+        }, {
+            maxRetries: 3,
+            initialDelay: 1000,
+            retryable: (error: any) => {
+                // Retry on server errors and rate limiting
+                if (error?.status >= 500 || error?.status === 429) return true;
+                if (error instanceof Error) {
+                    const msg = error.message.toLowerCase();
+                    return msg.includes('fetch') || msg.includes('network') || msg.includes('timeout');
+                }
+                return false;
+            }
+        });
         
         const condition = mapConditionCode(data.weather[0]?.id || 0);
         const precipMm = data.rain?.['1h'] || data.rain?.['3h'] || data.snow?.['1h'] || 0;
@@ -176,38 +203,59 @@ export async function fetchCurrentWeather(
             }
         };
     } catch (error) {
-        console.error('Error fetching weather:', error);
+        logger.error('Error fetching weather', error instanceof Error ? error : new Error(String(error)));
         return null;
     }
 }
 
 /**
- * Fetch weather by city name
+ * Fetch weather by city name via server-side proxy
+ * API key is now stored server-side for security
  */
 export async function fetchWeatherByCity(
-    city: string,
-    apiKey: string
+    city: string
 ): Promise<CurrentWeather | null> {
-    if (!apiKey) {
-        console.warn('Weather API key not configured');
-        return null;
-    }
-
     try {
-        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${apiKey}&units=metric`;
-        const response = await fetch(url);
+        // Use server-side API route instead of direct API call with retry logic
+        const url = `/api/weather?city=${encodeURIComponent(city)}`;
+        
+        const data: OpenWeatherResponse = await retryWithBackoff(async () => {
+            const response = await fetch(url);
 
-        if (!response.ok) {
-            if (response.status === 401) {
-                throw new Error('Invalid API key');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                
+                // Don't retry on client errors (4xx) except 429 (rate limit)
+                if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+                    const error: any = new Error(`Weather API error: ${response.status} ${errorData.error || errorData.message || ''}`);
+                    error.status = response.status;
+                    throw error;
+                }
+                
+                // Retry on server errors (5xx) and rate limiting (429)
+                if (response.status >= 500 || response.status === 429) {
+                    const error: any = new Error(`Weather API error: ${response.status} ${errorData.error || errorData.message || ''}`);
+                    error.status = response.status;
+                    throw error;
+                }
+                
+                throw new Error(`Weather API error: ${response.status}`);
             }
-            if (response.status === 404) {
-                throw new Error('City not found');
-            }
-            throw new Error(`Weather API error: ${response.status}`);
-        }
 
-        const data: OpenWeatherResponse = await response.json();
+            return await response.json();
+        }, {
+            maxRetries: 3,
+            initialDelay: 1000,
+            retryable: (error: any) => {
+                // Retry on server errors and rate limiting
+                if (error?.status >= 500 || error?.status === 429) return true;
+                if (error instanceof Error) {
+                    const msg = error.message.toLowerCase();
+                    return msg.includes('fetch') || msg.includes('network') || msg.includes('timeout');
+                }
+                return false;
+            }
+        });
         
         const condition = mapConditionCode(data.weather[0]?.id || 0);
         const precipMm = data.rain?.['1h'] || data.rain?.['3h'] || data.snow?.['1h'] || 0;
@@ -234,7 +282,7 @@ export async function fetchWeatherByCity(
             }
         };
     } catch (error) {
-        console.error('Error fetching weather by city:', error);
+        logger.error('Error fetching weather by city', error instanceof Error ? error : new Error(String(error)));
         return null;
     }
 }
@@ -243,11 +291,10 @@ export async function fetchWeatherByCity(
  * Test weather API connection
  */
 export async function testWeatherConnection(
-    city: string,
-    apiKey: string
+    city: string
 ): Promise<{ success: boolean; message: string; data?: CurrentWeather }> {
     try {
-        const weather = await fetchWeatherByCity(city, apiKey);
+        const weather = await fetchWeatherByCity(city);
         
         if (weather) {
             return {

@@ -11,6 +11,7 @@
   } from 'lucide-svelte';
   import type { Supplier, GlobalContextItem } from '$lib/types';
   import { extractTextFromFile } from '$lib/fileParser';
+  import { getCsrfHeader } from '$lib/csrf';
   import * as Select from '$lib/components/ui/select';
   import * as Tabs from '$lib/components/ui/tabs';
   import * as Card from '$lib/components/ui/card';
@@ -239,7 +240,7 @@
   }
 
   async function sendMessage() {
-    if (!chatInput.trim() || !$apiKey || isSendingMessage) return;
+    if (!chatInput.trim() || isSendingMessage) return;
     
     const userMsg = chatInput;
     chatHistory = [...chatHistory, { role: 'user', content: userMsg }];
@@ -279,11 +280,12 @@
     }
 
     try {
-      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+      const response = await fetch('/api/grok', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${$apiKey}`
+          ...getCsrfHeader()
         },
         body: JSON.stringify({
           model: 'grok-3',

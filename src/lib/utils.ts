@@ -60,3 +60,45 @@ export const flyAndScale = (
 		easing: cubicOut
 	};
 };
+
+/**
+ * Generate a unique Purchase Order number in format PO-YYYY-XXXX
+ * Uses localStorage counter to track sequence per year
+ */
+export async function generatePONumber(): Promise<string> {
+	const year = new Date().getFullYear();
+	const storageKey = `po_counter_${year}`;
+	
+	// Get current counter from localStorage or start at 1
+	let count = 1;
+	if (typeof window !== 'undefined') {
+		const stored = localStorage.getItem(storageKey);
+		if (stored) {
+			count = parseInt(stored, 10) + 1;
+		}
+		localStorage.setItem(storageKey, count.toString());
+	}
+	
+	return `PO-${year}-${String(count).padStart(4, '0')}`;
+}
+
+/**
+ * Generate a unique Receipt number in format REC-YYYY-XXXX
+ * Uses localStorage counter to track sequence per year
+ */
+export async function generateReceiptNumber(): Promise<string> {
+	const year = new Date().getFullYear();
+	const storageKey = `receipt_counter_${year}`;
+	
+	// Get current counter from localStorage or start at 1
+	let count = 1;
+	if (typeof window !== 'undefined') {
+		const stored = localStorage.getItem(storageKey);
+		if (stored) {
+			count = parseInt(stored, 10) + 1;
+		}
+		localStorage.setItem(storageKey, count.toString());
+	}
+	
+	return `REC-${year}-${String(count).padStart(4, '0')}`;
+}

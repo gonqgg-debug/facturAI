@@ -1,5 +1,6 @@
 import type { Product, Invoice, Sale, StockMovement } from './types';
 import { db } from './db';
+import { getCsrfHeader } from './csrf';
 
 // Simple cache for AI responses (in-memory with localStorage backup)
 interface CacheEntry {
@@ -553,12 +554,8 @@ export async function generateSmartShoppingList(
   products: Product[],
   sales: Sale[],
   invoices: Invoice[],
-  stockMovements: StockMovement[],
-  apiKey: string
+  stockMovements: StockMovement[]
 ): Promise<SmartShoppingList> {
-  if (!apiKey) {
-    throw new Error('API key required for AI analysis');
-  }
 
   const items: ShoppingListItem[] = [];
   let totalEstimatedCost = 0;
@@ -581,7 +578,7 @@ export async function generateSmartShoppingList(
         }
 
         // Get AI reasoning for this specific product
-        const aiAnalysis = await getProductAIReasoning(product, sales, invoices, forecast, apiKey);
+        const aiAnalysis = await getProductAIReasoning(product, sales, invoices, forecast);
 
         // Calculate estimated cost
         const costPerUnit = product.lastPrice || product.averageCost || 0;
@@ -674,8 +671,7 @@ async function getProductAIReasoning(
   product: Product,
   sales: Sale[],
   invoices: Invoice[],
-  forecast: DemandForecast,
-  apiKey: string
+  forecast: DemandForecast
 ): Promise<{
   recommendedReorderQuantity: number;
   urgency: 'critical' | 'high' | 'medium' | 'low';
@@ -699,11 +695,12 @@ async function getProductAIReasoning(
   const prompt = generateInventoryAnalysisPrompt(product, sales, invoices, product.currentStock ?? 0);
 
   try {
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    const response = await fetch('/api/grok', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        ...getCsrfHeader()
       },
       body: JSON.stringify({
         model: 'grok-3',
@@ -815,11 +812,12 @@ async function generateShoppingListSummary(items: ShoppingListItem[], apiKey: st
   `;
 
   try {
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    const response = await fetch('/api/grok', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        ...getCsrfHeader()
       },
       body: JSON.stringify({
         model: 'grok-3',

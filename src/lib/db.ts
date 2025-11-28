@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { browser } from '$app/environment';
-import type { Invoice, Supplier, KnowledgeBaseRule, GlobalContextItem, Product, StockMovement, BankAccount, Payment, Customer, Sale, CashRegisterShift, Return, User, Role } from './types';
+import type { Invoice, Supplier, KnowledgeBaseRule, GlobalContextItem, Product, StockMovement, BankAccount, Payment, Customer, Sale, CashRegisterShift, Return, User, Role, PurchaseOrder, Receipt } from './types';
 import type { CustomerSegment, TransactionFeatures, RealTimeInsight } from './customer-insights/types';
 import type { WeatherRecord } from './weather';
 
@@ -23,6 +23,8 @@ export class MinimarketDatabase extends Dexie {
     transactionFeatures!: Table<TransactionFeatures>;
     realTimeInsights!: Table<RealTimeInsight>;
     weatherRecords!: Table<WeatherRecord>;
+    purchaseOrders!: Table<PurchaseOrder>;
+    receipts!: Table<Receipt>;
 
     constructor() {
         super('Jardines3MinimarketDB');
@@ -101,6 +103,30 @@ export class MinimarketDatabase extends Dexie {
             transactionFeatures: '++id, timestamp, hourOfDay, dayOfWeek, totalValue, shiftId',
             realTimeInsights: '++id, insightType, expiresAt, createdAt',
             weatherRecords: '++id, date, condition, precipitationLevel, location'
+        });
+        
+        // Version 14: Added purchase orders and receipts for purchase management
+        this.version(14).stores({
+            invoices: '++id, providerName, issueDate, ncf, status, paymentStatus, dueDate, receiptId, [issueDate+providerName]',
+            suppliers: '++id, name, rnc, isActive, category',
+            rules: '++id, supplierId',
+            globalContext: '++id, title, type, category',
+            products: '++id, supplierId, name, category, barcode, productId, [supplierId+name]',
+            stockMovements: '++id, productId, type, date, invoiceId, receiptId, saleId, returnId',
+            bankAccounts: '++id, bankName, isDefault, isActive',
+            payments: '++id, invoiceId, saleId, returnId, supplierId, customerId, paymentDate, paymentMethod, bankAccountId',
+            customers: '++id, name, type, isActive, rnc',
+            sales: '++id, date, customerId, paymentStatus, shiftId, receiptNumber, cashierId, hasReturns',
+            shifts: '++id, shiftNumber, status, openedAt, closedAt, cashierId',
+            returns: '++id, date, originalSaleId, originalReceiptNumber, customerId, shiftId, processedBy, refundStatus',
+            users: '++id, username, roleId, isActive, &pin',
+            roles: '++id, name, isSystem',
+            customerSegments: '++id, segmentId, segmentName, segmentType, confidenceScore, lastUpdated',
+            transactionFeatures: '++id, timestamp, hourOfDay, dayOfWeek, totalValue, shiftId',
+            realTimeInsights: '++id, insightType, expiresAt, createdAt',
+            weatherRecords: '++id, date, condition, precipitationLevel, location',
+            purchaseOrders: '++id, poNumber, supplierId, status, orderDate, expectedDate',
+            receipts: '++id, receiptNumber, supplierId, purchaseOrderId, receiptDate, invoiceId'
         });
     }
     

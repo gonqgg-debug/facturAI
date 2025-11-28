@@ -20,6 +20,7 @@
     import type { Product, Supplier } from "$lib/types";
     import { apiKey } from "$lib/stores";
     import { calculateMarginExTax, getProductCostExTax, getProductPriceExTax, ITBIS_RATE } from '$lib/tax';
+    import { getCsrfHeader } from '$lib/csrf';
     import * as XLSX from 'xlsx';
     import * as Select from "$lib/components/ui/select";
     import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
@@ -244,9 +245,13 @@
 ${itemsText}`;
 
                 try {
-                    const response = await fetch("https://api.x.ai/v1/chat/completions", {
+                    const response = await fetch("/api/grok", {
                             method: "POST",
-                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${$apiKey}` },
+                            credentials: "same-origin",
+                        headers: { 
+                            "Content-Type": "application/json",
+                            ...getCsrfHeader()
+                        },
                             body: JSON.stringify({
                                 messages: [
                                 { role: "system", content: "You are an expert Pricing Analyst for a Dominican Colmado. Return ONLY a valid JSON array. Do not include markdown formatting like ```json." },
@@ -353,9 +358,13 @@ ${itemsText}`;
         chatHistory = [...chatHistory, { role: "user", content: message }];
 
         try {
-            const response = await fetch("https://api.x.ai/v1/chat/completions", {
+            const response = await fetch("/api/grok", {
                     method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${$apiKey}` },
+                    credentials: "same-origin",
+                headers: { 
+                    "Content-Type": "application/json",
+                    ...getCsrfHeader()
+                },
                     body: JSON.stringify({
                         messages: [
                         { role: "system", content: "You are a helpful Pricing Analyst assistant. Keep answers short and conversational." },
@@ -374,8 +383,6 @@ ${itemsText}`;
     }
 
     async function analyzeSingleProduct(product: ProductWithSupplier) {
-        if (!$apiKey) { alert("Please set your API Key in Settings first."); return; }
-
         isAnalyzing = true;
         chatHistory = [];
 
@@ -403,9 +410,13 @@ ${itemsText}`;
                 "creativeIdea": "One specific, out-of-the-box idea (e.g. 'Bundle with Coke', 'Flash Sale Friday')."
 }`;
 
-            const response = await fetch("https://api.x.ai/v1/chat/completions", {
+            const response = await fetch("/api/grok", {
                     method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${$apiKey}` },
+                    credentials: "same-origin",
+                headers: { 
+                    "Content-Type": "application/json",
+                    ...getCsrfHeader()
+                },
                     body: JSON.stringify({
                         messages: [
                         { role: "system", content: "You are an expert Pricing Analyst. Return ONLY valid JSON." },

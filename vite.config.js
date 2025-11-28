@@ -62,5 +62,31 @@ export default defineConfig({
                 ]
             }
         })
-    ]
+    ],
+    // Vitest configuration
+    test: {
+        include: ['src/**/*.{test,spec}.{js,ts}'],
+        globals: true,
+        environment: 'jsdom',
+        setupFiles: ['./src/tests/setup.ts'],
+        coverage: {
+            provider: 'v8',
+            reporter: ['text', 'json', 'html'],
+            include: ['src/lib/**/*.ts'],
+            exclude: [
+                'src/lib/components/**',
+                'src/lib/customer-insights/**',
+                '**/*.d.ts',
+                '**/*.test.ts',
+                '**/*.spec.ts'
+            ],
+        thresholds: {
+            // Start with lower thresholds and increase as more tests are added
+            lines: 15,
+            branches: 10,
+            functions: 10,
+            statements: 15
+        }
+        }
+    }
 });

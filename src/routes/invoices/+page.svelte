@@ -225,7 +225,7 @@
 
     isSyncing = true;
     try {
-      const updatedData = await parseInvoiceWithGrok(invoice.rawText, $apiKey);
+      const updatedData = await parseInvoiceWithGrok(invoice.rawText);
       
       const newInvoice = { ...invoice, ...updatedData, status: 'draft' as const };
       if (invoice.id) {
