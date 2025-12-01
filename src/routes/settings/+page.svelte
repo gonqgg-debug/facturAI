@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import { apiKey, locale, weatherApiKey, storeLocation } from '$lib/stores';
   import { db } from '$lib/db';
   import { currentUser, userPermissions } from '$lib/auth';
-  import { Save, Download, Upload, Trash2, AlertTriangle, Eye, EyeOff, Plus, Building2, CreditCard, X, Check, Edit2, Star, Languages, Users, Shield, UserPlus, CloudRain, MapPin, RefreshCw, FlaskConical, Database, RotateCcw } from 'lucide-svelte';
+  import { Save, Download, Upload, Trash2, AlertTriangle, Eye, EyeOff, Plus, Building2, CreditCard, X, Check, Edit2, Star, Languages, Users, Shield, UserPlus, CloudRain, MapPin, RefreshCw, FlaskConical, Database, RotateCcw, Lock, Unlock, FileCheck, Clock, HardDrive, ShieldCheck, FileWarning } from 'lucide-svelte';
   import { isTestMode, hasBackup, getBackupInfo, activateTestData, deactivateTestData, type SeedProgress, type SeedResult } from '$lib/seed-test-data';
   import type { BankAccount, User, Role } from '$lib/types';
   import * as Select from '$lib/components/ui/select';
@@ -15,6 +15,19 @@
   import { Switch } from '$lib/components/ui/switch';
   import { t } from '$lib/i18n';
   import { testWeatherConnection, type CurrentWeather } from '$lib/weather';
+  import { 
+    createBackup, 
+    restoreBackup, 
+    validateBackup, 
+    createAutoBackup,
+    getAutoBackupInfo,
+    startScheduledBackups,
+    stopScheduledBackups,
+    type BackupProgress,
+    type BackupResult,
+    type RestoreResult,
+    type ValidationResult
+  } from '$lib/backup';
 
   let keyInput = '';
   let showSaveSuccess = false;
@@ -59,6 +72,23 @@
   let seedResult: SeedResult | null = null;
   let showTestDataConfirmDialog = false;
   let showRestoreConfirmDialog = false;
+
+  // Enhanced Backup System
+  let isBackingUp = false;
+  let isRestoring = false;
+  let isValidating = false;
+  let backupProgress: BackupProgress = { stage: '', percent: 0 };
+  let backupResult: BackupResult | null = null;
+  let restoreResult: RestoreResult | null = null;
+  let validationResult: ValidationResult | null = null;
+  let backupPassword = '';
+  let restorePassword = '';
+  let encryptBackup = false;
+  let selectedBackupFile: File | null = null;
+  let showBackupPasswordDialog = false;
+  let showRestoreDialog = false;
+  let autoBackupInfo: { timestamp: string; size: number } | null = null;
+  let autoBackupEnabled = true;
 
   function getEmptyUserForm(): Partial<User> {
     return {
@@ -110,6 +140,16 @@
     testModeActive = isTestMode();
     backupAvailable = hasBackup();
     backupInfo = getBackupInfo();
+
+    // Initialize auto-backup system
+    autoBackupInfo = getAutoBackupInfo();
+    if (autoBackupEnabled) {
+      startScheduledBackups(4); // Every 4 hours
+    }
+  });
+
+  onDestroy(() => {
+    stopScheduledBackups();
   });
 
   async function loadBankAccounts() {
@@ -459,76 +499,126 @@
     }
   }
 
-  async function backupData() {
-    const invoices = await db.invoices.toArray();
-    const suppliers = await db.suppliers.toArray();
-    const globalContext = await db.globalContext.toArray();
-    const rules = await db.rules.toArray();
-    const products = await db.products.toArray();
-    const bankAccounts = await db.bankAccounts.toArray();
-    const payments = await db.payments.toArray();
-
-    const data = {
-      version: 3,
-      timestamp: new Date().toISOString(),
-      invoices,
-      suppliers,
-      globalContext,
-      rules,
-      products,
-      bankAccounts,
-      payments
-    };
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `minimarket_backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Enhanced backup with encryption support
+  async function handleBackup() {
+    if (encryptBackup && !backupPassword) {
+      showBackupPasswordDialog = true;
+      return;
+    }
+    
+    await executeBackup();
   }
 
-  async function restoreData(event: Event) {
+  async function executeBackup() {
+    isBackingUp = true;
+    backupResult = null;
+    showBackupPasswordDialog = false;
+    
+    try {
+      const result = await createBackup({
+        password: encryptBackup ? backupPassword : undefined,
+        includeAnalytics: true,
+        onProgress: (progress) => {
+          backupProgress = progress;
+        }
+      });
+      
+      backupResult = result;
+      
+      if (result.success) {
+        // Update auto-backup info
+        autoBackupInfo = getAutoBackupInfo();
+      }
+    } catch (error) {
+      backupResult = {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    } finally {
+      isBackingUp = false;
+      backupPassword = '';
+    }
+  }
+
+  // Enhanced restore with validation
+  async function handleFileSelect(event: Event) {
     const input = event.target as HTMLInputElement;
     if (!input.files || !input.files[0]) return;
-
-    const file = input.files[0];
-    const reader = new FileReader();
-
-    reader.onload = async (e) => {
-      try {
-        const data = JSON.parse(e.target?.result as string);
-        
-        if (!confirm($locale === 'es' ? 'Esto SOBRESCRIBIRÁ tus datos actuales. ¿Estás seguro?' : 'This will OVERWRITE your current data. Are you sure?')) return;
-
-        await db.transaction('rw', db.invoices, db.suppliers, db.globalContext, db.rules, db.products, db.bankAccounts, db.payments, async () => {
-          await db.invoices.clear();
-          await db.suppliers.clear();
-          await db.globalContext.clear();
-          await db.rules.clear();
-          await db.products.clear();
-          await db.bankAccounts.clear();
-          await db.payments.clear();
-
-          if (data.invoices) await db.invoices.bulkAdd(data.invoices);
-          if (data.suppliers) await db.suppliers.bulkAdd(data.suppliers);
-          if (data.globalContext) await db.globalContext.bulkAdd(data.globalContext);
-          // Support both old 'kbRules' and new 'rules' backup format
-          if (data.rules) await db.rules.bulkAdd(data.rules);
-          else if (data.kbRules) await db.rules.bulkAdd(data.kbRules);
-          if (data.products) await db.products.bulkAdd(data.products);
-          if (data.bankAccounts) await db.bankAccounts.bulkAdd(data.bankAccounts);
-          if (data.payments) await db.payments.bulkAdd(data.payments);
-        });
-
-        alert($locale === 'es' ? '¡Restauración exitosa!' : 'Restore successful!');
-      } catch (err) {
-        alert('Error restoring data: ' + err);
+    
+    selectedBackupFile = input.files[0];
+    isValidating = true;
+    validationResult = null;
+    
+    try {
+      const result = await validateBackup(selectedBackupFile);
+      validationResult = result;
+      
+      if (result.encrypted) {
+        // Will need password
+        showRestoreDialog = true;
+      } else if (result.valid) {
+        showRestoreDialog = true;
       }
-    };
+    } catch (error) {
+      validationResult = {
+        valid: false,
+        errors: [error instanceof Error ? error.message : 'Unknown error'],
+        warnings: []
+      };
+    } finally {
+      isValidating = false;
+      // Reset file input
+      input.value = '';
+    }
+  }
 
-    reader.readAsText(file);
+  async function executeRestore() {
+    if (!selectedBackupFile) return;
+    
+    isRestoring = true;
+    restoreResult = null;
+    
+    try {
+      const result = await restoreBackup(selectedBackupFile, {
+        password: validationResult?.encrypted ? restorePassword : undefined,
+        clearExisting: true,
+        onProgress: (progress) => {
+          backupProgress = progress;
+        }
+      });
+      
+      restoreResult = result;
+      
+      if (result.success) {
+        showRestoreDialog = false;
+        // Reload to show restored data
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      }
+    } catch (error) {
+      restoreResult = {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    } finally {
+      isRestoring = false;
+      restorePassword = '';
+    }
+  }
+
+  function cancelRestore() {
+    showRestoreDialog = false;
+    selectedBackupFile = null;
+    validationResult = null;
+    restorePassword = '';
+  }
+
+  async function triggerManualAutoBackup() {
+    const success = await createAutoBackup();
+    if (success) {
+      autoBackupInfo = getAutoBackupInfo();
+    }
   }
 
   async function resetData() {
@@ -911,35 +1001,234 @@
     </div>
   {/if}
 
-  <!-- Data Management Section -->
+  <!-- Data Management Section (Enhanced) -->
   <div class="bg-card text-card-foreground border border-border rounded-xl p-4 mb-6">
-    <h2 class="text-lg font-semibold mb-4">{$locale === 'es' ? 'Gestión de Datos' : 'Data Management'}</h2>
+    <h2 class="text-lg font-semibold mb-2 flex items-center gap-2">
+      <HardDrive size={18} />
+      {$locale === 'es' ? 'Gestión de Datos' : 'Data Management'}
+    </h2>
+    <p class="text-xs text-muted-foreground mb-4">
+      {$locale === 'es' 
+        ? 'Respalda y restaura todos tus datos con encriptación opcional.'
+        : 'Backup and restore all your data with optional encryption.'}
+    </p>
+
     <div class="space-y-4">
       
-      <!-- Backup -->
-      <div class="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border/50">
-        <div>
-          <div class="font-medium">{$locale === 'es' ? 'Respaldar Datos' : 'Backup Data'}</div>
-          <div class="text-xs text-muted-foreground">{$locale === 'es' ? 'Descarga una copia JSON de todos tus datos.' : 'Download a JSON copy of all your data.'}</div>
+      <!-- Full Backup -->
+      <div class="p-4 bg-muted/30 rounded-lg border border-border/50">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <div class="font-medium flex items-center gap-2">
+              <Download size={16} class="text-primary" />
+              {$locale === 'es' ? 'Respaldo Completo' : 'Full Backup'}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$locale === 'es' 
+                ? 'Exporta todas las 20 tablas con verificación de integridad.'
+                : 'Export all 20 tables with integrity verification.'}
+            </div>
+          </div>
         </div>
+        
+        <!-- Encryption Toggle -->
+        <div class="flex items-center gap-4 mb-3 p-2 bg-background/50 rounded-lg">
+          <div class="flex items-center gap-2">
+            <Switch bind:checked={encryptBackup} id="encrypt-backup-switch" />
+            <Label for="encrypt-backup-switch" class="text-sm cursor-pointer flex items-center gap-1">
+              {#if encryptBackup}
+                <Lock size={14} class="text-green-500" />
+              {:else}
+                <Unlock size={14} class="text-muted-foreground" />
+              {/if}
+              {$locale === 'es' ? 'Encriptar respaldo' : 'Encrypt backup'}
+            </Label>
+          </div>
+          {#if encryptBackup}
+            <span class="text-xs text-green-600 dark:text-green-400">
+              {$locale === 'es' ? 'AES-256-GCM' : 'AES-256-GCM'}
+            </span>
+          {/if}
+        </div>
+        
+        <!-- Backup Progress -->
+        {#if isBackingUp}
+          <div class="mb-3 p-3 bg-primary/10 rounded-lg border border-primary/20">
+            <div class="flex items-center gap-2 mb-2">
+              <RefreshCw size={16} class="animate-spin text-primary" />
+              <span class="text-sm font-medium">{backupProgress.stage}</span>
+              {#if backupProgress.currentTable}
+                <span class="text-xs text-muted-foreground">({backupProgress.currentTable})</span>
+              {/if}
+            </div>
+            <div class="w-full h-2 bg-muted rounded-full overflow-hidden">
+              <div 
+                class="h-full bg-primary transition-all duration-300"
+                style="width: {backupProgress.percent}%"
+              ></div>
+            </div>
+          </div>
+        {/if}
+        
+        <!-- Backup Result -->
+        {#if backupResult}
+          <div class="mb-3 p-3 rounded-lg {backupResult.success ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}">
+            <div class="flex items-center gap-2">
+              {#if backupResult.success}
+                <Check size={16} class="text-green-500" />
+                <span class="text-sm font-medium text-green-600 dark:text-green-400">
+                  {$locale === 'es' ? '¡Respaldo creado!' : 'Backup created!'}
+                </span>
+              {:else}
+                <AlertTriangle size={16} class="text-red-500" />
+                <span class="text-sm font-medium text-red-600 dark:text-red-400">
+                  {backupResult.error}
+                </span>
+              {/if}
+            </div>
+            {#if backupResult.success}
+              <div class="text-xs text-muted-foreground mt-1 flex flex-wrap gap-3">
+                <span>📁 {backupResult.filename}</span>
+                <span>📊 {backupResult.recordCount?.toLocaleString()} {$locale === 'es' ? 'registros' : 'records'}</span>
+                <span>💾 {((backupResult.size || 0) / 1024).toFixed(1)} KB</span>
+              </div>
+            {/if}
+          </div>
+        {/if}
+        
         <button 
-          on:click={backupData}
-          class="text-primary hover:bg-primary/10 p-2 rounded-lg transition-colors"
+          on:click={handleBackup}
+          disabled={isBackingUp}
+          class="w-full bg-primary hover:bg-primary/90 disabled:bg-muted disabled:cursor-not-allowed text-primary-foreground px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-colors"
         >
-          <Download size={20} />
+          {#if isBackingUp}
+            <RefreshCw size={16} class="animate-spin" />
+            {$locale === 'es' ? 'Creando respaldo...' : 'Creating backup...'}
+          {:else}
+            <Download size={16} />
+            {$locale === 'es' ? 'Descargar Respaldo' : 'Download Backup'}
+          {/if}
         </button>
       </div>
 
       <!-- Restore -->
-      <div class="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border/50">
-        <div>
-          <div class="font-medium">{$locale === 'es' ? 'Restaurar Datos' : 'Restore Data'}</div>
-          <div class="text-xs text-muted-foreground">{$locale === 'es' ? 'Restaura desde un archivo JSON de respaldo.' : 'Restore from a JSON backup file.'}</div>
+      <div class="p-4 bg-muted/30 rounded-lg border border-border/50">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <div class="font-medium flex items-center gap-2">
+              <Upload size={16} class="text-blue-500" />
+              {$locale === 'es' ? 'Restaurar Datos' : 'Restore Data'}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$locale === 'es' 
+                ? 'Restaura desde un archivo de respaldo (validación automática).'
+                : 'Restore from a backup file (automatic validation).'}
+            </div>
+          </div>
         </div>
-        <label class="text-primary hover:bg-primary/10 p-2 rounded-lg transition-colors cursor-pointer">
-          <Upload size={20} />
-          <input type="file" accept=".json" on:change={restoreData} class="hidden" />
+        
+        <!-- Validation Progress -->
+        {#if isValidating}
+          <div class="mb-3 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+            <div class="flex items-center gap-2">
+              <RefreshCw size={16} class="animate-spin text-blue-500" />
+              <span class="text-sm">{$locale === 'es' ? 'Validando archivo...' : 'Validating file...'}</span>
+            </div>
+          </div>
+        {/if}
+        
+        <!-- Validation Result (inline for quick feedback) -->
+        {#if validationResult && !showRestoreDialog}
+          <div class="mb-3 p-3 rounded-lg {validationResult.valid ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}">
+            <div class="flex items-center gap-2 mb-1">
+              {#if validationResult.valid}
+                <FileCheck size={16} class="text-green-500" />
+                <span class="text-sm font-medium text-green-600 dark:text-green-400">
+                  {$locale === 'es' ? 'Archivo válido' : 'Valid file'}
+                </span>
+              {:else}
+                <FileWarning size={16} class="text-red-500" />
+                <span class="text-sm font-medium text-red-600 dark:text-red-400">
+                  {$locale === 'es' ? 'Archivo inválido' : 'Invalid file'}
+                </span>
+              {/if}
+              {#if validationResult.encrypted}
+                <span class="text-xs bg-yellow-500/20 text-yellow-600 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <Lock size={10} /> {$locale === 'es' ? 'Encriptado' : 'Encrypted'}
+                </span>
+              {/if}
+            </div>
+            {#if validationResult.errors.length > 0}
+              <ul class="text-xs text-red-500 list-disc list-inside">
+                {#each validationResult.errors as error}
+                  <li>{error}</li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+        {/if}
+        
+        <label class="w-full bg-muted hover:bg-muted/80 text-foreground px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer {isValidating ? 'opacity-50 cursor-not-allowed' : ''}">
+          <Upload size={16} />
+          {$locale === 'es' ? 'Seleccionar Archivo' : 'Select File'}
+          <input 
+            type="file" 
+            accept=".json" 
+            on:change={handleFileSelect} 
+            class="hidden"
+            disabled={isValidating}
+          />
         </label>
+      </div>
+
+      <!-- Auto-Backup Status -->
+      <div class="p-4 bg-muted/30 rounded-lg border border-border/50">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-medium flex items-center gap-2">
+            <Clock size={16} class="text-purple-500" />
+            {$locale === 'es' ? 'Auto-Respaldo Local' : 'Local Auto-Backup'}
+          </div>
+          <Switch 
+            bind:checked={autoBackupEnabled} 
+            on:change={() => {
+              if (autoBackupEnabled) {
+                startScheduledBackups(4);
+              } else {
+                stopScheduledBackups();
+              }
+            }}
+          />
+        </div>
+        <p class="text-xs text-muted-foreground mb-2">
+          {$locale === 'es' 
+            ? 'Guarda tablas críticas en localStorage cada 4 horas (para recuperación de emergencia).'
+            : 'Saves critical tables to localStorage every 4 hours (for emergency recovery).'}
+        </p>
+        {#if autoBackupInfo}
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-green-500 flex items-center gap-1">
+              <ShieldCheck size={12} />
+              {$locale === 'es' ? 'Último respaldo:' : 'Last backup:'}
+            </span>
+            <span class="text-muted-foreground">
+              {new Date(autoBackupInfo.timestamp).toLocaleString()}
+            </span>
+            <span class="text-muted-foreground">
+              ({(autoBackupInfo.size / 1024).toFixed(1)} KB)
+            </span>
+          </div>
+        {:else}
+          <div class="text-xs text-muted-foreground">
+            {$locale === 'es' ? 'Sin respaldo automático aún' : 'No auto-backup yet'}
+          </div>
+        {/if}
+        <button
+          on:click={triggerManualAutoBackup}
+          class="mt-2 text-xs text-primary hover:underline flex items-center gap-1"
+        >
+          <RefreshCw size={12} />
+          {$locale === 'es' ? 'Crear respaldo ahora' : 'Create backup now'}
+        </button>
       </div>
 
       <!-- Reset -->
@@ -1489,6 +1778,200 @@
       </AlertDialog.Cancel>
       <AlertDialog.Action class="bg-green-500 text-white hover:bg-green-600" on:click={handleRestoreRealData}>
         {$locale === 'es' ? 'Restaurar Datos Reales' : 'Restore Real Data'}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<!-- Backup Password Dialog -->
+<AlertDialog.Root bind:open={showBackupPasswordDialog}>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title class="flex items-center gap-2">
+        <Lock size={20} class="text-primary" />
+        {$locale === 'es' ? 'Contraseña de Encriptación' : 'Encryption Password'}
+      </AlertDialog.Title>
+      <AlertDialog.Description class="space-y-3">
+        <p>
+          {$locale === 'es' 
+            ? 'Ingresa una contraseña para proteger tu respaldo. Necesitarás esta contraseña para restaurarlo.'
+            : 'Enter a password to protect your backup. You will need this password to restore it.'}
+        </p>
+        <div class="space-y-2">
+          <Label for="backup-password">{$locale === 'es' ? 'Contraseña' : 'Password'}</Label>
+          <Input 
+            id="backup-password"
+            type="password" 
+            bind:value={backupPassword}
+            placeholder={$locale === 'es' ? 'Ingresa contraseña...' : 'Enter password...'}
+            class="bg-input/50"
+          />
+        </div>
+        <p class="text-xs text-muted-foreground flex items-center gap-1">
+          <AlertTriangle size={12} class="text-yellow-500" />
+          {$locale === 'es' 
+            ? 'IMPORTANTE: No hay forma de recuperar la contraseña si la olvidas.'
+            : 'IMPORTANT: There is no way to recover the password if you forget it.'}
+        </p>
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel on:click={() => { showBackupPasswordDialog = false; backupPassword = ''; }}>
+        {$locale === 'es' ? 'Cancelar' : 'Cancel'}
+      </AlertDialog.Cancel>
+      <AlertDialog.Action 
+        class="bg-primary text-primary-foreground hover:bg-primary/90" 
+        on:click={executeBackup}
+        disabled={!backupPassword}
+      >
+        {$locale === 'es' ? 'Crear Respaldo Encriptado' : 'Create Encrypted Backup'}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<!-- Restore from Backup File Dialog -->
+<AlertDialog.Root bind:open={showRestoreDialog}>
+  <AlertDialog.Content class="max-w-lg">
+    <AlertDialog.Header>
+      <AlertDialog.Title class="flex items-center gap-2">
+        <Upload size={20} class="text-blue-500" />
+        {$locale === 'es' ? 'Restaurar Respaldo' : 'Restore Backup'}
+      </AlertDialog.Title>
+      <AlertDialog.Description class="space-y-4">
+        {#if validationResult}
+          <!-- Validation Summary -->
+          <div class="p-3 rounded-lg {validationResult.valid ? 'bg-green-500/10 border border-green-500/20' : 'bg-yellow-500/10 border border-yellow-500/20'}">
+            <div class="flex items-center gap-2 mb-2">
+              {#if validationResult.valid}
+                <FileCheck size={16} class="text-green-500" />
+                <span class="font-medium text-green-600 dark:text-green-400">
+                  {$locale === 'es' ? 'Archivo válido' : 'Valid file'}
+                </span>
+              {:else}
+                <FileWarning size={16} class="text-yellow-500" />
+                <span class="font-medium text-yellow-600 dark:text-yellow-400">
+                  {$locale === 'es' ? 'Advertencias' : 'Warnings'}
+                </span>
+              {/if}
+              {#if validationResult.encrypted}
+                <span class="text-xs bg-yellow-500/20 text-yellow-600 px-1.5 py-0.5 rounded flex items-center gap-1 ml-auto">
+                  <Lock size={10} /> {$locale === 'es' ? 'Encriptado' : 'Encrypted'}
+                </span>
+              {/if}
+            </div>
+            
+            {#if validationResult.recordCounts}
+              <div class="grid grid-cols-2 gap-1 text-xs text-muted-foreground mt-2">
+                {#each Object.entries(validationResult.recordCounts).filter(([_, count]) => count > 0) as [table, count]}
+                  <div class="flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-primary/50"></span>
+                    {table}: {count}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+          
+          <!-- Warnings -->
+          {#if validationResult.warnings.length > 0}
+            <div class="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+              <div class="text-sm font-medium text-yellow-600 dark:text-yellow-400 mb-1 flex items-center gap-1">
+                <AlertTriangle size={14} />
+                {$locale === 'es' ? 'Advertencias' : 'Warnings'}
+              </div>
+              <ul class="text-xs text-muted-foreground list-disc list-inside space-y-1">
+                {#each validationResult.warnings as warning}
+                  <li>{warning}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+          
+          <!-- Password Input for encrypted backups -->
+          {#if validationResult.encrypted}
+            <div class="space-y-2">
+              <Label for="restore-password">{$locale === 'es' ? 'Contraseña de Respaldo' : 'Backup Password'}</Label>
+              <Input 
+                id="restore-password"
+                type="password" 
+                bind:value={restorePassword}
+                placeholder={$locale === 'es' ? 'Ingresa la contraseña...' : 'Enter password...'}
+                class="bg-input/50"
+              />
+            </div>
+          {/if}
+          
+          <!-- Warning about data loss -->
+          <div class="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <p class="text-sm text-red-600 dark:text-red-400 flex items-start gap-2">
+              <AlertTriangle size={16} class="flex-shrink-0 mt-0.5" />
+              <span>
+                {$locale === 'es' 
+                  ? 'Esta acción SOBRESCRIBIRÁ todos tus datos actuales. Asegúrate de tener un respaldo antes de continuar.'
+                  : 'This action will OVERWRITE all your current data. Make sure you have a backup before proceeding.'}
+              </span>
+            </p>
+          </div>
+        {/if}
+        
+        <!-- Restore Progress -->
+        {#if isRestoring}
+          <div class="p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+            <div class="flex items-center gap-2 mb-2">
+              <RefreshCw size={16} class="animate-spin text-blue-500" />
+              <span class="text-sm font-medium">{backupProgress.stage}</span>
+            </div>
+            <div class="w-full h-2 bg-muted rounded-full overflow-hidden">
+              <div 
+                class="h-full bg-blue-500 transition-all duration-300"
+                style="width: {backupProgress.percent}%"
+              ></div>
+            </div>
+          </div>
+        {/if}
+        
+        <!-- Restore Result -->
+        {#if restoreResult}
+          <div class="p-3 rounded-lg {restoreResult.success ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}">
+            {#if restoreResult.success}
+              <div class="flex items-center gap-2 mb-1">
+                <Check size={16} class="text-green-500" />
+                <span class="font-medium text-green-600 dark:text-green-400">
+                  {$locale === 'es' ? '¡Restauración exitosa!' : 'Restore successful!'}
+                </span>
+              </div>
+              <p class="text-xs text-muted-foreground">
+                {restoreResult.recordsRestored?.toLocaleString()} {$locale === 'es' ? 'registros restaurados' : 'records restored'}. 
+                {$locale === 'es' ? 'Recargando página...' : 'Reloading page...'}
+              </p>
+            {:else}
+              <div class="flex items-center gap-2">
+                <AlertTriangle size={16} class="text-red-500" />
+                <span class="font-medium text-red-600 dark:text-red-400">
+                  {restoreResult.error}
+                </span>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel on:click={cancelRestore} disabled={isRestoring}>
+        {$locale === 'es' ? 'Cancelar' : 'Cancel'}
+      </AlertDialog.Cancel>
+      <AlertDialog.Action 
+        class="bg-blue-500 text-white hover:bg-blue-600" 
+        on:click={executeRestore}
+        disabled={isRestoring || (validationResult?.encrypted && !restorePassword) || restoreResult?.success}
+      >
+        {#if isRestoring}
+          <RefreshCw size={16} class="animate-spin mr-2" />
+          {$locale === 'es' ? 'Restaurando...' : 'Restoring...'}
+        {:else}
+          {$locale === 'es' ? 'Restaurar Datos' : 'Restore Data'}
+        {/if}
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
