@@ -56,31 +56,61 @@
   let maxChartValue = 0;
 
   onMount(async () => {
+    // Wait for database to be ready
+    await new Promise(resolve => setTimeout(resolve, 100));
     await loadDashboardData();
   });
 
   async function loadDashboardData() {
-    const invoices = await db.invoices.toArray();
-    const sales = await db.sales.toArray();
-    const customers = await db.customers.toArray();
-    const products = await db.products.toArray();
-    const returns = await db.returns.toArray();
-    
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+    try {
+      // Ensure database is open
+      if (!db.isOpen()) {
+        await db.open();
+      }
+      
+      const invoices = await db.invoices.toArray();
+      const sales = await db.sales.toArray();
+      const customers = await db.customers.toArray();
+      const products = await db.products.toArray();
+      const returns = await db.returns.toArray();
+      
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      
+      // Use string comparison for YYYY-MM-DD dates (more reliable than Date parsing)
+      const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
+      
+      // Debug logging (can be removed in production)
+      if (import.meta.env.DEV) {
+        console.log('Dashboard - Loaded:', invoices.length, 'invoices,', sales.length, 'sales');
+      }
 
     // ============ EXPENSES CALCULATIONS ============
     const currentMonthInvoices = invoices.filter(i => {
+      if (!i.issueDate) return false;
+      // Use string comparison for YYYY-MM-DD format
+      if (typeof i.issueDate === 'string') {
+        return i.issueDate.startsWith(currentMonthKey);
+      }
+      // Fallback to Date comparison
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const d = new Date(i.issueDate);
-      return d >= startOfMonth;
+      return !isNaN(d.getTime()) && d >= startOfMonth;
     });
 
     const prevMonthInvoices = invoices.filter(i => {
+      if (!i.issueDate) return false;
+      // Use string comparison for YYYY-MM-DD format
+      if (typeof i.issueDate === 'string') {
+        return i.issueDate.startsWith(prevMonthKey);
+      }
+      // Fallback to Date comparison
+      const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
       const d = new Date(i.issueDate);
-      return d >= startOfPrevMonth && d <= endOfPrevMonth;
+      return !isNaN(d.getTime()) && d >= startOfPrevMonth && d <= endOfPrevMonth;
     });
 
     monthlyExpenses = currentMonthInvoices.reduce((sum, i) => sum + (i.total || 0), 0);
@@ -122,13 +152,29 @@
 
     // ============ SALES CALCULATIONS ============
     const currentMonthSales = sales.filter(s => {
+      if (!s.date) return false;
+      // Use string comparison for YYYY-MM-DD format
+      if (typeof s.date === 'string') {
+        return s.date.startsWith(currentMonthKey);
+      }
+      // Fallback to Date comparison
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const d = new Date(s.date);
-      return d >= startOfMonth;
+      return !isNaN(d.getTime()) && d >= startOfMonth;
     });
 
+
     const prevMonthSales = sales.filter(s => {
+      if (!s.date) return false;
+      // Use string comparison for YYYY-MM-DD format
+      if (typeof s.date === 'string') {
+        return s.date.startsWith(prevMonthKey);
+      }
+      // Fallback to Date comparison
+      const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
       const d = new Date(s.date);
-      return d >= startOfPrevMonth && d <= endOfPrevMonth;
+      return !isNaN(d.getTime()) && d >= startOfPrevMonth && d <= endOfPrevMonth;
     });
 
     monthlySales = currentMonthSales.reduce((sum, s) => sum + (s.total || 0), 0);
@@ -148,8 +194,15 @@
 
     // Monthly returns
     const currentMonthReturns = returns.filter(r => {
+      if (!r.date) return false;
+      // Use string comparison for YYYY-MM-DD format
+      if (typeof r.date === 'string') {
+        return r.date.startsWith(currentMonthKey);
+      }
+      // Fallback to Date comparison
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const d = new Date(r.date);
-      return d >= startOfMonth;
+      return !isNaN(d.getTime()) && d >= startOfMonth;
     });
     monthlyReturns = currentMonthReturns.reduce((sum, r) => sum + (r.total || 0), 0);
 
@@ -205,6 +258,9 @@
       ...chartData.map(d => Math.max(d.costs, d.sales)),
       1000
     );
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+    }
   }
 
   // Quick Actions

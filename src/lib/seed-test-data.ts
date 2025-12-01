@@ -423,7 +423,8 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
     let currentShift: CashRegisterShift | null = null;
     let shiftSalesCount = 0;
     
-    for (let day = 0; day < totalDays; day++) {
+    // Use <= to include the current day (endDate)
+    for (let day = 0; day <= totalDays; day++) {
         const currentDate = new Date(startDate.getTime() + day * dayMs);
         const dayOfWeek = currentDate.getDay();
         
@@ -552,8 +553,8 @@ async function seedInvoices(suppliers: Supplier[], products: Product[]): Promise
     const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / dayMs);
     let totalInvoices = 0;
     
-    // Generate invoices roughly every 3-4 days
-    for (let day = 0; day < totalDays; day += randomInt(3, 4)) {
+    // Generate invoices roughly every 3-4 days (use <= to include current day)
+    for (let day = 0; day <= totalDays; day += randomInt(3, 4)) {
         const numInvoices = randomInt(1, 2); // 1-2 invoices per period
         
         for (let i = 0; i < numInvoices; i++) {
@@ -651,8 +652,8 @@ async function seedPurchaseOrders(suppliers: Supplier[], products: Product[]): P
     
     console.log(`📋 Generating POs over ${totalDays} days with ${validSuppliers.length} suppliers and ${products.length} products`);
     
-    // Generate POs roughly every 3-5 days (more frequent)
-    for (let day = 0; day < totalDays; day += randomInt(3, 5)) {
+    // Generate POs roughly every 3-5 days (use <= to include current day)
+    for (let day = 0; day <= totalDays; day += randomInt(3, 5)) {
         const numPOs = randomInt(1, 2); // 1-2 POs per period
         
         for (let i = 0; i < numPOs; i++) {

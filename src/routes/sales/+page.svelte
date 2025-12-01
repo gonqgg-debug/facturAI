@@ -426,7 +426,13 @@
   
   async function confirmSale() {
     if (!browser) return;
-    if (!$activeShift?.id) return;
+    if (!$activeShift?.id) {
+      alert($locale === 'es' 
+        ? 'Debe abrir un turno antes de realizar ventas. Vaya a Configuración > Gestión de Turnos.'
+        : 'You must open a shift before making sales. Go to Settings > Shift Management.');
+      console.error('Cannot create sale: No active shift');
+      return;
+    }
     
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
