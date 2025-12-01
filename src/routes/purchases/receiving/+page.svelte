@@ -85,8 +85,8 @@
       const allSuppliers = await db.suppliers.toArray();
       suppliers = allSuppliers.filter(s => s.isActive !== false);
       
-      products = await db.products.toArray();
-      purchaseOrders = await db.purchaseOrders.toArray();
+    products = await db.products.toArray();
+    purchaseOrders = await db.purchaseOrders.toArray();
       
       // Debug: log what we loaded
       console.log('Receiving - Loaded POs:', purchaseOrders.length, purchaseOrders.map(po => ({ id: po.id, poNumber: po.poNumber, status: po.status })));

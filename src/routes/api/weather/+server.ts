@@ -2,8 +2,20 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { env } from '$env/dynamic/private';
 import { logger } from '$lib/logger';
+import { z } from 'zod';
+import { getErrorString } from '$lib/validation';
 
 const WEATHER_API_URL = 'https://api.openweathermap.org/data/2.5/weather';
+
+// Zod schema for weather API query parameters
+const weatherQuerySchema = z.object({
+    city: z.string().min(1).max(100).optional(),
+    lat: z.string().regex(/^-?\d+\.?\d*$/, 'Invalid latitude format').optional(),
+    lon: z.string().regex(/^-?\d+\.?\d*$/, 'Invalid longitude format').optional()
+}).refine(
+    (data) => data.city || (data.lat && data.lon),
+    { message: 'Either city or both lat/lon parameters are required' }
+);
 
 /**
  * Server-side Weather API proxy
@@ -19,16 +31,22 @@ export const GET: RequestHandler = async ({ url }) => {
     }
 
     try {
-        // Get query parameters
-        const city = url.searchParams.get('city');
-        const lat = url.searchParams.get('lat');
-        const lon = url.searchParams.get('lon');
-
-        if (!city && (!lat || !lon)) {
-            return json({ error: 'Either city or lat/lon parameters are required' }, { status: 400 });
+        // Get and validate query parameters with Zod
+        const queryParams = {
+            city: url.searchParams.get('city') || undefined,
+            lat: url.searchParams.get('lat') || undefined,
+            lon: url.searchParams.get('lon') || undefined
+        };
+        
+        const validationResult = weatherQuerySchema.safeParse(queryParams);
+        if (!validationResult.success) {
+            logger.warn('Invalid weather API request', { errors: getErrorString(validationResult.error) });
+            return json({ error: `Invalid request: ${getErrorString(validationResult.error)}` }, { status: 400 });
         }
+        
+        const { city, lat, lon } = validationResult.data;
 
-        // Build API URL
+        // Build API URL with validated parameters
         let weatherUrl = `${WEATHER_API_URL}?appid=${apiKey}&units=metric`;
         
         if (city) {

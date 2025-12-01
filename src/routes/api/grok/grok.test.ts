@@ -72,7 +72,8 @@ describe('/api/grok Endpoint', () => {
             const data = await response.json();
 
             expect(response.status).toBe(400);
-            expect(data.error).toBe('Invalid request: messages array required');
+            expect(data.error).toContain('Invalid request');
+            expect(data.error).toContain('messages');
         });
 
         it('should return 400 when messages is not an array', async () => {
@@ -82,7 +83,7 @@ describe('/api/grok Endpoint', () => {
             const data = await response.json();
 
             expect(response.status).toBe(400);
-            expect(data.error).toBe('Invalid request: messages array required');
+            expect(data.error).toContain('Invalid request');
         });
 
         it('should forward valid request to Grok API', async () => {

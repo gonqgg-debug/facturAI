@@ -74,7 +74,7 @@ describe('/api/weather Endpoint', () => {
             const data = await response.json();
 
             expect(response.status).toBe(400);
-            expect(data.error).toBe('Either city or lat/lon parameters are required');
+            expect(data.error).toContain('Either city or both lat/lon parameters are required');
         });
 
         it('should return 400 when only lat is provided without lon', async () => {
@@ -84,7 +84,7 @@ describe('/api/weather Endpoint', () => {
             const data = await response.json();
 
             expect(response.status).toBe(400);
-            expect(data.error).toBe('Either city or lat/lon parameters are required');
+            expect(data.error).toContain('Either city or both lat/lon parameters are required');
         });
 
         it('should return 400 when only lon is provided without lat', async () => {
@@ -94,7 +94,7 @@ describe('/api/weather Endpoint', () => {
             const data = await response.json();
 
             expect(response.status).toBe(400);
-            expect(data.error).toBe('Either city or lat/lon parameters are required');
+            expect(data.error).toContain('Either city or both lat/lon parameters are required');
         });
 
         it('should fetch weather by city name', async () => {
