@@ -68,13 +68,31 @@
   }
 
   onMount(async () => {
+    // Wait a tick for database to be ready
+    await new Promise(resolve => setTimeout(resolve, 100));
     await loadData();
   });
 
   async function loadData() {
-    suppliers = await db.suppliers.where('isActive').notEqual(false).toArray();
-    products = await db.products.toArray();
-    purchaseOrders = await db.purchaseOrders.toArray();
+    try {
+      // Ensure database is open
+      if (!db.isOpen()) {
+        console.log('Receiving - Database not open, opening...');
+        await db.open();
+      }
+      
+      // Load all data first, then filter in JS to avoid Dexie query issues
+      const allSuppliers = await db.suppliers.toArray();
+      suppliers = allSuppliers.filter(s => s.isActive !== false);
+      
+      products = await db.products.toArray();
+      purchaseOrders = await db.purchaseOrders.toArray();
+      
+      // Debug: log what we loaded
+      console.log('Receiving - Loaded POs:', purchaseOrders.length, purchaseOrders.map(po => ({ id: po.id, poNumber: po.poNumber, status: po.status })));
+    } catch (error) {
+      console.error('Error loading data in receiving:', error);
+    }
   }
 
   async function loadPOItems(poId?: number) {
@@ -145,8 +163,10 @@
       ).slice(0, 5)
     : [];
 
+  // Filter POs that can be received: draft, sent, or partial status
+  // Explicitly include valid statuses rather than excluding to avoid edge cases
   $: openPOs = purchaseOrders.filter(po => 
-    po.status !== 'received' && po.status !== 'closed' && po.status !== 'cancelled'
+    po.status === 'draft' || po.status === 'sent' || po.status === 'partial'
   );
 
   // Condition badge color
@@ -466,7 +486,7 @@
             <Select.Trigger class="w-full">
               <Select.Value placeholder="Select a Purchase Order to receive..." />
             </Select.Trigger>
-            <Select.Content>
+            <Select.Content side="bottom" class="max-h-80 overflow-y-auto">
               {#if openPOs.length === 0}
                 <div class="px-3 py-4 text-center text-muted-foreground">
                   <p class="text-sm">No pending Purchase Orders</p>

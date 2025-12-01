@@ -324,6 +324,25 @@
     const supplier = suppliers.find(s => s.id === poSupplierId);
     const poNumber = editingPO?.poNumber || await generatePONumber();
 
+    // Determine status:
+    // - If saving as draft → 'draft'
+    // - If submitting a new order → 'sent'
+    // - If submitting an existing draft → 'sent'
+    // - Otherwise keep existing status
+    let newStatus: PurchaseOrder['status'];
+    if (asDraft) {
+      newStatus = 'draft';
+    } else if (!editingPO) {
+      // New order being submitted
+      newStatus = 'sent';
+    } else if (editingPO.status === 'draft') {
+      // Existing draft being submitted
+      newStatus = 'sent';
+    } else {
+      // Keep existing status
+      newStatus = editingPO.status;
+    }
+
     // Recalculate to ensure totals are correct
     const tempPO: PurchaseOrder = {
       ...(editingPO || {}),
@@ -332,7 +351,7 @@
       supplierName: supplier?.name,
       orderDate: poOrderDate,
       expectedDate: poExpectedDate || undefined,
-      status: asDraft ? 'draft' : (editingPO?.status === 'draft' ? 'sent' : (editingPO?.status || 'draft')),
+      status: newStatus,
       items: poItems,
       subtotal: 0,
       itbisTotal: 0,
