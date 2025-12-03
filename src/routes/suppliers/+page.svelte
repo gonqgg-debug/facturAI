@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { db, generateId } from '$lib/db';
+  import { saveSupplier, deleteSupplier as deleteSupplierOp } from '$lib/db-operations';
   import type { Supplier, Invoice } from '$lib/types';
   import { 
     Plus, Search, Edit2, Trash2, Phone, Mail, MapPin, 
@@ -157,11 +158,11 @@
       } as Supplier;
 
       if (editingSupplier?.id) {
-        await db.suppliers.update(editingSupplier.id, supplierData);
+        // Update existing supplier using tracked operation
+        await saveSupplier({ ...supplierData, id: editingSupplier.id } as Supplier);
       } else {
-        // Generate ID for cloud-synced tables
-        const newId = generateId();
-        await db.suppliers.add({ ...supplierData, id: newId });
+        // Create new supplier using tracked operation (ID generated automatically)
+        await saveSupplier(supplierData as Supplier);
       }
 
       await loadSuppliers();
@@ -185,7 +186,8 @@
     if (!supplierToDelete?.id) return;
     
     try {
-      await db.suppliers.delete(supplierToDelete.id);
+      // Use tracked delete operation for sync
+      await deleteSupplierOp(supplierToDelete.id as string);
       deleteDialogOpen = false;
       supplierToDelete = null;
       await loadSuppliers();

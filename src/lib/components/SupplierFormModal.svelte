@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { db } from '$lib/db';
+  import { saveSupplier } from '$lib/db-operations';
   import type { Supplier } from '$lib/types';
   import { 
     X, Check, Phone, MapPin, Building2, User, CreditCard, Trash2
@@ -109,11 +110,14 @@
       let savedSupplier: Supplier;
 
       if (editingSupplier?.id) {
-        await db.suppliers.update(editingSupplier.id, supplierData);
-        savedSupplier = { ...supplierData, id: editingSupplier.id };
+        // Update existing supplier using tracked operation
+        const updatedData = { ...supplierData, id: editingSupplier.id };
+        await saveSupplier(updatedData as Supplier);
+        savedSupplier = updatedData as Supplier;
       } else {
-        const id = await db.suppliers.add(supplierData) as number;
-        savedSupplier = { ...supplierData, id };
+        // Create new supplier using tracked operation
+        const id = await saveSupplier(supplierData as Supplier);
+        savedSupplier = { ...supplierData, id } as Supplier;
       }
 
       dispatch('saved', { supplier: savedSupplier });
