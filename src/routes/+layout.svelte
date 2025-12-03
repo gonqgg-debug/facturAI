@@ -443,7 +443,16 @@
 
     <!-- Sync Button -->
     <button 
-      on:click={() => triggerSync()}
+      on:click={async () => {
+        console.log('[Layout] Sync button clicked');
+        const result = await triggerSync();
+        console.log('[Layout] Sync result:', result);
+        // If we pulled data, reload the page to show it
+        if (result && result.pulled > 0) {
+          console.log('[Layout] Data pulled, reloading page...');
+          window.location.reload();
+        }
+      }}
       disabled={$isSyncing}
       class="p-2 rounded-lg hover:bg-secondary text-muted-foreground transition-colors ml-2 relative group"
       title={$syncMessage}
