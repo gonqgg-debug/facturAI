@@ -125,35 +125,30 @@
   
   onMount(() => {
     // Subscribe to Firebase authentication state
-    // Only redirect after Firebase has finished loading
-    const unsubscribe = isFirebaseAuthenticated.subscribe(async (value) => {
-      const loading = $isFirebaseLoading;
+    // isFirebaseAuthenticated is only true when user exists AND loading is false
+    const unsubscribe = isFirebaseAuthenticated.subscribe(async (isAuthenticated) => {
       const currentPath = $page.url.pathname;
       const isPublic = publicRoutes.includes(currentPath);
-      console.log('[Layout] Firebase auth state:', value, 'loading:', loading, 'path:', currentPath, 'isPublic:', isPublic);
-      
-      // Don't redirect while Firebase is still loading
-      if (loading) {
-        console.log('[Layout] Firebase still loading, waiting...');
-        return;
-      }
+      console.log('[Layout] Firebase authenticated:', isAuthenticated, 'path:', currentPath, 'isPublic:', isPublic);
       
       // If authenticated and on login page, redirect to dashboard
-      if (value && currentPath === '/login') {
+      if (isAuthenticated && currentPath === '/login') {
         console.log('[Layout] Authenticated on login page, redirecting to dashboard');
         goto('/dashboard');
         return;
       }
       
       // If not authenticated and on protected route, redirect to login
-      if (!value && !isPublic) {
+      // But only if we're sure auth has loaded (isAuthenticated being false after loading means no user)
+      if (!isAuthenticated && !isPublic && !$isFirebaseLoading) {
         console.log('[Layout] Not authenticated on protected route, redirecting to login');
         goto('/login');
         return;
       }
       
       // Initialize sync and load data when authenticated
-      if (value && !servicesInitialized) {
+      // isAuthenticated is only true when loading is complete, so we don't need to check loading
+      if (isAuthenticated && !servicesInitialized) {
         servicesInitialized = true;
         console.log('[Layout] Authenticated, initializing services...');
         
