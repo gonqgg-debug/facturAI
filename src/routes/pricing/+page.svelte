@@ -907,7 +907,12 @@ ${itemsText}`;
                         {/if}
 
                         {#if !isAnalyzing && !selectedProduct.aiAnalystRating}
-                            <Button variant="default" size="lg" class="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 font-medium tracking-wide flex items-center justify-center space-x-2">
+                            <Button 
+                                variant="default" 
+                                size="lg" 
+                                on:click={() => selectedProduct && analyzeSingleProduct(selectedProduct)}
+                                class="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 font-medium tracking-wide flex items-center justify-center space-x-2"
+                            >
                                 <Sparkles size={18} class="text-blue-100" /><span>Start Analysis</span>
                             </Button>
                         {/if}
