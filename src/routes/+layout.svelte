@@ -1,15 +1,16 @@
 <script lang="ts">
   import '../app.css';
   import { page } from '$app/stores';
-  import { Home, Camera, CheckSquare, FileText, BookOpen, Settings, Tag, Package, Search, Sun, Moon, ChevronDown, ChevronRight, Users, X, ShoppingCart, ClipboardList, BarChart3, Receipt, Brain, FileCheck, Zap } from 'lucide-svelte';
+  import { Home, Camera, CheckSquare, FileText, BookOpen, Settings, Tag, Package, Search, Sun, Moon, ChevronDown, ChevronRight, Users, X, ShoppingCart, ClipboardList, BarChart3, Receipt, Brain, FileCheck, Zap, RefreshCw } from 'lucide-svelte';
 
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { db } from '$lib/db';
   import { initializeFirebase, trackScreenView, trackLogin, isFirebaseAuthenticated, isFirebaseLoading, firebaseUserEmail } from '$lib/firebase';
-  import { initializeSyncService } from '$lib/sync-service';
+  import { initializeSyncService, triggerSync } from '$lib/sync-service';
   import { initializeDeviceAuth } from '$lib/device-auth';
+  import { isSyncing, syncMessage, hasPendingChanges } from '$lib/sync-store';
   import Fuse from 'fuse.js';
   import type { Product, Invoice } from '$lib/types';
   import { Input } from '$lib/components/ui/input';
@@ -430,6 +431,23 @@
         </div>
       {/if}
     </div>
+
+    <!-- Sync Button -->
+    <button 
+      on:click={() => triggerSync()}
+      disabled={$isSyncing}
+      class="p-2 rounded-lg hover:bg-secondary text-muted-foreground transition-colors ml-2 relative group"
+      title={$syncMessage}
+    >
+      <RefreshCw size={20} class={$isSyncing ? 'animate-spin' : ''} />
+      {#if $hasPendingChanges}
+        <span class="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full"></span>
+      {/if}
+      <!-- Tooltip -->
+      <span class="absolute top-full right-0 mt-2 px-2 py-1 bg-popover text-popover-foreground text-xs rounded shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+        {$syncMessage}
+      </span>
+    </button>
 
     <!-- Dark Mode Toggle -->
     <button on:click={toggleTheme} class="p-2 rounded-lg hover:bg-secondary text-muted-foreground transition-colors ml-2">
