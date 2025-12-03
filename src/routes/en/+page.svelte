@@ -39,7 +39,7 @@
     isAnimating = true;
     showResult = false;
     promptText = "";
-    const text = "Yo no mando órdenes a proveedores, el camión llega y le compro en vivo. Crea todo el flujo: escanear entrada, actualizar inventario y pagar en efectivo o transferencia.";
+    const text = "I don't send orders to suppliers, the truck arrives and I buy live. Create the entire flow: scan entry, update inventory, and pay in cash or transfer.";
     let i = 0;
     
     const typeInterval = setInterval(() => {
@@ -74,8 +74,8 @@
 </script>
 
 <svelte:head>
-  <title>Cuadra - Software de un millón. Precio de todos los días.</title>
-  <meta name="description" content="El único POS + ERP que se transforma con una sola frase para que funcione exactamente como TÚ trabajas." />
+  <title>Cuadra - Million-dollar software. Everyday price.</title>
+  <meta name="description" content="The only POS + ERP that transforms with a single phrase to work exactly how YOU work." />
 </svelte:head>
 
 <div class="min-h-screen bg-white text-[#1F2937] font-sans selection:bg-[#BADBF7] selection:text-[#0D4373]">
@@ -87,9 +87,9 @@
         <img src="/cuadra_logo.png" alt="Cuadra" class="h-8 w-auto" />
       </div>
       <div class="flex items-center gap-4">
-        <button on:click={goToLogin} class="text-[#1F2937]/80 hover:text-[#1E88E6] font-medium transition-colors">Entrar</button>
-        <button on:click={goToLogin} class="bg-[#1E88E6] text-white hover:bg-[#1778CF] rounded-full px-6 py-2 font-medium transition-colors">Prueba gratis</button>
-        <a href="/en" class="text-xs text-[#1F2937]/40 hover:text-[#1E88E6] transition-colors">EN</a>
+        <button on:click={goToLogin} class="text-[#1F2937]/80 hover:text-[#1E88E6] font-medium transition-colors">Sign In</button>
+        <button on:click={goToLogin} class="bg-[#1E88E6] text-white hover:bg-[#1778CF] rounded-full px-6 py-2 font-medium transition-colors">Free Trial</button>
+        <a href="/" class="text-xs text-[#1F2937]/40 hover:text-[#1E88E6] transition-colors">ES</a>
       </div>
     </div>
   </nav>
@@ -99,13 +99,13 @@
     <div class="max-w-4xl mx-auto text-center">
       <!-- Headline -->
       <h1 class="text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-6 text-[#1F2937] leading-[1.1]">
-        Software de un millón. <br />
-        Precio de todos los días.
+        Million-dollar software. <br />
+        Everyday price.
       </h1>
       
       <!-- Subheadline -->
       <p class="text-xl md:text-2xl text-[#1E88E6] font-medium max-w-3xl mx-auto mb-10 leading-relaxed">
-        El único POS + ERP que se transforma con una sola frase para que funcione exactamente como TÚ trabajas — no como le conviene al proveedor.
+        The only POS + ERP that transforms with a single phrase to work exactly how YOU work — not how it suits the vendor.
       </p>
       
       <!-- Interactive Demo - 3 Step Transformation -->
@@ -133,11 +133,11 @@
               <!-- Header with "boring" label -->
               <div class="mb-4 flex items-center justify-between">
                 <div>
-                  <span class="text-[#8CC2F2]/60 text-xs uppercase tracking-wider">Otros sistemas</span>
-                  <h3 class="text-white font-bold text-lg">POS Tradicional</h3>
+                  <span class="text-[#8CC2F2]/60 text-xs uppercase tracking-wider">Other systems</span>
+                  <h3 class="text-white font-bold text-lg">Traditional POS</h3>
                 </div>
                 <div class="bg-red-500/20 text-red-300 text-xs px-3 py-1 rounded-full border border-red-500/30">
-                  Rígido y genérico
+                  Rigid & generic
                 </div>
               </div>
 
@@ -145,33 +145,33 @@
               <div class="grid grid-cols-3 gap-2 opacity-60">
                 <div class="bg-white/5 border border-white/10 rounded-lg p-3 flex flex-col items-center justify-center gap-1">
                   <ShoppingCart size={18} class="text-white/50" />
-                  <span class="text-white/50 text-xs">Ventas</span>
+                  <span class="text-white/50 text-xs">Sales</span>
                 </div>
                 <div class="bg-white/5 border border-white/10 rounded-lg p-3 flex flex-col items-center justify-center gap-1">
                   <Users size={18} class="text-white/50" />
-                  <span class="text-white/50 text-xs">Clientes</span>
+                  <span class="text-white/50 text-xs">Customers</span>
                 </div>
                 <div class="bg-white/5 border border-white/10 rounded-lg p-3 flex flex-col items-center justify-center gap-1">
                   <Receipt size={18} class="text-white/50" />
-                  <span class="text-white/50 text-xs">Facturas</span>
+                  <span class="text-white/50 text-xs">Invoices</span>
                 </div>
                 <div class="bg-white/5 border border-white/10 rounded-lg p-3 flex flex-col items-center justify-center gap-1">
                   <Package size={18} class="text-white/50" />
-                  <span class="text-white/50 text-xs">Inventario</span>
+                  <span class="text-white/50 text-xs">Inventory</span>
                 </div>
                 <div class="bg-white/5 border border-white/10 rounded-lg p-3 flex flex-col items-center justify-center gap-1">
                   <BarChart3 size={18} class="text-white/50" />
-                  <span class="text-white/50 text-xs">Reportes</span>
+                  <span class="text-white/50 text-xs">Reports</span>
                 </div>
                 <div class="bg-white/5 border border-white/10 rounded-lg p-3 flex flex-col items-center justify-center gap-1">
                   <CreditCard size={18} class="text-white/50" />
-                  <span class="text-white/50 text-xs">Pagos</span>
+                  <span class="text-white/50 text-xs">Payments</span>
                 </div>
               </div>
 
               <!-- Frustration message -->
               <div class="mt-6 text-center">
-                <p class="text-white/40 text-sm italic">"Esto no funciona como yo trabajo..."</p>
+                <p class="text-white/40 text-sm italic">"This doesn't work the way I work..."</p>
               </div>
             </div>
           {/if}
@@ -187,8 +187,8 @@
                     <Wand2 size={28} class="animate-wiggle" />
                   </div>
                   <div class="text-left">
-                    <span class="text-lg font-bold block">Personalizar con IA</span>
-                    <span class="text-sm text-white/70">Dile cómo quieres que funcione</span>
+                    <span class="text-lg font-bold block">Customize with AI</span>
+                    <span class="text-sm text-white/70">Tell it how you want it to work</span>
                   </div>
                   <Sparkles size={24} class="text-yellow-300 animate-pulse" />
                 </button>
@@ -201,7 +201,7 @@
                   <div class="w-2 h-2 bg-[#5EAAED] rounded-full animate-bounce" style="animation-delay: 150ms"></div>
                   <div class="w-2 h-2 bg-[#5EAAED] rounded-full animate-bounce" style="animation-delay: 300ms"></div>
                 </div>
-                <span class="text-white/70 text-sm">Transformando tu sistema...</span>
+                <span class="text-white/70 text-sm">Transforming your system...</span>
               </div>
             </div>
           {/if}
@@ -213,12 +213,12 @@
               <div class="mb-4 flex items-center justify-between">
                 <div>
                   <span class="text-[#5EAAED] text-xs uppercase tracking-wider flex items-center gap-1">
-                    <Sparkles size={12} /> Cuadra con IA
+                    <Sparkles size={12} /> Cuadra with AI
                   </span>
-                  <h3 class="text-white font-bold text-lg">Tu Sistema Personalizado</h3>
+                  <h3 class="text-white font-bold text-lg">Your Custom System</h3>
                 </div>
                 <div class="bg-green-500/20 text-green-300 text-xs px-3 py-1 rounded-full border border-green-500/30 flex items-center gap-1">
-                  <CheckCircle2 size={12} /> Listo
+                  <CheckCircle2 size={12} /> Ready
                 </div>
               </div>
 
@@ -228,22 +228,22 @@
                   <div class="w-10 h-10 bg-[#1E88E6] rounded-lg flex items-center justify-center">
                     <Brain size={20} class="text-white" />
                   </div>
-                  <span class="text-white text-xs font-medium">Precios IA</span>
-                  <span class="text-[#5EAAED] text-[10px]">Auto-ajuste</span>
+                  <span class="text-white text-xs font-medium">AI Pricing</span>
+                  <span class="text-[#5EAAED] text-[10px]">Auto-adjust</span>
                 </div>
                 <div class="bg-gradient-to-br from-[#5EAAED]/30 to-[#5EAAED]/10 border border-[#5EAAED]/50 rounded-xl p-4 flex flex-col items-center justify-center gap-2 hover:scale-105 transition-all cursor-pointer">
                   <div class="w-10 h-10 bg-[#5EAAED] rounded-lg flex items-center justify-center">
                     <Target size={20} class="text-white" />
                   </div>
-                  <span class="text-white text-xs font-medium">Predicción</span>
-                  <span class="text-[#5EAAED] text-[10px]">Stock óptimo</span>
+                  <span class="text-white text-xs font-medium">Prediction</span>
+                  <span class="text-[#5EAAED] text-[10px]">Optimal stock</span>
                 </div>
                 <div class="bg-gradient-to-br from-[#8CC2F2]/30 to-[#8CC2F2]/10 border border-[#8CC2F2]/50 rounded-xl p-4 flex flex-col items-center justify-center gap-2 hover:scale-105 transition-all cursor-pointer">
                   <div class="w-10 h-10 bg-[#8CC2F2] rounded-lg flex items-center justify-center">
                     <Bell size={20} class="text-[#0D4373]" />
                   </div>
-                  <span class="text-white text-xs font-medium">Alertas</span>
-                  <span class="text-[#5EAAED] text-[10px]">Proactivas</span>
+                  <span class="text-white text-xs font-medium">Alerts</span>
+                  <span class="text-[#5EAAED] text-[10px]">Proactive</span>
                 </div>
               </div>
 
@@ -251,17 +251,17 @@
               <div class="mt-4 flex gap-2">
                 <button class="flex-1 bg-white text-[#0D4373] rounded-xl py-4 font-bold flex items-center justify-center gap-2 hover:bg-[#BADBF7] transition-all">
                   <Scan size={20} />
-                  Cobrar
+                  Checkout
                 </button>
                 <button class="flex-1 bg-[#1E88E6] text-white rounded-xl py-4 font-bold flex items-center justify-center gap-2 hover:bg-[#1778CF] transition-all">
                   <CreditCard size={20} />
-                  Pagar
+                  Pay
                 </button>
               </div>
 
               <!-- Success message -->
               <div class="mt-4 text-center">
-                <p class="text-[#5EAAED] text-sm font-medium">✨ Ahora funciona exactamente como TÚ trabajas</p>
+                <p class="text-[#5EAAED] text-sm font-medium">✨ Now it works exactly the way YOU work</p>
               </div>
             </div>
           {/if}
@@ -281,7 +281,7 @@
           class="bg-[#1E88E6] hover:bg-[#1778CF] text-white text-xl px-10 py-5 rounded-full shadow-xl shadow-[#1E88E6]/25 transition-all hover:scale-105 font-bold" 
           on:click={goToLogin}
         >
-          Quiero mi versión gratis (beta cerrada)
+          I want my free version (closed beta)
         </button>
       </div>
     </div>
@@ -291,7 +291,7 @@
   <section class="py-20 px-6 bg-[#BADBF7]/10 border-y border-[#8CC2F2]/30">
     <div class="max-w-3xl mx-auto text-center">
       <p class="text-xl md:text-2xl leading-relaxed text-[#1F2937]/80 font-medium">
-        "Nació porque ningún sistema entendía de verdad cómo funcionan los colmados, farmacias, ferreterías y boutiques en Latinoamérica. Hoy decenas de dueños ya no vuelven atrás."
+        "Born because no system truly understood how grocery stores, pharmacies, hardware stores, and boutiques operate in Latin America. Today, dozens of owners aren't looking back."
       </p>
     </div>
   </section>
@@ -305,10 +305,10 @@
           <div class="w-12 h-12 bg-[#BADBF7] text-[#0D4373] rounded-2xl flex items-center justify-center mb-6">
             <TrendingUp size={24} />
           </div>
-          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Precios dinámicos</h3>
-          <p class="text-[#1F2937]/70 text-sm mb-6">Ajusta precios automáticamente según demanda, competencia y márgenes objetivo.</p>
+          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Dynamic pricing</h3>
+          <p class="text-[#1F2937]/70 text-sm mb-6">Automatically adjust prices based on demand, competition, and target margins.</p>
           <div class="text-sm font-bold text-[#1E88E6] uppercase tracking-wider flex items-center gap-2 pt-4 border-t border-[#8CC2F2]/30">
-            <Zap size={14} /> Módulo Premium
+            <Zap size={14} /> Premium Module
           </div>
         </div>
 
@@ -317,10 +317,10 @@
           <div class="w-12 h-12 bg-[#8CC2F2] text-[#0D4373] rounded-2xl flex items-center justify-center mb-6">
             <ShoppingCart size={24} />
           </div>
-          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Compras predictivas</h3>
-          <p class="text-[#1F2937]/70 text-sm mb-6">Predice qué productos necesitas antes de que se agoten con IA.</p>
+          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Predictive purchasing</h3>
+          <p class="text-[#1F2937]/70 text-sm mb-6">Predict which products you need before they run out with AI.</p>
           <div class="text-sm font-bold text-[#1E88E6] uppercase tracking-wider flex items-center gap-2 pt-4 border-t border-[#8CC2F2]/30">
-            <Zap size={14} /> Módulo Premium
+            <Zap size={14} /> Premium Module
           </div>
         </div>
 
@@ -329,10 +329,10 @@
           <div class="w-12 h-12 bg-[#5EAAED] text-white rounded-2xl flex items-center justify-center mb-6">
             <BarChart3 size={24} />
           </div>
-          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Liquidación automática</h3>
-          <p class="text-[#1F2937]/70 text-sm mb-6">Detecta productos lentos y genera descuentos inteligentes para moverlos.</p>
+          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Automatic clearance</h3>
+          <p class="text-[#1F2937]/70 text-sm mb-6">Detect slow-moving products and generate smart discounts to move them.</p>
           <div class="text-sm font-bold text-[#1E88E6] uppercase tracking-wider flex items-center gap-2 pt-4 border-t border-[#8CC2F2]/30">
-            <Zap size={14} /> Módulo Premium
+            <Zap size={14} /> Premium Module
           </div>
         </div>
 
@@ -341,10 +341,10 @@
           <div class="w-12 h-12 bg-[#1778CF] text-white rounded-2xl flex items-center justify-center mb-6">
             <Users size={24} />
           </div>
-          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Fidelización inteligente</h3>
-          <p class="text-[#1F2937]/70 text-sm mb-6">Programa de puntos y recompensas que aprende de cada cliente.</p>
+          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Smart loyalty</h3>
+          <p class="text-[#1F2937]/70 text-sm mb-6">Points and rewards program that learns from each customer.</p>
           <div class="text-sm font-bold text-[#1E88E6] uppercase tracking-wider flex items-center gap-2 pt-4 border-t border-[#8CC2F2]/30">
-            <Zap size={14} /> Módulo Premium
+            <Zap size={14} /> Premium Module
           </div>
         </div>
 
@@ -353,10 +353,10 @@
           <div class="w-12 h-12 bg-[#125EA1] text-white rounded-2xl flex items-center justify-center mb-6">
             <Star size={24} />
           </div>
-          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Promociones que venden</h3>
-          <p class="text-[#1F2937]/70 text-sm mb-6">Crea combos y ofertas basadas en patrones de compra reales.</p>
+          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Promotions that sell</h3>
+          <p class="text-[#1F2937]/70 text-sm mb-6">Create combos and offers based on real purchase patterns.</p>
           <div class="text-sm font-bold text-[#1E88E6] uppercase tracking-wider flex items-center gap-2 pt-4 border-t border-[#8CC2F2]/30">
-            <Zap size={14} /> Módulo Premium
+            <Zap size={14} /> Premium Module
           </div>
         </div>
 
@@ -365,10 +365,10 @@
           <div class="w-12 h-12 bg-[#0D4373] text-white rounded-2xl flex items-center justify-center mb-6">
             <Shield size={24} />
           </div>
-          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Scoring de proveedores</h3>
-          <p class="text-[#1F2937]/70 text-sm mb-6">Evalúa y compara proveedores por precio, calidad y cumplimiento.</p>
+          <h3 class="text-2xl font-bold mb-3 text-[#1F2937]">Supplier scoring</h3>
+          <p class="text-[#1F2937]/70 text-sm mb-6">Evaluate and compare suppliers by price, quality, and fulfillment.</p>
           <div class="text-sm font-bold text-[#1E88E6] uppercase tracking-wider flex items-center gap-2 pt-4 border-t border-[#8CC2F2]/30">
-            <Zap size={14} /> Módulo Premium
+            <Zap size={14} /> Premium Module
           </div>
         </div>
       </div>
@@ -380,7 +380,7 @@
     <div class="absolute inset-0 bg-[url('/grid.svg')] opacity-5"></div>
     <div class="max-w-4xl mx-auto relative z-10">
       <div class="text-center mb-12">
-        <h2 class="text-3xl md:text-4xl font-bold mb-4 leading-tight">Tu forma de trabajar no cabe en ningún sistema… hasta hoy.</h2>
+        <h2 class="text-3xl md:text-4xl font-bold mb-4 leading-tight">Your way of working doesn't fit in any system… until today.</h2>
       </div>
 
       <div class="bg-[#125EA1] backdrop-blur border border-[#1778CF] rounded-2xl p-6 md:p-10 shadow-2xl mb-12">
@@ -400,21 +400,21 @@
         {#if showResult}
           <div class="bg-white border border-[#8CC2F2] rounded-xl p-6 animate-in fade-in slide-in-from-top-4 duration-700 shadow-lg">
             <div class="flex items-center justify-between mb-4 border-b border-[#BADBF7] pb-4">
-              <span class="font-bold text-[#1F2937] uppercase text-xs tracking-wider">Nueva pantalla creada</span>
-              <span class="text-green-600 flex items-center gap-2 text-sm font-bold"><CheckCircle2 size={16} /> Activo</span>
+              <span class="font-bold text-[#1F2937] uppercase text-xs tracking-wider">New screen created</span>
+              <span class="text-green-600 flex items-center gap-2 text-sm font-bold"><CheckCircle2 size={16} /> Active</span>
             </div>
             <div class="grid grid-cols-3 gap-4">
               <div class="h-24 bg-[#BADBF7]/30 rounded-lg flex flex-col items-center justify-center gap-2 border border-[#8CC2F2] text-[#0D4373]">
                 <ShoppingCart size={24} />
-                <span class="text-xs font-medium">Escanear Entrada</span>
+                <span class="text-xs font-medium">Scan Entry</span>
               </div>
               <div class="h-24 bg-[#BADBF7]/30 rounded-lg flex flex-col items-center justify-center gap-2 border border-[#8CC2F2] text-[#0D4373]">
                 <BarChart3 size={24} />
-                <span class="text-xs font-medium">Inventario</span>
+                <span class="text-xs font-medium">Inventory</span>
               </div>
               <div class="h-24 bg-[#BADBF7]/30 rounded-lg flex flex-col items-center justify-center gap-2 border border-[#8CC2F2] text-[#0D4373]">
                 <Zap size={24} />
-                <span class="text-xs font-medium">Pago Rápido</span>
+                <span class="text-xs font-medium">Quick Pay</span>
               </div>
             </div>
           </div>
@@ -423,8 +423,8 @@
 
       <div class="text-center">
         <p class="text-2xl md:text-4xl font-bold text-white leading-tight">
-          En segundos tu sistema funciona exactamente como TÚ. <br />
-          <span class="text-[#5EAAED]">Tú das el OK final.</span>
+          In seconds your system works exactly like YOU. <br />
+          <span class="text-[#5EAAED]">You give the final OK.</span>
         </p>
       </div>
     </div>
@@ -433,13 +433,13 @@
   <!-- Final CTA -->
   <section class="py-32 px-6 text-center bg-gradient-to-b from-white to-[#BADBF7]/20">
     <div class="max-w-3xl mx-auto">
-      <h2 class="text-4xl md:text-6xl font-bold mb-6 text-[#1F2937]">Beta cerrada — últimos cupos disponibles</h2>
+      <h2 class="text-4xl md:text-6xl font-bold mb-6 text-[#1F2937]">Closed beta — last spots available</h2>
       <div class="flex flex-wrap justify-center gap-6 text-lg text-[#1F2937]/70 font-medium mb-12">
-        <span>Migración gratis</span>
+        <span>Free migration</span>
         <span class="text-[#8CC2F2]">•</span>
-        <span>Cancela cuando quieras</span>
+        <span>Cancel anytime</span>
         <span class="text-[#8CC2F2]">•</span>
-        <span>Habla directo con el fundador</span>
+        <span>Talk directly to the founder</span>
       </div>
       
       <div class="flex justify-center">
@@ -447,7 +447,7 @@
           class="bg-[#1E88E6] hover:bg-[#1778CF] text-white text-xl px-12 py-5 rounded-full shadow-2xl shadow-[#1E88E6]/30 hover:shadow-[#1E88E6]/40 transition-all hover:scale-105 font-bold" 
           on:click={goToLogin}
         >
-          Quiero mi versión gratis (beta cerrada)
+          I want my free version (closed beta)
         </button>
       </div>
     </div>
@@ -461,7 +461,7 @@
     class="fixed bottom-8 right-8 bg-[#25D366] hover:bg-[#20BA5C] text-white px-6 py-4 rounded-full shadow-xl flex items-center gap-3 font-bold text-lg transition-all hover:scale-105 hover:-translate-y-1 z-50"
   >
     <MessageCircle size={24} />
-    Hablar ahora
+    Chat now
   </a>
 
 </div>

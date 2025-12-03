@@ -8,3 +8,13 @@ build
 package-lock.json
 .vercel
 .env*.local
+
+# Dexie Cloud (keep secret)
+dexie-cloud.json
+dexie-cloud.key
+
+# Test artifacts
+coverage/
+test-results/
+playwright-report/
+*.timestamp-*.mjs

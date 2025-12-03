@@ -86,6 +86,8 @@ export const handle: Handle = async ({ event, resolve }) => {
     // Content Security Policy
     // Allow inline scripts and styles for SvelteKit (needed for hydration)
     // In production, consider tightening this further
+    const isDev = event.url.hostname === 'localhost' || event.url.hostname === '127.0.0.1' || event.url.hostname.startsWith('10.');
+    
     const csp = [
         "default-src 'self'",
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net", // Allow Tesseract.js worker scripts from CDN
@@ -93,14 +95,18 @@ export const handle: Handle = async ({ event, resolve }) => {
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob: https:", // Added blob: for image previews from camera/file uploads
         "font-src 'self' data:",
-        "connect-src 'self' https://api.x.ai https://api.openweathermap.org https://cdn.jsdelivr.net", // Allow fetching Tesseract.js resources
+        // Connect-src: Allow Dexie Cloud, WebSockets for dev, and other APIs
+        `connect-src 'self' https://api.x.ai https://api.openweathermap.org https://cdn.jsdelivr.net https://*.dexie.cloud wss://*.dexie.cloud${isDev ? ' ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:*' : ''}`,
         "frame-ancestors 'none'",
         "base-uri 'self'",
-        "form-action 'self'",
-        "upgrade-insecure-requests"
+        "form-action 'self'"
+        // Removed "upgrade-insecure-requests" for local development compatibility
     ].join('; ');
 
-    response.headers.set('Content-Security-Policy', csp);
+    // Only set CSP in production to avoid blocking local dev
+    if (!isDev) {
+        response.headers.set('Content-Security-Policy', csp);
+    }
     
     // Ensure CSRF cookie is set in response if it was just created
     // The cookie set earlier in the function will be included in the response automatically

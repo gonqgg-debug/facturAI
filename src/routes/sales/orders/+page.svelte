@@ -22,7 +22,7 @@
   import { Separator } from '$lib/components/ui/separator';
   import { DatePicker } from '$lib/components/ui/date-picker';
   import { locale, activeShift, activeShiftId, hasActiveShift } from '$lib/stores';
-  import { currentUser, userPermissions } from '$lib/auth';
+  import { firebaseUser, firebaseUserEmail } from '$lib/firebase';
   import { t } from '$lib/i18n';
   import SaleReceipt from '$lib/components/SaleReceipt.svelte';
   import { goto } from '$app/navigation';
@@ -504,8 +504,8 @@
         reason: returnReason,
         reasonNotes: returnNotes || undefined,
         shiftId: $activeShift.id,
-        processedBy: $currentUser?.id,
-        processedByName: $currentUser?.displayName,
+        processedBy: undefined,
+        processedByName: $firebaseUser?.displayName || $firebaseUserEmail || undefined,
         createdAt: now
       };
       
@@ -1026,7 +1026,7 @@
                           <PenLine size={16} />
                         </Button>
                       {/if}
-                      {#if $userPermissions.has('pos.process_return') && canProcessReturn(sale)}
+                      {#if $firebaseUser && canProcessReturn(sale)}
                         <Button variant="ghost" size="icon" class="h-8 w-8 text-orange-500 hover:text-orange-600 hover:bg-orange-500/10" on:click={() => openReturnModal(sale)}>
                           <RotateCcw size={16} />
                         </Button>
@@ -1183,7 +1183,7 @@
             {$locale === 'es' ? 'Editar pago' : 'Edit payment'}
           </Button>
         {/if}
-        {#if $userPermissions.has('pos.process_return') && canProcessReturn(selectedSale)}
+        {#if $firebaseUser && canProcessReturn(selectedSale)}
           <Button variant="outline" class="text-orange-500 hover:text-orange-600" on:click={() => {
             const sale = selectedSale;
             if (!sale) return;

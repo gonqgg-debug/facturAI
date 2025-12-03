@@ -27,7 +27,7 @@
   });
 
   function goHome() {
-    goto('/');
+    goto('/dashboard');
   }
 
   function reload() {

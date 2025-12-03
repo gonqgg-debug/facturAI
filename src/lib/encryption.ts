@@ -2,12 +2,37 @@
  * Encryption utilities for sensitive localStorage data
  * Uses Web Crypto API (AES-GCM) for encryption
  * Keys are stored in memory only (session-based)
+ * 
+ * SAFARI COMPATIBILITY:
+ * - crypto.subtle may be unavailable on non-HTTPS localhost in Safari
+ * - Graceful fallback to plaintext storage when crypto is unavailable
  */
 
 import { browser } from '$app/environment';
 
 // Generate a key for encryption (stored in memory only)
 let encryptionKey: CryptoKey | null = null;
+let cryptoUnavailable = false; // Track if crypto.subtle is not available
+
+// Check if crypto.subtle is available (Safari may block it on non-HTTPS)
+function isCryptoAvailable(): boolean {
+    if (!browser) return false;
+    if (cryptoUnavailable) return false;
+    
+    try {
+        // Check if crypto.subtle exists and is accessible
+        if (typeof crypto === 'undefined' || !crypto.subtle) {
+            console.warn('crypto.subtle is not available (Safari non-HTTPS or older browser)');
+            cryptoUnavailable = true;
+            return false;
+        }
+        return true;
+    } catch (error) {
+        console.warn('crypto.subtle access error:', error);
+        cryptoUnavailable = true;
+        return false;
+    }
+}
 
 // Initialize encryption key (call once on app load)
 export async function initEncryptionKey(): Promise<CryptoKey | null> {
@@ -15,6 +40,11 @@ export async function initEncryptionKey(): Promise<CryptoKey | null> {
     
     if (encryptionKey) {
         return encryptionKey;
+    }
+    
+    // Check if crypto.subtle is available
+    if (!isCryptoAvailable()) {
+        return null;
     }
     
     try {
@@ -31,7 +61,8 @@ export async function initEncryptionKey(): Promise<CryptoKey | null> {
         
         return encryptionKey;
     } catch (error) {
-        console.error('Failed to initialize encryption key:', error);
+        console.warn('Failed to initialize encryption key (Safari/non-HTTPS?):', error);
+        cryptoUnavailable = true;
         return null;
     }
 }
@@ -39,6 +70,12 @@ export async function initEncryptionKey(): Promise<CryptoKey | null> {
 // Encrypt a string value
 export async function encrypt(value: string): Promise<string | null> {
     if (!browser || !value) return value;
+    
+    // Quick check if crypto is available
+    if (!isCryptoAvailable()) {
+        console.warn('Encryption not available (Safari/non-HTTPS), storing plaintext');
+        return value;
+    }
     
     try {
         const key = await initEncryptionKey();
@@ -76,7 +113,7 @@ export async function encrypt(value: string): Promise<string | null> {
         // Prefix to identify encrypted data
         return `encrypted:${base64}`;
     } catch (error) {
-        console.error('Encryption failed:', error);
+        console.warn('Encryption failed:', error);
         // Graceful degradation: return value as-is
         return value;
     }
@@ -90,6 +127,12 @@ export async function decrypt(encryptedValue: string): Promise<string | null> {
     if (!encryptedValue.startsWith('encrypted:')) {
         // Not encrypted, return as-is (backward compatibility)
         return encryptedValue;
+    }
+    
+    // Quick check if crypto is available
+    if (!isCryptoAvailable()) {
+        console.warn('Decryption not available (Safari/non-HTTPS)');
+        return null;
     }
     
     try {
@@ -122,7 +165,7 @@ export async function decrypt(encryptedValue: string): Promise<string | null> {
         const decoder = new TextDecoder();
         return decoder.decode(decryptedData);
     } catch (error) {
-        console.error('Decryption failed:', error);
+        console.warn('Decryption failed:', error);
         // If decryption fails, return null (data may be corrupted or key changed)
         return null;
     }
@@ -133,6 +176,37 @@ export function clearEncryptionKey(): void {
     encryptionKey = null;
 }
 
+// Safe localStorage access helpers (Safari private browsing compatibility)
+function safeLocalStorageGet(key: string): string | null {
+    if (!browser) return null;
+    try {
+        return localStorage.getItem(key);
+    } catch (error) {
+        console.warn('localStorage.getItem failed:', error);
+        return null;
+    }
+}
+
+function safeLocalStorageSet(key: string, value: string): boolean {
+    if (!browser) return false;
+    try {
+        localStorage.setItem(key, value);
+        return true;
+    } catch (error) {
+        console.warn('localStorage.setItem failed:', error);
+        return false;
+    }
+}
+
+function safeLocalStorageRemove(key: string): void {
+    if (!browser) return;
+    try {
+        localStorage.removeItem(key);
+    } catch (error) {
+        console.warn('localStorage.removeItem failed:', error);
+    }
+}
+
 // Encrypted localStorage wrapper
 export const encryptedStorage = {
     async setItem(key: string, value: string): Promise<void> {
@@ -141,16 +215,18 @@ export const encryptedStorage = {
         try {
             const encrypted = await encrypt(value);
             if (encrypted) {
-                localStorage.setItem(key, encrypted);
+                if (!safeLocalStorageSet(key, encrypted)) {
+                    console.warn('Could not save to localStorage for key:', key);
+                }
             } else {
                 // If encryption fails, fall back to plaintext storage
                 console.warn('Encryption failed, storing as plaintext for key:', key);
-                localStorage.setItem(key, value);
+                safeLocalStorageSet(key, value);
             }
         } catch (error) {
             // If encryption completely fails, store as plaintext to avoid data loss
             console.warn('Encryption error, storing as plaintext:', error);
-            localStorage.setItem(key, value);
+            safeLocalStorageSet(key, value);
         }
     },
     
@@ -158,7 +234,7 @@ export const encryptedStorage = {
         if (!browser) return null;
         
         try {
-            const encrypted = localStorage.getItem(key);
+            const encrypted = safeLocalStorageGet(key);
             if (!encrypted) return null;
             
             // Try to decrypt
@@ -170,13 +246,13 @@ export const encryptedStorage = {
         } catch (error) {
             // If anything fails, try to return plaintext value
             console.warn('Error getting encrypted item, trying plaintext:', error);
-            return localStorage.getItem(key);
+            return safeLocalStorageGet(key);
         }
     },
     
-    removeItem(key: string): void {
+    async removeItem(key: string): Promise<void> {
         if (!browser) return;
-        localStorage.removeItem(key);
+        safeLocalStorageRemove(key);
     }
 };
 

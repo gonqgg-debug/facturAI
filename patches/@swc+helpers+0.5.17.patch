@@ -1,0 +1,982 @@
+diff --git a/node_modules/@swc/helpers/esm/_array_like_to_array.js b/node_modules/@swc/helpers/esm/_array_like_to_array.js
+index eb80534..8bfad31 100644
+--- a/node_modules/@swc/helpers/esm/_array_like_to_array.js
++++ b/node_modules/@swc/helpers/esm/_array_like_to_array.js
+@@ -1,8 +1,6 @@
+-function _array_like_to_array(arr, len) {
++export function _(arr, len) {
+     if (len == null || len > arr.length) len = arr.length;
+-
+     for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i];
+-
+     return arr2;
+ }
+-export { _array_like_to_array as _ };
++export { _ as default };
+diff --git a/node_modules/@swc/helpers/esm/_async_generator_delegate.js b/node_modules/@swc/helpers/esm/_async_generator_delegate.js
+index eb19f88..4c34bdd 100644
+--- a/node_modules/@swc/helpers/esm/_async_generator_delegate.js
++++ b/node_modules/@swc/helpers/esm/_async_generator_delegate.js
+@@ -1,51 +1 @@
+-import { _ as _overload_yield } from "./_overload_yield.js";
+-
+-function _async_generator_delegate(inner) {
+-    var iter = {}, waiting = false;
+-
+-    function pump(key, value) {
+-        waiting = true;
+-        value = new Promise(function(resolve) {
+-            resolve(inner[key](value));
+-        });
+-
+-        return { done: false, value: new _overload_yield(value, /* kind: delegate */ 1) };
+-    }
+-
+-    iter[(typeof Symbol !== "undefined" && Symbol.iterator) || "@@iterator"] = function() {
+-        return this;
+-    };
+-
+-    iter.next = function(value) {
+-        if (waiting) {
+-            waiting = false;
+-
+-            return value;
+-        }
+-
+-        return pump("next", value);
+-    };
+-
+-    if (typeof inner.throw === "function") {
+-        iter.throw = function(value) {
+-            if (waiting) {
+-                waiting = false;
+-                throw value;
+-            }
+-
+-            return pump("throw", value);
+-        };
+-    }
+-    if (typeof inner.return === "function") {
+-        iter.return = function(value) {
+-            if (waiting) {
+-                waiting = false;
+-                return value;
+-            }
+-            return pump("return", value);
+-        };
+-    }
+-
+-    return iter;
+-}
+-export { _async_generator_delegate as _ };
++export { _ as default, _ } from "../cjs/_async_generator_delegate.cjs";
+diff --git a/node_modules/@swc/helpers/esm/_async_iterator.js b/node_modules/@swc/helpers/esm/_async_iterator.js
+index b7ffe4c..a2bab41 100644
+--- a/node_modules/@swc/helpers/esm/_async_iterator.js
++++ b/node_modules/@swc/helpers/esm/_async_iterator.js
+@@ -1,44 +1 @@
+-function _async_iterator(iterable) {
+-    var method, async, sync, retry = 2;
+-    for ("undefined" != typeof Symbol && (async = Symbol.asyncIterator, sync = Symbol.iterator); retry--;) {
+-        if (async && null != (method = iterable[async])) return method.call(iterable);
+-        if (sync && null != (method = iterable[sync])) return new AsyncFromSyncIterator(method.call(iterable));
+-        async = "@@asyncIterator", sync = "@@iterator";
+-    }
+-    throw new TypeError("Object is not async iterable");
+-}
+-function AsyncFromSyncIterator(s) {
+-    function AsyncFromSyncIteratorContinuation(r) {
+-        if (Object(r) !== r) return Promise.reject(new TypeError(r + " is not an object."));
+-
+-        var done = r.done;
+-
+-        return Promise.resolve(r.value).then(function(value) {
+-            return { value: value, done: done };
+-        });
+-    }
+-
+-    return AsyncFromSyncIterator = function(s) {
+-        this.s = s, this.n = s.next;
+-    },
+-        AsyncFromSyncIterator.prototype = {
+-            s: null,
+-            n: null,
+-
+-            next: function() {
+-                return AsyncFromSyncIteratorContinuation(this.n.apply(this.s, arguments));
+-            },
+-            return: function(value) {
+-                var ret = this.s.return;
+-
+-                return void 0 === ret ? Promise.resolve({ value: value, done: !0 }) : AsyncFromSyncIteratorContinuation(ret.apply(this.s, arguments));
+-            },
+-            throw: function(value) {
+-                var thr = this.s.return;
+-
+-                return void 0 === thr ? Promise.reject(value) : AsyncFromSyncIteratorContinuation(thr.apply(this.s, arguments));
+-            }
+-        },
+-        new AsyncFromSyncIterator(s);
+-}
+-export { _async_iterator as _ };
++export { _ as default, _ } from "../cjs/_async_iterator.cjs";
+diff --git a/node_modules/@swc/helpers/esm/_check_private_redeclaration.js b/node_modules/@swc/helpers/esm/_check_private_redeclaration.js
+index 21e96da..a701c7f 100644
+--- a/node_modules/@swc/helpers/esm/_check_private_redeclaration.js
++++ b/node_modules/@swc/helpers/esm/_check_private_redeclaration.js
+@@ -1,6 +1,6 @@
+-function _check_private_redeclaration(obj, privateCollection) {
++export function _(obj, privateCollection) {
+     if (privateCollection.has(obj)) {
+         throw new TypeError("Cannot initialize the same private elements twice on an object");
+     }
+ }
+-export { _check_private_redeclaration as _ };
++export { _ as default };
+diff --git a/node_modules/@swc/helpers/esm/_class_check_private_static_access.js b/node_modules/@swc/helpers/esm/_class_check_private_static_access.js
+index 380f1d9..9f77bc9 100644
+--- a/node_modules/@swc/helpers/esm/_class_check_private_static_access.js
++++ b/node_modules/@swc/helpers/esm/_class_check_private_static_access.js
+@@ -1,4 +1 @@
+-function _class_check_private_static_access(receiver, classConstructor) {
+-    if (receiver !== classConstructor) throw new TypeError("Private static access of wrong provenance");
+-}
+-export { _class_check_private_static_access as _ };
++export { _ as default, _ } from "../cjs/_class_check_private_static_access.cjs";
+diff --git a/node_modules/@swc/helpers/esm/_class_extract_field_descriptor.js b/node_modules/@swc/helpers/esm/_class_extract_field_descriptor.js
+index 44ca9e7..c70c7c1 100644
+--- a/node_modules/@swc/helpers/esm/_class_extract_field_descriptor.js
++++ b/node_modules/@swc/helpers/esm/_class_extract_field_descriptor.js
+@@ -1,6 +1,5 @@
+-function _class_extract_field_descriptor(receiver, privateMap, action) {
++export function _(receiver, privateMap, action) {
+     if (!privateMap.has(receiver)) throw new TypeError("attempted to " + action + " private field on non-instance");
+-
+     return privateMap.get(receiver);
+ }
+-export { _class_extract_field_descriptor as _ };
++export { _ as default };
+diff --git a/node_modules/@swc/helpers/esm/_class_private_field_get.js b/node_modules/@swc/helpers/esm/_class_private_field_get.js
+index 078d320..4a1e06c 100644
+--- a/node_modules/@swc/helpers/esm/_class_private_field_get.js
++++ b/node_modules/@swc/helpers/esm/_class_private_field_get.js
+@@ -1,8 +1,9 @@
+-import { _ as _class_apply_descriptor_get } from "./_class_apply_descriptor_get.js";
+-import { _ as _class_extract_field_descriptor } from "./_class_extract_field_descriptor.js";
+-
+-function _class_private_field_get(receiver, privateMap) {
+-    var descriptor = _class_extract_field_descriptor(receiver, privateMap, "get");
+-    return _class_apply_descriptor_get(receiver, descriptor);
++function classExtractFieldDescriptor(receiver, privateMap, action) {
++    if (!privateMap.has(receiver)) throw new TypeError("attempted to " + action + " private field on non-instance");
++    return privateMap.get(receiver);
+ }
+-export { _class_private_field_get as _ };
++export function _(receiver, privateMap) {
++    var descriptor = classExtractFieldDescriptor(receiver, privateMap, "get");
++    return descriptor.value;
++}
++export { _ as default };
+diff --git a/node_modules/@swc/helpers/esm/_class_private_field_init.js b/node_modules/@swc/helpers/esm/_class_private_field_init.js
+index 3daa81a..e76884f 100644
+--- a/node_modules/@swc/helpers/esm/_class_private_field_init.js
++++ b/node_modules/@swc/helpers/esm/_class_private_field_init.js
+@@ -1,7 +1,10 @@
+-import { _ as _check_private_redeclaration } from "./_check_private_redeclaration.js";
+-
+-function _class_private_field_init(obj, privateMap, value) {
+-    _check_private_redeclaration(obj, privateMap);
++function checkPrivateRedeclaration(obj, privateCollection) {
++    if (privateCollection.has(obj)) {
++        throw new TypeError("Cannot initialize the same private elements twice on an object");
++    }
++}
++export function _(obj, privateMap, value) {
++    checkPrivateRedeclaration(obj, privateMap);
+     privateMap.set(obj, value);
+ }
+-export { _class_private_field_init as _ };
++export { _ as default };
+diff --git a/node_modules/@swc/helpers/esm/_class_private_field_set.js b/node_modules/@swc/helpers/esm/_class_private_field_set.js
+index 7640b8e..0573111 100644
+--- a/node_modules/@swc/helpers/esm/_class_private_field_set.js
++++ b/node_modules/@swc/helpers/esm/_class_private_field_set.js
+@@ -1,9 +1,10 @@
+-import { _ as _class_apply_descriptor_set } from "./_class_apply_descriptor_set.js";
+-import { _ as _class_extract_field_descriptor } from "./_class_extract_field_descriptor.js";
+-
+-function _class_private_field_set(receiver, privateMap, value) {
+-    var descriptor = _class_extract_field_descriptor(receiver, privateMap, "set");
+-    _class_apply_descriptor_set(receiver, descriptor, value);
++function classExtractFieldDescriptor(receiver, privateMap, action) {
++    if (!privateMap.has(receiver)) throw new TypeError("attempted to " + action + " private field on non-instance");
++    return privateMap.get(receiver);
++}
++export function _(receiver, privateMap, value) {
++    var descriptor = classExtractFieldDescriptor(receiver, privateMap, "set");
++    descriptor.value = value;
+     return value;
+ }
+-export { _class_private_field_set as _ };
++export { _ as default };
+diff --git a/node_modules/@swc/helpers/esm/_class_static_private_field_update.js b/node_modules/@swc/helpers/esm/_class_static_private_field_update.js
+index d53d66a..9881ebb 100644
+--- a/node_modules/@swc/helpers/esm/_class_static_private_field_update.js
++++ b/node_modules/@swc/helpers/esm/_class_static_private_field_update.js
+@@ -1,11 +1 @@
+-import { _ as _class_apply_descriptor_update } from "./_class_apply_descriptor_update.js";
+-import { _ as _class_check_private_static_access } from "./_class_check_private_static_access.js";
+-import { _ as _class_check_private_static_field_descriptor } from "./_class_check_private_static_field_descriptor.js";
+-
+-function _class_static_private_field_update(receiver, classConstructor, descriptor) {
+-    _class_check_private_static_access(receiver, classConstructor);
+-    _class_check_private_static_field_descriptor(descriptor, "update");
+-
+-    return _class_apply_descriptor_update(receiver, descriptor);
+-}
+-export { _class_static_private_field_update as _ };
++export { _ as default, _ } from "../cjs/_class_static_private_field_update.cjs";
+diff --git a/node_modules/@swc/helpers/esm/_construct.js b/node_modules/@swc/helpers/esm/_construct.js
+index affce78..6a6b328 100644
+--- a/node_modules/@swc/helpers/esm/_construct.js
++++ b/node_modules/@swc/helpers/esm/_construct.js
+@@ -1,20 +1 @@
+-import { _ as _is_native_reflect_construct } from "./_is_native_reflect_construct.js";
+-import { _ as _set_prototype_of } from "./_set_prototype_of.js";
+-function _construct(Parent, args, Class) {
+-    if (_is_native_reflect_construct()) _construct = Reflect.construct;
+-    else {
+-        _construct = function construct(Parent, args, Class) {
+-            var a = [null];
+-            a.push.apply(a, args);
+-            var Constructor = Function.bind.apply(Parent, a);
+-            var instance = new Constructor();
+-
+-            if (Class) _set_prototype_of(instance, Class.prototype);
+-
+-            return instance;
+-        };
+-    }
+-
+-    return _construct.apply(null, arguments);
+-}
+-export { _construct as _ };
++export { _ as default, _ } from "../cjs/_construct.cjs";
+diff --git a/node_modules/@swc/helpers/esm/_get.js b/node_modules/@swc/helpers/esm/_get.js
+index 0d5fd28..fa4f5a3 100644
+--- a/node_modules/@swc/helpers/esm/_get.js
++++ b/node_modules/@swc/helpers/esm/_get.js
+@@ -1,21 +1,18 @@
+-import { _ as _super_prop_base } from "./_super_prop_base.js";
+-
+-function _get(target, property, receiver) {
+-    if (typeof Reflect !== "undefined" && Reflect.get) _get = Reflect.get;
+-    else {
+-        _get = function get(target, property, receiver) {
+-            var base = _super_prop_base(target, property);
+-
+-            if (!base) return;
+-
+-            var desc = Object.getOwnPropertyDescriptor(base, property);
+-
+-            if (desc.get) return desc.get.call(receiver || target);
+-
+-            return desc.value;
+-        };
++function superPropBase(object, property) {
++    while (!Object.prototype.hasOwnProperty.call(object, property)) {
++        object = Object.getPrototypeOf(object);
++        if (object === null) break;
+     }
+-
+-    return _get(target, property, receiver || target);
++    return object;
+ }
+-export { _get as _ };
++export function _(target, property, receiver) {
++    if (typeof Reflect !== "undefined" && Reflect.get) {
++        return Reflect.get(target, property, receiver || target);
++    }
++    var base = superPropBase(target, property);
++    if (!base) return;
++    var desc = Object.getOwnPropertyDescriptor(base, property);
++    if (desc.get) return desc.get.call(receiver || target);
++    return desc.value;
++}
++export { _ as default };
+diff --git a/node_modules/@swc/helpers/esm/_initializer_define_property.js b/node_modules/@swc/helpers/esm/_initializer_define_property.js
+index 3969460..e5076f5 100644
+--- a/node_modules/@swc/helpers/esm/_initializer_define_property.js
++++ b/node_modules/@swc/helpers/esm/_initializer_define_property.js
+@@ -1,11 +1 @@
+-function _initializer_define_property(target, property, descriptor, context) {
+-    if (!descriptor) return;
+-
+-    Object.defineProperty(target, property, {
+-        enumerable: descriptor.enumerable,
+-        configurable: descriptor.configurable,
+-        writable: descriptor.writable,
+-        value: descriptor.initializer ? descriptor.initializer.call(context) : void 0
+-    });
+-}
+-export { _initializer_define_property as _ };
++export { _ as default, _ } from "../cjs/_initializer_define_property.cjs";
+diff --git a/node_modules/@swc/helpers/esm/_object_without_properties.js b/node_modules/@swc/helpers/esm/_object_without_properties.js
+index bb63487..3be0247 100644
+--- a/node_modules/@swc/helpers/esm/_object_without_properties.js
++++ b/node_modules/@swc/helpers/esm/_object_without_properties.js
+@@ -1,21 +1 @@
+-import { _ as _object_without_properties_loose } from "./_object_without_properties_loose.js";
+-
+-function _object_without_properties(source, excluded) {
+-    if (source == null) return {};
+-
+-    var target = _object_without_properties_loose(source, excluded);
+-    var key, i;
+-
+-    if (Object.getOwnPropertySymbols) {
+-        var sourceSymbolKeys = Object.getOwnPropertySymbols(source);
+-        for (i = 0; i < sourceSymbolKeys.length; i++) {
+-            key = sourceSymbolKeys[i];
+-            if (excluded.indexOf(key) >= 0) continue;
+-            if (!Object.prototype.propertyIsEnumerable.call(source, key)) continue;
+-            target[key] = source[key];
+-        }
+-    }
+-
+-    return target;
+-}
+-export { _object_without_properties as _ };
++export { _ as default, _ } from "../cjs/_object_without_properties.cjs";
+diff --git a/node_modules/@swc/helpers/esm/_object_without_properties_loose.js b/node_modules/@swc/helpers/esm/_object_without_properties_loose.js
+index db7b040..88625a7 100644
+--- a/node_modules/@swc/helpers/esm/_object_without_properties_loose.js
++++ b/node_modules/@swc/helpers/esm/_object_without_properties_loose.js
+@@ -1,16 +1 @@
+-function _object_without_properties_loose(source, excluded) {
+-    if (source == null) return {};
+-
+-    var target = {};
+-    var sourceKeys = Object.keys(source);
+-    var key, i;
+-
+-    for (i = 0; i < sourceKeys.length; i++) {
+-        key = sourceKeys[i];
+-        if (excluded.indexOf(key) >= 0) continue;
+-        target[key] = source[key];
+-    }
+-
+-    return target;
+-}
+-export { _object_without_properties_loose as _ };
++export { _ as default, _ } from "../cjs/_object_without_properties_loose.cjs";
+diff --git a/node_modules/@swc/helpers/esm/_set.js b/node_modules/@swc/helpers/esm/_set.js
+index 15dc2f1..14f29cd 100644
+--- a/node_modules/@swc/helpers/esm/_set.js
++++ b/node_modules/@swc/helpers/esm/_set.js
+@@ -1,42 +1,23 @@
+-import { _ as _define_property } from "./_define_property.js";
+-import { _ as _super_prop_base } from "./_super_prop_base.js";
+-
+-function set(target, property, value, receiver) {
+-    if (typeof Reflect !== "undefined" && Reflect.set) set = Reflect.set;
+-    else {
+-        set = function set(target, property, value, receiver) {
+-            var base = _super_prop_base(target, property);
+-            var desc;
+-            if (base) {
+-                desc = Object.getOwnPropertyDescriptor(base, property);
+-                if (desc.set) {
+-                    desc.set.call(receiver, value);
+-
+-                    return true;
+-                } else if (!desc.writable) {
+-                    return false;
+-                }
+-            }
+-            desc = Object.getOwnPropertyDescriptor(receiver, property);
+-            if (desc) {
+-                if (!desc.writable) return false;
+-                desc.value = value;
+-                Object.defineProperty(receiver, property, desc);
+-            } else {
+-                _define_property(receiver, property, value);
+-            }
+-
+-            return true;
+-        };
++function superPropBase(object, property) {
++    while (!Object.prototype.hasOwnProperty.call(object, property)) {
++        object = Object.getPrototypeOf(object);
++        if (object === null) break;
+     }
+-
+-    return set(target, property, value, receiver);
++    return object;
+ }
+-
+-function _set(target, property, value, receiver, isStrict) {
+-    var s = set(target, property, value, receiver || target);
+-    if (!s && isStrict) throw new Error("failed to set property");
+-
+-    return value;
++export function _(target, property, value, receiver, isStrict) {
++    if (typeof Reflect !== "undefined" && Reflect.set) {
++        return Reflect.set(target, property, value, receiver || target);
++    }
++    var base = superPropBase(target, property);
++    if (base) {
++        var desc = Object.getOwnPropertyDescriptor(base, property);
++        if (desc && desc.set) {
++            desc.set.call(receiver || target, value);
++            return true;
++        }
++    }
++    if (receiver) receiver[property] = value;
++    return true;
+ }
+-export { _set as _ };
++export { _ as default };
+diff --git a/node_modules/@swc/helpers/esm/_super_prop_base.js b/node_modules/@swc/helpers/esm/_super_prop_base.js
+index 47dec41..c5ac76c 100644
+--- a/node_modules/@swc/helpers/esm/_super_prop_base.js
++++ b/node_modules/@swc/helpers/esm/_super_prop_base.js
+@@ -1,11 +1,11 @@
+-import { _ as _get_prototype_of } from "./_get_prototype_of.js";
+-
+-function _super_prop_base(object, property) {
++function getPrototypeOf(o) {
++    return Object.getPrototypeOf ? Object.getPrototypeOf(o) : o.__proto__;
++}
++export function _(object, property) {
+     while (!Object.prototype.hasOwnProperty.call(object, property)) {
+-        object = _get_prototype_of(object);
++        object = getPrototypeOf(object);
+         if (object === null) break;
+     }
+-
+     return object;
+ }
+-export { _super_prop_base as _ };
++export { _ as default };
+diff --git a/node_modules/@swc/helpers/esm/_update.js b/node_modules/@swc/helpers/esm/_update.js
+index 86a7d68..2338f46 100644
+--- a/node_modules/@swc/helpers/esm/_update.js
++++ b/node_modules/@swc/helpers/esm/_update.js
+@@ -1,14 +1 @@
+-import { _ as _get } from "./_get.js";
+-import { _ as _set } from "./_set.js";
+-
+-function _update(target, property, receiver, isStrict) {
+-    return {
+-        get _() {
+-            return _get(target, property, receiver);
+-        },
+-        set _(value) {
+-            _set(target, property, value, receiver, isStrict);
+-        }
+-    };
+-}
+-export { _update as _ };
++export { _ as default, _ } from "../cjs/_update.cjs";
+diff --git a/node_modules/@swc/helpers/esm/_using_ctx.js b/node_modules/@swc/helpers/esm/_using_ctx.js
+index b94ad75..c0bc66b 100644
+--- a/node_modules/@swc/helpers/esm/_using_ctx.js
++++ b/node_modules/@swc/helpers/esm/_using_ctx.js
+@@ -1,73 +1 @@
+-function _using_ctx() {
+-    var _disposeSuppressedError = typeof SuppressedError === "function"
+-            // eslint-disable-next-line no-undef
+-            ? SuppressedError
+-            : (function(error, suppressed) {
+-                var err = new Error();
+-                err.name = "SuppressedError";
+-                err.suppressed = suppressed;
+-                err.error = error;
+-                return err;
+-            }),
+-        empty = {},
+-        stack = [];
+-    function using(isAwait, value) {
+-        if (value != null) {
+-            if (Object(value) !== value) {
+-                throw new TypeError("using declarations can only be used with objects, functions, null, or undefined.");
+-            }
+-            // core-js-pure uses Symbol.for for polyfilling well-known symbols
+-            if (isAwait) {
+-                var dispose = value[Symbol.asyncDispose || Symbol.for("Symbol.asyncDispose")];
+-            }
+-            if (dispose == null) {
+-                dispose = value[Symbol.dispose || Symbol.for("Symbol.dispose")];
+-            }
+-            if (typeof dispose !== "function") {
+-                throw new TypeError(`Property [Symbol.dispose] is not a function.`);
+-            }
+-            stack.push({ v: value, d: dispose, a: isAwait });
+-        } else if (isAwait) {
+-            // provide the nullish `value` as `d` for minification gain
+-            stack.push({ d: value, a: isAwait });
+-        }
+-        return value;
+-    }
+-    return {
+-        // error
+-        e: empty,
+-        // using
+-        u: using.bind(null, false),
+-        // await using
+-        a: using.bind(null, true),
+-        // dispose
+-        d: function() {
+-            var error = this.e;
+-
+-            function next() {
+-                // eslint-disable-next-line @typescript-eslint/no-use-before-define
+-                while ((resource = stack.pop())) {
+-                    try {
+-                        var resource, disposalResult = resource.d && resource.d.call(resource.v);
+-                        if (resource.a) {
+-                            return Promise.resolve(disposalResult).then(next, err);
+-                        }
+-                    } catch (e) {
+-                        return err(e);
+-                    }
+-                }
+-                if (error !== empty) throw error;
+-            }
+-
+-            function err(e) {
+-                error = error !== empty ? new _disposeSuppressedError(error, e) : e;
+-
+-                return next();
+-            }
+-
+-            return next();
+-        }
+-    };
+-}
+-
+-export { _using_ctx as _ };
++export { _ as default, _ } from "../cjs/_using_ctx.cjs";
+diff --git a/node_modules/@swc/helpers/esm/_wrap_native_super.js b/node_modules/@swc/helpers/esm/_wrap_native_super.js
+index e942eb5..190bb04 100644
+--- a/node_modules/@swc/helpers/esm/_wrap_native_super.js
++++ b/node_modules/@swc/helpers/esm/_wrap_native_super.js
+@@ -1,26 +1 @@
+-import { _ as _construct } from "./_construct.js";
+-import { _ as _get_prototype_of } from "./_get_prototype_of.js";
+-import { _ as _is_native_function } from "./_is_native_function.js";
+-import { _ as _set_prototype_of } from "./_set_prototype_of.js";
+-
+-function _wrap_native_super(Class) {
+-    var _cache = typeof Map === "function" ? new Map() : undefined;
+-    _wrap_native_super = function(Class) {
+-        if (Class === null || !_is_native_function(Class)) return Class;
+-        if (typeof Class !== "function") throw new TypeError("Super expression must either be null or a function");
+-        if (typeof _cache !== "undefined") {
+-            if (_cache.has(Class)) return _cache.get(Class);
+-            _cache.set(Class, Wrapper);
+-        }
+-
+-        function Wrapper() {
+-            return _construct(Class, arguments, _get_prototype_of(this).constructor);
+-        }
+-        Wrapper.prototype = Object.create(Class.prototype, { constructor: { value: Wrapper, enumerable: false, writable: true, configurable: true } });
+-
+-        return _set_prototype_of(Wrapper, Class);
+-    };
+-
+-    return _wrap_native_super(Class);
+-}
+-export { _wrap_native_super as _ };
++export { _ as default, _ } from "../cjs/_wrap_native_super.cjs";
+diff --git a/node_modules/@swc/helpers/scripts/ast_grep.js b/node_modules/@swc/helpers/scripts/ast_grep.js
+deleted file mode 100644
+index 30bc1c2..0000000
+--- a/node_modules/@swc/helpers/scripts/ast_grep.js
++++ /dev/null
+@@ -1,229 +0,0 @@
+-import { parseFiles } from "@ast-grep/napi";
+-import MagicString from "magic-string";
+-import { chalk, fs, path } from "zx";
+-import { errors } from "./errors.js";
+-import { root } from "./utils.js";
+-
+-/**
+- * @typedef {import("@ast-grep/napi").SgNode} SgNode
+- */
+-
+-export function ast_grep() {
+-    const task_queue = [];
+-
+-    const task = parseFiles([root("esm")], (err, tree) => {
+-        const filename = path.basename(tree.filename(), ".js");
+-        if (filename === "index") {
+-            return;
+-        }
+-
+-        const source = new MagicString(tree.root().text());
+-        source.prepend(`"use strict";\n\n`);
+-
+-        if (filename.startsWith("_ts")) {
+-            const match = tree.root().find(`export { $NAME as _ } from "tslib"`);
+-            if (match) {
+-                const name = match.getMatch("NAME").text();
+-
+-                const range = match.range();
+-
+-                source.update(
+-                    range.start.index,
+-                    range.end.index,
+-                    `exports._ = require("tslib").${name};`,
+-                );
+-                task_queue.push(
+-                    fs.writeFile(root("cjs", `${filename}.cjs`), source.toString(), {
+-                        encoding: "utf-8",
+-                    }),
+-                );
+-            } else {
+-                report_noexport(tree.filename());
+-            }
+-            return;
+-        }
+-
+-        // rewrite export named function
+-        const match = tree.root().find({
+-            rule: {
+-                kind: "export_statement",
+-                pattern: "export { $FUNC as _ }",
+-            },
+-        });
+-
+-        if (match) {
+-            const func = match.getMatch("FUNC");
+-            const func_name = func.text();
+-            if (func_name !== filename) {
+-                report_export_mismatch(tree.filename(), match);
+-            }
+-
+-            const range = match.range();
+-            source.update(
+-                range.start.index,
+-                range.end.index,
+-                `exports._ = ${func_name};`,
+-            );
+-
+-            // since we match the { export x as _ } pattern,
+-            // we need to find the assignment expression from the root
+-            tree
+-                .root()
+-                .findAll({
+-                    rule: {
+-                        pattern: func_name,
+-                        kind: "identifier",
+-                        inside: { kind: "assignment_expression", field: "left" },
+-                    },
+-                })
+-                .forEach((match) => {
+-                    const range = match.range();
+-
+-                    source.prependLeft(range.start.index, `exports._ = `);
+-                });
+-        } else {
+-            report_noexport(tree.filename(tree.filename()));
+-        }
+-
+-        // rewrite import
+-        tree
+-            .root()
+-            .findAll({ rule: { pattern: `import { _ as $BINDING } from "$SOURCE"` } })
+-            .forEach((match) => {
+-                const import_binding = match.getMatch("BINDING").text();
+-                const import_source = match.getMatch("SOURCE").text();
+-
+-                const import_basename = path.basename(import_source, ".js");
+-
+-                if (import_binding !== import_basename) {
+-                    report_import_mismatch(tree.filename(), match);
+-                }
+-
+-                const range = match.range();
+-
+-                source.update(
+-                    range.start.index,
+-                    range.end.index,
+-                    `var ${import_binding} = require("./${import_binding}.cjs");`,
+-                );
+-
+-                tree
+-                    .root()
+-                    .findAll({
+-                        rule: {
+-                            pattern: import_binding,
+-                            kind: "identifier",
+-                            inside: {
+-                                not: {
+-                                    kind: "import_specifier",
+-                                },
+-                            },
+-                        },
+-                    })
+-                    .forEach((match) => {
+-                        const range = match.range();
+-                        const ref_name = match.text();
+-
+-                        source.update(
+-                            range.start.index,
+-                            range.end.index,
+-                            `${ref_name}._`,
+-                        );
+-                    });
+-            });
+-
+-        task_queue.push(
+-            fs.writeFile(root("cjs", `${filename}.cjs`), source.toString(), {
+-                encoding: "utf-8",
+-            }),
+-        );
+-    });
+-
+-    task_queue.push(task);
+-
+-    return task_queue;
+-}
+-
+-/**
+- * @param {string} filename
+- * @param {SgNode} match
+- */
+-function report_export_mismatch(filename, match) {
+-    const func = match.getMatch("FUNC");
+-    const func_range = func.range();
+-
+-    const text = match.text().split("\n");
+-    const offset = func_range.start.line - match.range().start.line;
+-
+-    text.splice(
+-        offset + 1,
+-        text.length,
+-        chalk.red(
+-            [
+-                " ".repeat(func_range.start.column),
+-                "^".repeat(func_range.end.column - func_range.start.column),
+-            ]
+-                .join(""),
+-        ),
+-    );
+-
+-    errors.push(
+-        [
+-            `${chalk.bold.red("error")}: mismatch exported function name.`,
+-            "",
+-            `${chalk.blue("-->")} ${filename}:${func_range.start.line + 1}:${func_range.start.column + 1}`,
+-            "",
+-            ...text,
+-            "",
+-            `${
+-                chalk.bold(
+-                    "note:",
+-                )
+-            } The exported name should be the same as the filename.`,
+-            "",
+-        ]
+-            .join("\n"),
+-    );
+-}
+-
+-/**
+- * @param {string} filename
+- * @param {SgNode} match
+- */
+-function report_import_mismatch(filename, match) {
+-    const binding_range = match.getMatch("BINDING").range();
+-    const source_range = match.getMatch("SOURCE").range();
+-
+-    errors.push(
+-        [
+-            `${chalk.bold.red("error")}: mismatch imported binding name.`,
+-            "",
+-            `${chalk.blue("-->")} ${filename}:${match.range().start.line + 1}`,
+-            "",
+-            match.text(),
+-            [
+-                " ".repeat(binding_range.start.column),
+-                chalk.red("^".repeat(binding_range.end.column - binding_range.start.column)),
+-                " ".repeat(source_range.start.column - binding_range.end.column),
+-                chalk.blue("-".repeat(source_range.end.column - source_range.start.column)),
+-            ]
+-                .join(""),
+-            `${
+-                chalk.bold(
+-                    "note:",
+-                )
+-            } The imported binding name should be the same as the import source basename.`,
+-            "",
+-        ]
+-            .join("\n"),
+-    );
+-}
+-
+-/**
+- * @param {string} filename
+- */
+-function report_noexport(filename) {
+-    errors.push(
+-        [`${chalk.bold.red("error")}: exported name not found`, `${chalk.blue("-->")} ${filename}`].join("\n"),
+-    );
+-}
+diff --git a/node_modules/@swc/helpers/scripts/build.js b/node_modules/@swc/helpers/scripts/build.js
+deleted file mode 100644
+index 32005a8..0000000
+--- a/node_modules/@swc/helpers/scripts/build.js
++++ /dev/null
+@@ -1,133 +0,0 @@
+-#!/usr/bin/env zx
+-
+-import { $, fs, glob } from "zx";
+-import { ast_grep } from "./ast_grep.js";
+-import { errors } from "./errors.js";
+-import { root } from "./utils.js";
+-
+-// clear generated content
+-await Promise.all([
+-    fs.remove(root("cjs")),
+-    fs.remove(root("_")),
+-    fs.remove(root("src")),
+-]);
+-
+-let modules = await glob("*.js", { cwd: root("esm") });
+-
+-const task_queue = [];
+-
+-const NO_MODIFY = [
+-    "/* This file is automatically generated and should not be manually edited. */",
+-    "/* To modify this file, please run the `npm run build` command instead. */",
+-];
+-
+-// generate index.js
+-const indexESM = [...NO_MODIFY, ""];
+-
+-const indexCJS = [`"use strict";`, "", ...NO_MODIFY, ""];
+-
+-const cjs_export_list = [];
+-const cjs_module_lexer = [];
+-
+-const main_package_json = fs.readJSONSync(root("package.json"));
+-
+-main_package_json.exports = {
+-    "./package.json": "./package.json",
+-    "./esm/*": "./esm/*",
+-    "./cjs/*": "./cjs/*",
+-    "./src/*": "./src/*",
+-    ".": {
+-        "module-sync": "./esm/index.js",
+-        webpack: "./esm/index.js",
+-        import: "./esm/index.js",
+-        default: "./cjs/index.cjs",
+-    },
+-    "./_": {
+-        "module-sync": "./esm/index.js",
+-        webpack: "./esm/index.js",
+-        import: "./esm/index.js",
+-        default: "./cjs/index.cjs",
+-    },
+-};
+-
+-modules.forEach((p) => {
+-    const importBinding = p.slice(0, -3);
+-
+-    main_package_json.exports[`./_/${importBinding}`] = {
+-        "module-sync": `./esm/${importBinding}.js`,
+-        webpack: `./esm/${importBinding}.js`,
+-        import: `./esm/${importBinding}.js`,
+-        default: `./cjs/${importBinding}.cjs`,
+-    };
+-
+-    const alias_package = {
+-        main: `../../cjs/${importBinding}.cjs`,
+-        module: `../../esm/${importBinding}.js`,
+-    };
+-    task_queue.push(
+-        fs.outputJSON(root("_", importBinding, "package.json"), alias_package, {
+-            encoding: "utf-8",
+-            spaces: 4,
+-        }),
+-    );
+-
+-    if (importBinding === "index") {
+-        return;
+-    }
+-
+-    task_queue.push(
+-        fs.outputFile(root("src", `${importBinding}.mjs`), re_export_esm(importBinding), {
+-            encoding: "utf-8",
+-        }),
+-    );
+-
+-    indexESM.push(`export { _ as ${importBinding} } from "./${importBinding}.js";`);
+-
+-    cjs_module_lexer.push(`${importBinding}: null,`);
+-    cjs_export_list.push(`get ${importBinding}() {
+-      return require("./${importBinding}.cjs")._;
+-  },`);
+-});
+-
+-indexCJS.push(
+-    `0 && (module.exports = {`,
+-    "/* @Annotate_start: the CommonJS named exports for ESM import in node */",
+-    ...cjs_module_lexer,
+-    "/* @Annotate_end */",
+-    `});`,
+-    `module.exports = {`,
+-    ...cjs_export_list,
+-    `};`,
+-);
+-
+-task_queue.push(
+-    fs.outputJSON(root("package.json"), main_package_json, { spaces: 4 }),
+-    fs.outputFile(root("esm", "index.js"), indexESM.join("\n") + "\n", {
+-        encoding: "utf-8",
+-    }),
+-    fs.outputFile(root("cjs", "index.cjs"), indexCJS.join("\n") + "\n", {
+-        encoding: "utf-8",
+-    }),
+-    fs.outputFile(root("src", "index.mjs"), `export * from "../esm/index.js"`, {
+-        encoding: "utf-8",
+-    }),
+-);
+-
+-task_queue.push(...ast_grep());
+-
+-await Promise.all(task_queue);
+-
+-if (errors.length > 0) {
+-    errors.forEach((e) => {
+-        console.error(e);
+-    });
+-    process.exitCode = 1;
+-} else {
+-    $.cwd = root(".");
+-    await $`dprint fmt`;
+-    await $`dprint fmt "scripts/*.js" -c scripts/.dprint.json`;
+-}
+-
+-function re_export_esm(importBinding) {
+-    return `export { _ as default } from "../esm/${importBinding}.js"`;
+-}
+diff --git a/node_modules/@swc/helpers/scripts/errors.js b/node_modules/@swc/helpers/scripts/errors.js
+deleted file mode 100644
+index b5b3c15..0000000
+--- a/node_modules/@swc/helpers/scripts/errors.js
++++ /dev/null
+@@ -1 +0,0 @@
+-export const errors = [];
+diff --git a/node_modules/@swc/helpers/scripts/utils.js b/node_modules/@swc/helpers/scripts/utils.js
+deleted file mode 100644
+index 479b100..0000000
+--- a/node_modules/@swc/helpers/scripts/utils.js
++++ /dev/null
+@@ -1,3 +0,0 @@
+-export function root(...p) {
+-    return path.resolve(__dirname, "..", ...p);
+-}

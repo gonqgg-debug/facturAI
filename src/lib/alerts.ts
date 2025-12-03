@@ -4,7 +4,7 @@ import { analyzePurchasePatterns, detectSeasonalTrends, calculateSalesVelocity, 
 export interface StockAlert {
     type: 'low_stock' | 'out_of_stock' | 'reorder_suggestion' | 'stock_updated';
     severity: 'info' | 'warning' | 'critical';
-    productId: number;
+    productId: string; // UUID for cloud sync
     productName: string;
     message: string;
     suggestion?: string;
@@ -15,7 +15,7 @@ export interface StockAlert {
 export interface InvoiceAlert {
     type: 'due_soon' | 'overdue' | 'payment_reminder';
     severity: 'info' | 'warning' | 'critical';
-    invoiceId: number;
+    invoiceId: string; // UUID for cloud sync
     providerName: string;
     message: string;
     suggestion?: string;
