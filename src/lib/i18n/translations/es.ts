@@ -82,6 +82,8 @@ export const es = {
     kb: 'Base de Conocimiento',
     insights: 'Insights',
     settings: 'Configuración',
+    team: 'Equipo',
+    account: 'Mi Cuenta',
     sales: 'Ventas',
     inputs: 'Entradas',
     purchases: 'Compras',

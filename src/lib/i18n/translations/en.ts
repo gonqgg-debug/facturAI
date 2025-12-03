@@ -82,6 +82,8 @@ export const en = {
     kb: 'KB',
     insights: 'Insights',
     settings: 'Settings',
+    team: 'Team',
+    account: 'Account',
     sales: 'Sales',
     inputs: 'Inputs',
     purchases: 'Purchases',

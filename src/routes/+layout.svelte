@@ -1,7 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { page } from '$app/stores';
-  import { Home, Camera, CheckSquare, FileText, BookOpen, Settings, Tag, Package, Search, Sun, Moon, ChevronDown, ChevronRight, Users, X, ShoppingCart, ClipboardList, BarChart3, Receipt, Brain, FileCheck, Zap, RefreshCw } from 'lucide-svelte';
+  import { Home, Camera, CheckSquare, FileText, BookOpen, Settings, Tag, Package, Search, Sun, Moon, ChevronDown, ChevronRight, Users, X, ShoppingCart, ClipboardList, BarChart3, Receipt, Brain, FileCheck, Zap, RefreshCw, User, UsersRound } from 'lucide-svelte';
 
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
@@ -71,7 +71,9 @@
       key: 'system',
       title: t('nav.system', $locale as Locale),
       items: [
-        { href: '/settings', labelKey: 'nav.settings', icon: Settings }
+        { href: '/team', labelKey: 'nav.team', icon: UsersRound },
+        { href: '/settings', labelKey: 'nav.settings', icon: Settings },
+        { href: '/account', labelKey: 'nav.account', icon: User }
       ]
     }
   ];
