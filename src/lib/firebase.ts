@@ -133,7 +133,7 @@ export function initializeFirebase(): void {
         
         // Initialize Analytics (non-blocking)
         try {
-            analytics = getAnalytics(app);
+        analytics = getAnalytics(app);
             console.log('[Firebase] Analytics initialized');
         } catch (analyticsError) {
             console.warn('[Firebase] Analytics failed (non-critical):', analyticsError);

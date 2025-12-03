@@ -9,7 +9,7 @@
   import { db } from '$lib/db';
   import { initializeFirebase, trackScreenView, trackLogin, isFirebaseAuthenticated, isFirebaseLoading, firebaseUserEmail } from '$lib/firebase';
   import { initializeSyncService, triggerSync } from '$lib/sync-service';
-  import { initializeDeviceAuth } from '$lib/device-auth';
+  import { initializeDeviceAuth, ensureStoreExists } from '$lib/device-auth';
   import { isSyncing, syncMessage, hasPendingChanges } from '$lib/sync-store';
   import Fuse from 'fuse.js';
   import type { Product, Invoice } from '$lib/types';
@@ -120,10 +120,13 @@
     }
   }
 
+  // Track if we've already initialized services to avoid duplicate calls
+  let servicesInitialized = false;
+  
   onMount(() => {
     // Subscribe to Firebase authentication state
     // Only redirect after Firebase has finished loading
-    const unsubscribe = isFirebaseAuthenticated.subscribe(value => {
+    const unsubscribe = isFirebaseAuthenticated.subscribe(async (value) => {
       const loading = $isFirebaseLoading;
       const currentPath = $page.url.pathname;
       const isPublic = publicRoutes.includes(currentPath);
@@ -150,16 +153,27 @@
       }
       
       // Initialize sync and load data when authenticated
-      if (value) {
+      if (value && !servicesInitialized) {
+        servicesInitialized = true;
         console.log('[Layout] Authenticated, initializing services...');
-        // Initialize device auth and sync service for returning users
-        initializeDeviceAuth().then(() => {
+        
+        try {
+          // First ensure store exists (registers device with Supabase)
+          console.log('[Layout] Calling ensureStoreExists...');
+          const storeId = await ensureStoreExists();
+          console.log('[Layout] Store ID:', storeId);
+          
+          // Then initialize device auth state
+          await initializeDeviceAuth();
           console.log('[Layout] Device auth initialized');
+          
+          // Then start sync service
           initializeSyncService();
           console.log('[Layout] Sync service initialized');
-        }).catch(err => {
-          console.warn('[Layout] Device auth/sync init failed:', err);
-        });
+        } catch (err) {
+          console.error('[Layout] Service initialization failed:', err);
+        }
+        
         loadSearchData();
       }
     });
