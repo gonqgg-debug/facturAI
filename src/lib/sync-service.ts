@@ -400,6 +400,48 @@ class SyncService {
             errors.push(`Pull error: ${error}`);
         }
         
+        // Also check sync_log for delete operations
+        try {
+            console.log('[Sync] Checking sync_log for deletes since:', lastSync);
+            const { data: deleteLogs, error: deleteError } = await supabase
+                .from('sync_log')
+                .select('*')
+                .eq('store_id', storeId)
+                .eq('action', 'delete')
+                .gt('synced_at', lastSync)
+                .order('synced_at', { ascending: true });
+            
+            if (deleteError) {
+                console.error('[Sync] Error fetching delete logs:', deleteError);
+                errors.push(`Failed to fetch delete logs: ${deleteError.message}`);
+            } else if (deleteLogs && deleteLogs.length > 0) {
+                console.log('[Sync] Found', deleteLogs.length, 'delete operations to apply');
+                
+                for (const log of deleteLogs) {
+                    // Find the corresponding Dexie table name
+                    const dexieTable = Object.entries(TABLE_NAME_MAP).find(
+                        ([_, supaTable]) => supaTable === log.table_name
+                    )?.[0];
+                    
+                    if (dexieTable && db) {
+                        try {
+                            const localTable = db.table(dexieTable);
+                            console.log(`[Sync] Deleting ${log.record_id} from local ${dexieTable}`);
+                            await localTable.delete(log.record_id);
+                            totalPulled++;
+                        } catch (err) {
+                            console.error(`[Sync] Error deleting from ${dexieTable}:`, err);
+                        }
+                    }
+                }
+            } else {
+                console.log('[Sync] No delete operations found');
+            }
+        } catch (err) {
+            console.error('[Sync] Error processing deletes:', err);
+            errors.push(`Error processing deletes: ${err}`);
+        }
+        
         console.log('[Sync] Pull complete, totalPulled:', totalPulled);
         return { count: totalPulled, errors };
     }
