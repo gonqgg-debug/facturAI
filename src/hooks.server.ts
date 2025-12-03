@@ -96,8 +96,8 @@ export const handle: Handle = async ({ event, resolve }) => {
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob: https:", // Added blob: for image previews from camera/file uploads
         "font-src 'self' data:",
-        // Connect-src: Allow Dexie Cloud, Firebase, and other APIs
-        `connect-src 'self' https://api.x.ai https://api.openweathermap.org https://cdn.jsdelivr.net https://*.dexie.cloud wss://*.dexie.cloud https://*.googleapis.com https://*.firebaseio.com https://firebaseinstallations.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com${isDev ? ' ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:*' : ''}`,
+        // Connect-src: Allow Supabase, Dexie Cloud, Firebase, Google Analytics, and other APIs
+        `connect-src 'self' https://*.supabase.co https://api.x.ai https://api.openweathermap.org https://cdn.jsdelivr.net https://*.dexie.cloud wss://*.dexie.cloud https://*.googleapis.com https://*.firebaseio.com https://firebaseinstallations.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.google-analytics.com${isDev ? ' ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:*' : ''}`,
         // frame-src: Allow Google OAuth popup and Firebase auth handler
         "frame-src 'self' https://accounts.google.com https://*.firebaseapp.com",
         "frame-ancestors 'none'",
