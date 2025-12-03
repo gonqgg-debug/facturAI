@@ -224,6 +224,10 @@ class SyncService {
         try {
             // Get pending changes from local database
             const pendingChanges = await db.pendingChanges?.toArray() || [];
+            console.log('[Sync] Push starting, pendingChanges count:', pendingChanges.length);
+            if (pendingChanges.length > 0) {
+                console.log('[Sync] Pending changes:', pendingChanges.map(c => ({ table: c.tableName, action: c.action, id: c.recordId })));
+            }
             
             if (pendingChanges.length === 0) {
                 return { count: 0, errors: [] };

@@ -39,10 +39,18 @@ async function trackChange(
     action: 'insert' | 'update' | 'delete',
     data: Record<string, unknown>
 ): Promise<void> {
-    if (!browser || !db?.pendingChanges) return;
+    console.log(`[TrackChange] Called for ${tableName} ${action} ${recordId}`);
+    
+    if (!browser || !db?.pendingChanges) {
+        console.log('[TrackChange] Skipped - no browser or pendingChanges table');
+        return;
+    }
     
     // Only track synced tables
-    if (!SYNCED_TABLES.includes(tableName)) return;
+    if (!SYNCED_TABLES.includes(tableName)) {
+        console.log(`[TrackChange] Skipped - ${tableName} not in SYNCED_TABLES`);
+        return;
+    }
     
     const change: Omit<PendingChangeRecord, 'id'> = {
         tableName,
@@ -54,9 +62,11 @@ async function trackChange(
     };
     
     await db.pendingChanges.add(change);
+    console.log(`[TrackChange] Added pending change for ${tableName}`);
     
     // Update pending changes count
     const count = await db.pendingChanges.count();
+    console.log(`[TrackChange] Total pending changes: ${count}`);
     setPendingChanges(count);
 }
 
