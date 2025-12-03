@@ -349,6 +349,7 @@ class SyncService {
         
         // Get last sync timestamp
         const lastSync = getLastSyncTimestamp() || '1970-01-01T00:00:00.000Z';
+        console.log('[Sync] Pull starting with lastSync:', lastSync, 'storeId:', storeId);
         
         try {
             // Pull changes for each synced table
@@ -357,6 +358,7 @@ class SyncService {
                 if (!supabaseTable) continue;
                 
                 try {
+                    console.log(`[Sync] Pulling ${supabaseTable} where store_id=${storeId} and updated_at > ${lastSync}`);
                     const { data, error } = await supabase
                         .from(supabaseTable)
                         .select('*')
@@ -366,9 +368,12 @@ class SyncService {
                         .limit(MAX_BATCH_SIZE);
                     
                     if (error) {
+                        console.error(`[Sync] Error pulling ${supabaseTable}:`, error);
                         errors.push(`Failed to pull ${supabaseTable}: ${error.message}`);
                         continue;
                     }
+                    
+                    console.log(`[Sync] ${supabaseTable}: fetched ${data?.length || 0} records`);
                     
                     if (data && data.length > 0) {
                         // Convert and save to local database
@@ -376,18 +381,22 @@ class SyncService {
                         
                         for (const record of data) {
                             const localRecord = this.convertToCamelCase(record);
+                            console.log(`[Sync] Saving to local ${dexieTable}:`, localRecord.id || localRecord.name);
                             await localTable.put(localRecord);
                             totalPulled++;
                         }
                     }
                 } catch (err) {
+                    console.error(`[Sync] Exception pulling ${supabaseTable}:`, err);
                     errors.push(`Error pulling ${supabaseTable}: ${err}`);
                 }
             }
         } catch (error) {
+            console.error('[Sync] Pull error:', error);
             errors.push(`Pull error: ${error}`);
         }
         
+        console.log('[Sync] Pull complete, totalPulled:', totalPulled);
         return { count: totalPulled, errors };
     }
     
