@@ -8,8 +8,24 @@
  * - Generates realistic 3-month sample data (from 3 months ago to today)
  */
 
-import { db } from './db';
+import { db, dbReady, generateId } from './db';
 import type { Supplier, Product, Customer, Sale, Invoice, InvoiceItem, CashRegisterShift, Payment, StockMovement, PurchaseOrder, PurchaseOrderItem } from './types';
+
+// ============ UUID GENERATOR ============
+// Generate a UUID for Dexie Cloud @id fields
+// Note: When using Dexie Cloud's @id schema, the ID is auto-generated.
+// We only use this for local-only tables that still use manual IDs.
+function generateUUID(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+// ============ DEXIE CLOUD COMPATIBILITY ============
+// With Dexie Cloud's @id schema, IDs are auto-generated.
+// We need to add records without id and get the generated id back.
 
 // ============ BACKUP KEY ============
 const BACKUP_KEY = 'minimarket_real_data_backup';
@@ -92,6 +108,9 @@ interface BackupData {
 export async function backupRealData(download = true): Promise<BackupData> {
     console.log('💾 Backing up real data...');
     
+    // Ensure database is ready
+    await dbReady;
+    
     const backup: BackupData = {
         backupDate: new Date().toISOString(),
         version: '1.0',
@@ -135,6 +154,9 @@ export async function backupRealData(download = true): Promise<BackupData> {
  */
 export async function restoreRealData(): Promise<boolean> {
     console.log('🔄 Restoring real data from backup...');
+    
+    // Ensure database is ready
+    await dbReady;
     
     const backupStr = localStorage.getItem(BACKUP_KEY);
     if (!backupStr) {
@@ -309,7 +331,9 @@ async function seedSuppliers(): Promise<Supplier[]> {
     const suppliers: Supplier[] = [];
     
     for (const data of SUPPLIER_DATA) {
+        // Use generateId() from db.ts for Dexie Cloud @id fields
         const supplier: Supplier = {
+            id: generateId(),
             name: data.name,
             rnc: data.rnc,
             category: data.category,
@@ -323,8 +347,12 @@ async function seedSuppliers(): Promise<Supplier[]> {
             createdAt: new Date(),
         };
         
-        const id = await db.suppliers.add(supplier) as number;
-        suppliers.push({ ...supplier, id });
+        try {
+            await db.suppliers.add(supplier);
+            suppliers.push(supplier);
+        } catch (error: any) {
+            console.error('Error adding supplier:', data.name, error?.message || error?.name || JSON.stringify(error));
+        }
     }
     
     console.log(`✅ Created ${suppliers.length} suppliers`);
@@ -351,7 +379,9 @@ async function seedProducts(suppliers: Supplier[]): Promise<Product[]> {
             }
             const sellingPrice = cost * (1 + margin);
             
+            // Use generateId() from db.ts for Dexie Cloud @id fields
             const product: Product = {
+                id: generateId(),
                 productId: `SKU-${String(products.length + 1).padStart(5, '0')}`,
                 barcode: String(randomInt(1000000000000, 9999999999999)),
                 supplierId: supplier.id,
@@ -372,8 +402,12 @@ async function seedProducts(suppliers: Supplier[]): Promise<Product[]> {
                 salesVelocity: randomFloat(1, 20),
             };
             
-            const id = await db.products.add(product) as number;
-            products.push({ ...product, id });
+            try {
+                await db.products.add(product);
+                products.push(product);
+            } catch (error) {
+                console.error('Error adding product:', productName, error);
+            }
         }
     }
     
@@ -391,7 +425,9 @@ async function seedCustomers(): Promise<Customer[]> {
                            name.includes('Cafetería') || name.includes('Comedor') ||
                            name.includes('Farmacia') || name.includes('Ferretería');
         
+        // Use generateId() from db.ts for Dexie Cloud @id fields
         const customer: Customer = {
+            id: generateId(),
             name,
             type: isBusiness ? 'corporate' : (Math.random() > 0.7 ? 'wholesale' : 'retail'),
             rnc: isBusiness ? String(randomInt(100000000, 999999999)) : undefined,
@@ -403,8 +439,12 @@ async function seedCustomers(): Promise<Customer[]> {
             createdAt: new Date(),
         };
         
-        const id = await db.customers.add(customer) as number;
-        customers.push({ ...customer, id });
+        try {
+            await db.customers.add(customer);
+            customers.push(customer);
+        } catch (error) {
+            console.error('Error adding customer:', name, error);
+        }
     }
     
     console.log(`✅ Created ${customers.length} customers`);
@@ -440,6 +480,7 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
         const numSales = Math.floor(CONFIG.avgSalesPerDay * salesMultiplier * seasonMultiplier * randomFloat(0.7, 1.3));
         
         // Create new shift every ~50 sales
+        // Shifts use ++id (auto-increment) so we add without id and get it back
         if (!currentShift || shiftSalesCount > 50) {
             if (currentShift) {
                 await db.shifts.update(currentShift.id!, {
@@ -449,13 +490,14 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
                 });
             }
             
-            currentShift = {
+            const shiftData: Omit<CashRegisterShift, 'id'> = {
                 shiftNumber: `${currentDate.getFullYear()}-${String(day + 1).padStart(4, '0')}`,
                 openedAt: new Date(currentDate.getTime() + 7 * 60 * 60 * 1000),
                 openingCash: randomInt(5000, 15000),
                 status: 'open',
             };
-            currentShift.id = await db.shifts.add(currentShift) as number;
+            const shiftId = await db.shifts.add(shiftData as CashRegisterShift) as number;
+            currentShift = { ...shiftData, id: shiftId };
             shiftSalesCount = 0;
         }
         
@@ -465,7 +507,7 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
             let subtotal = 0;
             let itbisTotal = 0;
             
-            const usedProducts = new Set<number>();
+            const usedProducts = new Set<string>(); // UUID set
             
             for (let i = 0; i < numItems; i++) {
                 let product: Product;
@@ -503,7 +545,9 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
             const customer = Math.random() > 0.6 ? randomElement(customers) : undefined;
             const saleTime = new Date(currentDate.getTime() + randomInt(7, 21) * 60 * 60 * 1000);
             
+            // Use generateId() from db.ts for Dexie Cloud @id fields
             const sale: Sale = {
+                id: generateId(),
                 date: formatDate(saleTime),
                 customerId: customer?.id,
                 customerName: customer?.name || 'Cliente General',
@@ -595,7 +639,9 @@ async function seedInvoices(suppliers: Supplier[], products: Product[]): Promise
                 itbisTotal += itbis;
             }
             
+            // Use generateId() from db.ts for Dexie Cloud @id fields
             const invoice: Invoice = {
+                id: generateId(),
                 providerName: supplier.name,
                 providerRnc: supplier.rnc,
                 issueDate: formatDate(invoiceDate),
@@ -657,11 +703,15 @@ async function seedPurchaseOrders(suppliers: Supplier[], products: Product[]): P
         const numPOs = randomInt(1, 2); // 1-2 POs per period
         
         for (let i = 0; i < numPOs; i++) {
+            // Declare variables outside try block for error logging
+            let currentSupplier: Supplier | null = null;
+            let productsToOrder: Product[] = [];
+            
             try {
-                const supplier = randomElement(validSuppliers);
+                currentSupplier = randomElement(validSuppliers);
                 
-                if (!supplier.id) {
-                    console.warn('⚠️ Supplier without ID skipped:', supplier.name);
+                if (!currentSupplier.id) {
+                    console.warn('⚠️ Supplier without ID skipped:', currentSupplier.name);
                     continue;
                 }
                 
@@ -673,8 +723,8 @@ async function seedPurchaseOrders(suppliers: Supplier[], products: Product[]): P
                 // Expected delivery 3-14 days after order
                 const expectedDate = new Date(orderDate.getTime() + randomInt(3, 14) * dayMs);
                 
-                const supplierProducts = products.filter(p => p.supplierId === supplier.id);
-                const productsToOrder = supplierProducts.length > 0 ? supplierProducts : products.slice(0, 15);
+                const supplierProducts = products.filter(p => p.supplierId === currentSupplier!.id);
+                productsToOrder = supplierProducts.length > 0 ? supplierProducts : products.slice(0, 15);
                 
                 if (productsToOrder.length === 0) {
                     console.warn('⚠️ No products available for PO');
@@ -732,10 +782,12 @@ async function seedPurchaseOrders(suppliers: Supplier[], products: Product[]): P
                 
                 const poNumber = `PO-${orderDate.getFullYear()}-${String(poCounter++).padStart(4, '0')}`;
                 
+                // Use generateId() from db.ts for Dexie Cloud @id fields
                 const purchaseOrder: PurchaseOrder = {
+                    id: generateId(),
                     poNumber,
-                    supplierId: supplier.id,
-                    supplierName: supplier.name,
+                    supplierId: currentSupplier!.id!,
+                    supplierName: currentSupplier!.name,
                     orderDate: formatDate(orderDate),
                     expectedDate: formatDate(expectedDate),
                     status,
@@ -759,8 +811,8 @@ async function seedPurchaseOrders(suppliers: Supplier[], products: Product[]): P
                 }
             } catch (error) {
                 console.error('❌ Error creating purchase order:', error);
-                console.error('  Supplier:', supplier?.name, 'ID:', supplier?.id);
-                console.error('  Products available:', productsToOrder.length);
+                console.error('  Supplier:', currentSupplier?.name, 'ID:', currentSupplier?.id);
+                console.error('  Products available:', productsToOrder?.length ?? 0);
             }
         }
     }
@@ -798,6 +850,9 @@ export async function activateTestData(onProgress?: (progress: SeedProgress) => 
     const startTime = Date.now();
     
     try {
+        // Ensure database is ready before proceeding
+        await dbReady;
+        console.log('✅ Database ready for seeding');
         // Step 1: Backup real data
         onProgress?.({ stage: 'Backing up real data...', percent: 5 });
         await backupRealData(true); // Downloads backup file
@@ -898,5 +953,105 @@ export function clearBackup(): void {
     localStorage.removeItem(BACKUP_KEY);
     localStorage.removeItem(TEST_MODE_KEY);
     console.log('🗑️  Backup cleared');
+}
+
+/**
+ * Force seed test data - clears existing data and generates fresh test data
+ * This is a direct function that bypasses the UI flow for easier testing
+ * 
+ * Usage in browser console:
+ * import('/src/lib/seed-test-data.ts').then(m => m.forceSeedTestData())
+ */
+export async function forceSeedTestData(): Promise<SeedResult> {
+    console.log('🚀 Force seeding test data (skipping backup)...');
+    const startTime = Date.now();
+    
+    // Clear the test mode flags first
+    localStorage.removeItem(BACKUP_KEY);
+    localStorage.removeItem(TEST_MODE_KEY);
+    
+    try {
+        // Ensure database is ready before proceeding
+        await dbReady;
+        console.log('✅ Database ready for seeding');
+        // Clear database
+        console.log('🗑️  Clearing current data...');
+        await clearAllData();
+        
+        // Seed suppliers
+        console.log('🏭 Creating suppliers...');
+        const suppliers = await seedSuppliers();
+        
+        // Seed products
+        console.log('📦 Creating products...');
+        const products = await seedProducts(suppliers);
+        
+        // Seed customers
+        console.log('👥 Creating customers...');
+        const customers = await seedCustomers();
+        
+        // Seed sales
+        console.log('🛒 Creating sales (this may take a moment)...');
+        const salesCount = await seedSales(products, customers, (p) => {
+            if (p % 20 === 0) console.log(`  Sales progress: ${p}%`);
+        });
+        
+        // Seed invoices
+        console.log('📄 Creating invoices...');
+        const invoicesCount = await seedInvoices(suppliers, products);
+        
+        // Seed purchase orders
+        console.log('📋 Creating purchase orders...');
+        const purchaseOrdersCount = await seedPurchaseOrders(suppliers, products);
+        
+        // Set test mode flag
+        localStorage.setItem(TEST_MODE_KEY, 'true');
+        
+        const duration = (Date.now() - startTime) / 1000;
+        
+        console.log('');
+        console.log('✅ ============ TEST DATA CREATED ============');
+        console.log(`⏱️  Duration: ${duration.toFixed(1)} seconds`);
+        console.log(`🏭 Suppliers: ${suppliers.length}`);
+        console.log(`📦 Products: ${products.length}`);
+        console.log(`👥 Customers: ${customers.length}`);
+        console.log(`🛒 Sales: ${salesCount}`);
+        console.log(`📄 Invoices: ${invoicesCount}`);
+        console.log(`📋 Purchase Orders: ${purchaseOrdersCount}`);
+        console.log('');
+        console.log('🔄 Refresh the page to see the test data!');
+        
+        return {
+            success: true,
+            suppliers: suppliers.length,
+            products: products.length,
+            customers: customers.length,
+            sales: salesCount,
+            invoices: invoicesCount,
+            purchaseOrders: purchaseOrdersCount,
+            duration,
+        };
+    } catch (error) {
+        console.error('❌ Failed to seed test data:', error);
+        return {
+            success: false,
+            suppliers: 0,
+            products: 0,
+            customers: 0,
+            sales: 0,
+            invoices: 0,
+            purchaseOrders: 0,
+            duration: (Date.now() - startTime) / 1000,
+        };
+    }
+}
+
+// Expose to window for easy console access
+if (typeof window !== 'undefined') {
+    // @ts-ignore
+    window.seedTestData = forceSeedTestData;
+    // @ts-ignore
+    window.clearTestData = clearBackup;
+    console.log('💡 Test data functions available: window.seedTestData() and window.clearTestData()');
 }
 

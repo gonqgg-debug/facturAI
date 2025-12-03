@@ -11,7 +11,7 @@ export interface InvoiceItem {
 }
 
 export interface Invoice {
-    id?: number;
+    id?: string; // UUID for Dexie Cloud sync
     // Extracted Data
     providerName: string;
     providerRnc: string;
@@ -51,11 +51,11 @@ export interface Invoice {
     creditDays?: number;       // Credit days from supplier
     
     // Purchase Management
-    receiptId?: number;         // Link to receipt if available
+    receiptId?: string;         // Link to receipt if available
 }
 
 export interface Supplier {
-    id?: number;
+    id?: string; // UUID for Dexie Cloud sync
     name: string;
     rnc: string;
     alias?: string[];
@@ -94,7 +94,7 @@ export interface Supplier {
 export type PaymentMethodType = 'cash' | 'bank_transfer' | 'check' | 'credit_card' | 'debit_card' | 'mobile_payment' | 'other';
 
 export interface BankAccount {
-    id?: number;
+    id?: string; // UUID for Dexie Cloud sync
     bankName: string;
     accountName: string;      // Account holder name
     accountNumber: string;    // Last 4 digits or full (encrypted ideally)
@@ -107,12 +107,12 @@ export interface BankAccount {
 }
 
 export interface Payment {
-    id?: number;
-    invoiceId?: number;       // For supplier payments (CxP)
-    saleId?: number;          // For customer payments (CxC)
-    returnId?: number;        // For refund payments (devoluciones)
-    supplierId?: number;
-    customerId?: number;
+    id?: string; // UUID for Dexie Cloud sync
+    invoiceId?: string;       // For supplier payments (CxP)
+    saleId?: string;          // For customer payments (CxC)
+    returnId?: string;        // For refund payments (devoluciones)
+    supplierId?: string;
+    customerId?: string;
     
     // Payment Details
     amount: number;
@@ -121,7 +121,7 @@ export interface Payment {
     
     // Method & Account
     paymentMethod: PaymentMethodType;
-    bankAccountId?: number;   // If paid via bank
+    bankAccountId?: string;   // If paid via bank
     checkNumber?: string;     // If paid by check
     referenceNumber?: string; // Transfer/transaction reference
     
@@ -134,14 +134,14 @@ export interface Payment {
 }
 
 export interface KnowledgeBaseRule {
-    id?: number;
-    supplierId: number;
+    id?: string; // UUID for Dexie Cloud sync
+    supplierId: string;
     rule: string;
     createdAt: Date;
 }
 
 export interface GlobalContextItem {
-    id?: number;
+    id?: string; // UUID for Dexie Cloud sync
     title: string;
     content: string; // Extracted text
     type: 'text' | 'file';
@@ -164,10 +164,10 @@ export interface UserHints {
 }
 
 export interface Product {
-    id?: number;
+    id?: string; // UUID for Dexie Cloud sync
     productId?: string; // Custom SKU/Product ID
     barcode?: string;   // Barcode (EAN-13, UPC, etc.)
-    supplierId?: number;
+    supplierId?: string; // Reference to supplier (cloud sync)
     name: string;
     aliases?: string[]; // Alternative names for fuzzy matching
     category?: string;
@@ -203,14 +203,14 @@ export interface Product {
 }
 
 export interface StockMovement {
-    id?: number;
-    productId: number;
+    id?: string; // UUID for Dexie Cloud sync
+    productId: string;
     type: 'in' | 'out' | 'adjustment' | 'return';
     quantity: number;
-    invoiceId?: number;  // Reference to invoice (if applicable)
-    receiptId?: number;  // Reference to receipt (if applicable)
-    saleId?: number;     // Reference to sale (if applicable)
-    returnId?: number;   // Reference to return (if applicable)
+    invoiceId?: string;  // Reference to invoice (if applicable)
+    receiptId?: string;  // Reference to receipt (if applicable)
+    saleId?: string;     // Reference to sale (if applicable)
+    returnId?: string;   // Reference to return (if applicable)
     date: string;
     notes?: string;
 }
@@ -218,7 +218,7 @@ export interface StockMovement {
 // ============ PURCHASE ORDERS & RECEIPTS ============
 
 export interface PurchaseOrderItem {
-    productId?: number;
+    productId?: string;
     productName: string;
     quantity: number;
     unitPrice: number;
@@ -232,9 +232,9 @@ export interface PurchaseOrderItem {
 }
 
 export interface PurchaseOrder {
-    id?: number;
+    id?: string; // UUID for Dexie Cloud sync
     poNumber: string; // Auto-generated: PO-YYYY-XXXX
-    supplierId: number;
+    supplierId: string;
     supplierName?: string; // Denormalized
     orderDate: string;
     expectedDate?: string;
@@ -244,13 +244,13 @@ export interface PurchaseOrder {
     itbisTotal: number; // Total tax amount
     total: number; // Total including tax
     notes?: string;
-    createdBy?: number;
+    createdBy?: string;
     createdAt: Date;
     updatedAt?: Date;
 }
 
 export interface ReceiptItem {
-    productId?: number;
+    productId?: string;
     productName: string;
     quantity: number;
     unitPrice: number;
@@ -260,24 +260,24 @@ export interface ReceiptItem {
 }
 
 export interface Receipt {
-    id?: number;
+    id?: string; // UUID for Dexie Cloud sync
     receiptNumber: string; // Auto-generated: REC-YYYY-XXXX
-    purchaseOrderId?: number; // Optional: can receive without PO
-    supplierId: number;
+    purchaseOrderId?: string; // Optional: can receive without PO
+    supplierId: string;
     supplierName?: string;
     receiptDate: string;
-    invoiceId?: number; // Link to invoice if available
+    invoiceId?: string; // Link to invoice if available
     items: ReceiptItem[];
     total: number;
     notes?: string;
-    receivedBy?: number;
+    receivedBy?: string;
     createdAt: Date;
 }
 
 // ============ CUSTOMERS & SALES (Phase 1) ============
 
 export interface Customer {
-    id?: number;
+    id?: string; // UUID for Dexie Cloud sync
     name: string;
     type: 'retail' | 'wholesale' | 'corporate';
     rnc?: string;              // Tax ID for businesses
@@ -292,9 +292,9 @@ export interface Customer {
 }
 
 export interface Sale {
-    id?: number;
+    id?: string; // UUID for Dexie Cloud sync
     date: string;
-    customerId?: number;       // Optional: cash sale if not specified
+    customerId?: string;       // Optional: cash sale if not specified
     customerName?: string;     // Denormalized for quick display
     
     // Items
@@ -312,11 +312,11 @@ export interface Sale {
     paidAmount: number;
     
     // Shift/Register
-    shiftId?: number;          // Link to cash register shift
+    shiftId?: number;          // Link to local cash register shift (local ID)
     receiptNumber?: string;    // Sequential receipt number (e.g., "0001")
     
     // User tracking
-    cashierId?: number;        // User who made the sale
+    cashierId?: number;        // User who made the sale (local user ID)
     cashierName?: string;
     
     // Returns tracking
@@ -389,11 +389,11 @@ export interface ReturnItem {
 }
 
 export interface Return {
-    id?: number;
+    id?: string; // UUID for Dexie Cloud sync
     date: string;
-    originalSaleId: number;     // Reference to original sale
+    originalSaleId: string;     // Reference to original sale
     originalReceiptNumber?: string;
-    customerId?: number;
+    customerId?: string;
     customerName?: string;
     
     // Items being returned
@@ -413,8 +413,8 @@ export interface Return {
     reasonNotes?: string;
     
     // Shift & User tracking
-    shiftId?: number;
-    processedBy?: number;       // User ID who processed the return
+    shiftId?: number;           // Local shift ID
+    processedBy?: number;       // Local user ID who processed the return
     processedByName?: string;
     
     // Metadata

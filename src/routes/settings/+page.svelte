@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
+  import { browser } from '$app/environment';
   import { apiKey, locale, weatherApiKey, storeLocation } from '$lib/stores';
   import { db } from '$lib/db';
-  import { currentUser, userPermissions } from '$lib/auth';
+  import { firebaseUser, firebaseUserEmail, isFirebaseAuthenticated, firebaseSignOut } from '$lib/firebase';
   import { Save, Download, Upload, Trash2, AlertTriangle, Eye, EyeOff, Plus, Building2, CreditCard, X, Check, Edit2, Star, Languages, Users, Shield, UserPlus, CloudRain, MapPin, RefreshCw, FlaskConical, Database, RotateCcw, Lock, Unlock, FileCheck, Clock, HardDrive, ShieldCheck, FileWarning } from 'lucide-svelte';
   import { isTestMode, hasBackup, getBackupInfo, activateTestData, deactivateTestData, type SeedProgress, type SeedResult } from '$lib/seed-test-data';
   import type { BankAccount, User, Role } from '$lib/types';
@@ -89,6 +90,25 @@
   let showRestoreDialog = false;
   let autoBackupInfo: { timestamp: string; size: number } | null = null;
   let autoBackupEnabled = true;
+  
+  // Account
+  import { LogIn, LogOut, Mail, User as UserIcon } from 'lucide-svelte';
+  
+  let isSigningOut = false;
+  
+  async function handleSignOut() {
+    if (isSigningOut) return;
+    isSigningOut = true;
+    try {
+      await firebaseSignOut();
+      // Redirect to login
+      window.location.href = '/login';
+    } catch (error) {
+      console.error('Sign out error:', error);
+    } finally {
+      isSigningOut = false;
+    }
+  }
 
   function getEmptyUserForm(): Partial<User> {
     return {
@@ -140,6 +160,15 @@
     testModeActive = isTestMode();
     backupAvailable = hasBackup();
     backupInfo = getBackupInfo();
+    
+    // Auto-clear stale test mode flag if no valid backup exists
+    // This can happen if the database was reset while test mode was active
+    if (testModeActive && !backupAvailable) {
+      console.log('Clearing stale test mode flag (no backup found)');
+      localStorage.removeItem('minimarket_test_mode');
+      localStorage.removeItem('minimarket_real_data_backup');
+      testModeActive = false;
+    }
 
     // Initialize auto-backup system
     autoBackupInfo = getAutoBackupInfo();
@@ -158,7 +187,7 @@
   
   async function loadUsersAndRoles() {
     users = await db.users.toArray();
-    roles = await db.roles.toArray();
+    roles = await db.localRoles.toArray();
     
     // Populate role names for users
     users = users.map(u => {
@@ -323,7 +352,7 @@
         phone: userForm.phone?.trim() || undefined,
         isActive: userForm.isActive ?? true,
         createdAt: editingUser?.createdAt || new Date(),
-        createdBy: editingUser?.createdBy || $currentUser?.id
+        createdBy: editingUser?.createdBy || undefined
       };
       
       if (editingUser?.id) {
@@ -342,8 +371,8 @@
   
   function confirmDeleteUser(user: User) {
     if (!user.id) return;
-    // Prevent deleting self
-    if (user.id === $currentUser?.id) {
+    // Prevent deleting user with same email as Firebase user
+    if (user.email && user.email === $firebaseUserEmail) {
       alert(t('users.cannotDeleteSelf', $locale));
       return;
     }
@@ -696,6 +725,77 @@
     </div>
   </div>
 
+  <!-- Account Section -->
+  <div class="bg-card text-card-foreground border border-border rounded-xl p-4 mb-6">
+    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+      <UserIcon size={18} class="text-blue-500" />
+      {$locale === 'es' ? 'Mi Cuenta' : 'My Account'}
+    </h2>
+    
+    <div class="space-y-4">
+      {#if $isFirebaseAuthenticated && $firebaseUser}
+        <!-- User is signed in -->
+        <div class="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+          <div class="flex items-center gap-3">
+            {#if $firebaseUser.photoURL}
+              <img 
+                src={$firebaseUser.photoURL} 
+                alt="Profile" 
+                class="w-10 h-10 rounded-full"
+              />
+            {:else}
+              <div class="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                <UserIcon size={20} class="text-green-500" />
+              </div>
+            {/if}
+            <div>
+              <p class="font-medium text-green-600 dark:text-green-400">
+                {$firebaseUser.displayName || ($locale === 'es' ? 'Cuenta Conectada' : 'Account Connected')}
+              </p>
+              <p class="text-xs text-muted-foreground flex items-center gap-1">
+                <Mail size={12} />
+                {$firebaseUser.email}
+              </p>
+            </div>
+          </div>
+          <button
+            class="px-4 py-2 bg-red-500/10 text-red-600 rounded-lg hover:bg-red-500/20 transition-colors flex items-center gap-2 disabled:opacity-50"
+            on:click={handleSignOut}
+            disabled={isSigningOut}
+          >
+            {#if isSigningOut}
+              <RefreshCw size={16} class="animate-spin" />
+            {:else}
+              <LogOut size={16} />
+            {/if}
+            {$locale === 'es' ? 'Cerrar Sesión' : 'Sign Out'}
+          </button>
+        </div>
+      {:else}
+        <!-- Not signed in - this shouldn't happen since auth is required -->
+        <div class="flex items-center justify-between p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
+              <UserIcon size={20} class="text-yellow-500" />
+            </div>
+            <div>
+              <p class="font-medium text-yellow-600 dark:text-yellow-400">
+                {$locale === 'es' ? 'No has iniciado sesión' : 'Not Signed In'}
+              </p>
+            </div>
+          </div>
+          <a
+            href="/login"
+            class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
+          >
+            <LogIn size={16} />
+            {$locale === 'es' ? 'Iniciar Sesión' : 'Sign In'}
+          </a>
+        </div>
+      {/if}
+    </div>
+  </div>
+
   <!-- Weather Integration Section -->
   <div class="bg-card text-card-foreground border border-border rounded-xl p-4 mb-6">
     <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -895,8 +995,8 @@
   </div>
 
   <!-- Users Management Section -->
-  <!-- Show if user has permission OR if no currentUser (initial setup / legacy mode) -->
-  {#if $userPermissions.has('users.manage') || !$currentUser}
+  <!-- Show for all authenticated users (Firebase auth = store owner) -->
+  {#if $firebaseUser}
     <div class="bg-card text-card-foreground border border-border rounded-xl p-4 mb-6">
       <div class="flex items-center justify-between mb-4">
         <div>
@@ -925,7 +1025,7 @@
               <div>
                 <div class="font-medium flex items-center gap-2">
                   {user.displayName}
-                  {#if user.id === $currentUser?.id}
+                  {#if user.email && user.email === $firebaseUserEmail}
                     <span class="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">
                       {$locale === 'es' ? 'Tú' : 'You'}
                     </span>
@@ -1381,7 +1481,7 @@
   </div>
 
   <div class="text-center text-muted-foreground text-xs">
-    <p>FacturAI PWA v1.1.0</p>
+    <p>Cuadra v1.1.0</p>
   </div>
 </div>
 
@@ -1664,7 +1764,7 @@
       </div>
 
       <div class="p-4 border-t border-border flex gap-3">
-        {#if editingUser && editingUser.id !== $currentUser?.id}
+        {#if editingUser && (!editingUser.email || editingUser.email !== $firebaseUserEmail)}
           <button 
             on:click={() => editingUser && confirmDeleteUser(editingUser)}
             class="px-4 py-2.5 text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
@@ -1976,3 +2076,4 @@
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>
+

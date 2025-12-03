@@ -74,9 +74,9 @@ const aiCache = new AICache();
 // Background processing cache for forecasts and patterns
 interface BackgroundCache {
   lastUpdated: Date;
-  purchasePatterns: Record<number, PurchasePattern>;
-  demandForecasts: Record<number, DemandForecast>;
-  salesVelocities: Record<number, { velocity: number; trend: 'up' | 'down' | 'stable'; confidence: number }>;
+  purchasePatterns: Record<string, PurchasePattern>; // UUID keys
+  demandForecasts: Record<string, DemandForecast>; // UUID keys
+  salesVelocities: Record<string, { velocity: number; trend: 'up' | 'down' | 'stable'; confidence: number }>; // UUID keys
 }
 
 let backgroundCache: BackgroundCache | null = null;
@@ -84,7 +84,7 @@ const CACHE_DURATION_HOURS = 24; // Recalculate every 24 hours
 
 // Purchase pattern analysis interfaces
 export interface PurchasePattern {
-  productId: number;
+  productId: string; // UUID for cloud sync
   averageDaysBetweenOrders: number;
   typicalOrderDay: number; // 0=Sunday, 6=Saturday
   typicalOrderQuantity: number;
@@ -95,7 +95,7 @@ export interface PurchasePattern {
 
 // Seasonal trend analysis interfaces
 export interface SeasonalTrend {
-  productId: number;
+  productId: string; // UUID for cloud sync
   trend: 'increasing' | 'decreasing' | 'stable';
   seasonalMultiplier: number; // e.g., 1.5x for weekends
   peakDays: number[]; // Days of week with higher demand
@@ -103,7 +103,7 @@ export interface SeasonalTrend {
 
 // Demand forecast interfaces
 export interface DemandForecast {
-  productId: number;
+  productId: string; // UUID for cloud sync
   currentStock: number;
   predictedDaysUntilStockout: number;
   recommendedReorderQuantity: number;
@@ -113,9 +113,9 @@ export interface DemandForecast {
 
 // Shopping list interfaces
 export interface ShoppingListItem {
-  productId: number;
+  productId: string; // UUID for cloud sync
   productName: string;
-  supplierId?: number;
+  supplierId?: string; // UUID for cloud sync
   supplierName?: string;
   currentStock: number;
   recommendedQuantity: number;
@@ -128,7 +128,7 @@ export interface ShoppingListItem {
 export interface SmartShoppingList {
   items: ShoppingListItem[];
   totalEstimatedCost: number;
-  groupedBySupplier: Record<number, ShoppingListItem[]>;
+  groupedBySupplier: Record<string, ShoppingListItem[]>; // UUID keys
   aiSummary: string; // Overall AI analysis
   generatedAt: Date;
 }
@@ -137,7 +137,7 @@ export interface SmartShoppingList {
  * Analyze when products are typically purchased
  */
 export function analyzePurchasePatterns(
-  productId: number,
+  productId: string,
   invoices: Invoice[],
   daysToAnalyze: number = 90
 ): PurchasePattern | null {
@@ -227,7 +227,7 @@ export function analyzePurchasePatterns(
  * Detect seasonal trends in sales
  */
 export function detectSeasonalTrends(
-  productId: number,
+  productId: string,
   sales: Sale[],
   stockMovements: StockMovement[]
 ): SeasonalTrend | null {
@@ -307,7 +307,7 @@ export function detectSeasonalTrends(
  * Calculate sales velocity with trend analysis
  */
 export function calculateSalesVelocity(
-  productId: number,
+  productId: string,
   sales: Sale[],
   days: number = 30
 ): {
@@ -634,8 +634,8 @@ export async function generateSmartShoppingList(
     }
   }
 
-  // Group by supplier
-  const groupedBySupplier: Record<number, ShoppingListItem[]> = {};
+  // Group by supplier (UUID keys)
+  const groupedBySupplier: Record<string, ShoppingListItem[]> = {};
   items.forEach(item => {
     if (item.supplierId) {
       if (!groupedBySupplier[item.supplierId]) {
@@ -646,7 +646,7 @@ export async function generateSmartShoppingList(
   });
 
   // Generate AI summary
-  const aiSummary = await generateShoppingListSummary(items, apiKey);
+  const aiSummary = await generateShoppingListSummary(items);
 
   return {
     items: items.sort((a, b) => {
@@ -761,7 +761,7 @@ async function getProductAIReasoning(
 /**
  * Get supplier information for a product
  */
-async function getProductSupplier(productId: number) {
+async function getProductSupplier(productId: string) {
   try {
     const product = await db.products.get(productId);
     if (product?.supplierId) {
@@ -776,7 +776,7 @@ async function getProductSupplier(productId: number) {
 /**
  * Generate AI summary for the entire shopping list
  */
-async function generateShoppingListSummary(items: ShoppingListItem[], apiKey: string): Promise<string> {
+async function generateShoppingListSummary(items: ShoppingListItem[]): Promise<string> {
   if (items.length === 0) {
     return 'No items require reordering at this time.';
   }
@@ -869,9 +869,9 @@ export async function updateBackgroundCache(): Promise<void> {
     const invoices = await db.invoices.toArray();
     const stockMovements = await db.stockMovements.toArray();
 
-    const purchasePatterns: Record<number, PurchasePattern> = {};
-    const demandForecasts: Record<number, DemandForecast> = {};
-    const salesVelocities: Record<number, { velocity: number; trend: 'up' | 'down' | 'stable'; confidence: number }> = {};
+    const purchasePatterns: Record<string, PurchasePattern> = {};
+    const demandForecasts: Record<string, DemandForecast> = {};
+    const salesVelocities: Record<string, { velocity: number; trend: 'up' | 'down' | 'stable'; confidence: number }> = {};
 
     // Process each product
     for (const product of products) {
@@ -915,7 +915,7 @@ export async function updateBackgroundCache(): Promise<void> {
 /**
  * Get cached forecast data (returns null if cache is stale)
  */
-export function getCachedForecast(productId: number): DemandForecast | null {
+export function getCachedForecast(productId: string): DemandForecast | null {
   if (!backgroundCache) return null;
 
   // Check if cache is stale
@@ -931,7 +931,7 @@ export function getCachedForecast(productId: number): DemandForecast | null {
 /**
  * Get cached purchase pattern
  */
-export function getCachedPurchasePattern(productId: number): PurchasePattern | null {
+export function getCachedPurchasePattern(productId: string): PurchasePattern | null {
   if (!backgroundCache) return null;
 
   const hoursSinceUpdate = (Date.now() - backgroundCache.lastUpdated.getTime()) / (1000 * 60 * 60);
@@ -946,7 +946,7 @@ export function getCachedPurchasePattern(productId: number): PurchasePattern | n
 /**
  * Get cached sales velocity
  */
-export function getCachedSalesVelocity(productId: number): { velocity: number; trend: 'up' | 'down' | 'stable'; confidence: number } | null {
+export function getCachedSalesVelocity(productId: string): { velocity: number; trend: 'up' | 'down' | 'stable'; confidence: number } | null {
   if (!backgroundCache) return null;
 
   const hoursSinceUpdate = (Date.now() - backgroundCache.lastUpdated.getTime()) / (1000 * 60 * 60);

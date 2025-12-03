@@ -144,7 +144,7 @@ export const es = {
   },
   // Login
   login: {
-    title: 'FacturAI',
+    title: 'Cuadra',
     enterAccessCode: 'Ingresa el código de acceso para continuar',
     pin: 'PIN',
     invalidAccessCode: 'Código de Acceso Inválido',

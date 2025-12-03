@@ -19,7 +19,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Separator } from '$lib/components/ui/separator';
   import { locale, activeShift, activeShiftId, hasActiveShift, isPosMode } from '$lib/stores';
-  import { currentUser, userPermissions } from '$lib/auth';
+  import { firebaseUser, firebaseUserEmail } from '$lib/firebase';
   import { t } from '$lib/i18n';
   import ShiftManager from '$lib/components/ShiftManager.svelte';
   import SaleReceipt from '$lib/components/SaleReceipt.svelte';
@@ -204,7 +204,7 @@
   async function loadData() {
     if (!browser) return;
     products = await db.products.toArray();
-    customers = await db.customers.where('isActive').equals(1).toArray();
+    customers = await db.customers.filter(c => c.isActive === true).toArray();
     
     // Extract unique categories
     const categorySet = new Set<string>();
@@ -561,7 +561,7 @@
   }
 
   function exitPOS() {
-    goto('/');
+    goto('/dashboard');
   }
   
   // ============ RETURNS FUNCTIONS ============
@@ -696,8 +696,8 @@
         reason: returnReason,
         reasonNotes: returnNotes || undefined,
         shiftId: $activeShift.id,
-        processedBy: $currentUser?.id,
-        processedByName: $currentUser?.displayName,
+        processedBy: undefined,
+        processedByName: $firebaseUser?.displayName || $firebaseUserEmail || undefined,
         createdAt: now
       };
       
@@ -869,7 +869,7 @@
     </div>
     
     <!-- Returns Button -->
-    {#if $userPermissions.has('pos.process_return')}
+    {#if $firebaseUser}
       <Button 
         variant="outline" 
         size="sm" 

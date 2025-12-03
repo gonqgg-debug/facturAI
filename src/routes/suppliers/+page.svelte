@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
-  import { db } from '$lib/db';
+  import { db, generateId } from '$lib/db';
   import type { Supplier, Invoice } from '$lib/types';
   import { 
     Plus, Search, Edit2, Trash2, Phone, Mail, MapPin, 
@@ -159,14 +159,17 @@
       if (editingSupplier?.id) {
         await db.suppliers.update(editingSupplier.id, supplierData);
       } else {
-        await db.suppliers.add(supplierData);
+        // Generate ID for cloud-synced tables
+        const newId = generateId();
+        await db.suppliers.add({ ...supplierData, id: newId });
       }
 
       await loadSuppliers();
       closeModals();
-    } catch (e) {
-      console.error('Error saving supplier:', e);
-      alert(t('common.error', $locale));
+    } catch (e: any) {
+      console.error('Error saving supplier:', e?.message || e?.name || JSON.stringify(e) || e);
+      console.error('Full error:', e);
+      alert(`${t('common.error', $locale)}: ${e?.message || 'Unknown error'}`);
     } finally {
       isSaving = false;
     }

@@ -101,7 +101,7 @@
   });
 
   async function loadBankAccounts() {
-    bankAccounts = await db.bankAccounts.where('isActive').equals(1).toArray();
+    bankAccounts = await db.bankAccounts.filter(b => b.isActive === true).toArray();
     // Also get accounts where isActive is undefined (legacy) or true
     const allAccounts = await db.bankAccounts.toArray();
     bankAccounts = allAccounts.filter(a => a.isActive !== false);

@@ -3,11 +3,11 @@
   import { page } from '$app/stores';
   import { Home, Camera, CheckSquare, FileText, BookOpen, Settings, Tag, Package, Search, Sun, Moon, ChevronDown, ChevronRight, Users, X, ShoppingCart, ClipboardList, BarChart3, Receipt, Brain, FileCheck, Zap } from 'lucide-svelte';
 
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
-  import { isAuthenticated, restoreSession, currentUser, updateSessionActivity, checkSessionTimeout } from '$lib/auth';
   import { browser } from '$app/environment';
   import { db } from '$lib/db';
+  import { initializeFirebase, trackScreenView, trackLogin, isFirebaseAuthenticated, isFirebaseLoading, firebaseUserEmail } from '$lib/firebase';
   import Fuse from 'fuse.js';
   import type { Product, Invoice } from '$lib/types';
   import { Input } from '$lib/components/ui/input';
@@ -73,7 +73,7 @@
     }
   ];
 
-  $: homeTab = { href: '/', labelKey: 'nav.home', icon: Home };
+  $: homeTab = { href: '/dashboard', labelKey: 'nav.home', icon: Home };
   
   // Flattened tabs for Mobile Nav
   $: tabs = [
@@ -96,6 +96,12 @@
     return currentPath === href;
   }
 
+  // Public routes that don't require authentication
+  const publicRoutes = ['/', '/login', '/en'];
+  
+  // Check if current route is public
+  $: isPublicRoute = publicRoutes.includes($page.url.pathname);
+  
   // Auto-expand the group containing the current route
   $: {
     const currentPath = $page.url.pathname;
@@ -112,85 +118,75 @@
   }
 
   onMount(() => {
-    // Try to restore existing session (fire and forget)
-    if (browser) {
-      restoreSession().then((restored) => {
-        if (restored) {
-          updateSessionActivity();
-        }
-      });
-    }
-    
-    // Set up session timeout check interval (check every 5 minutes)
-    const sessionCheckInterval = setInterval(() => {
-      if (browser && $isAuthenticated) {
-        const sessionCheck = checkSessionTimeout();
-        if (sessionCheck.expired) {
-          // Session expired, redirect to login
-          goto('/login');
-        } else {
-          // Update activity to keep session alive
-          updateSessionActivity();
-        }
+    // Subscribe to Firebase authentication state
+    // Only redirect after Firebase has finished loading
+    const unsubscribe = isFirebaseAuthenticated.subscribe(value => {
+      const loading = $isFirebaseLoading;
+      const currentPath = $page.url.pathname;
+      const isPublic = publicRoutes.includes(currentPath);
+      console.log('[Layout] Firebase auth state:', value, 'loading:', loading, 'path:', currentPath, 'isPublic:', isPublic);
+      
+      // Don't redirect while Firebase is still loading
+      if (loading) {
+        console.log('[Layout] Firebase still loading, waiting...');
+        return;
       }
-    }, 5 * 60 * 1000); // Check every 5 minutes
-    
-    // Track user activity (clicks, keypresses) to keep session alive
-    const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart'];
-    const handleActivity = () => {
-      if (browser && $isAuthenticated) {
-        updateSessionActivity();
+      
+      // If authenticated and on login page, redirect to dashboard
+      if (value && currentPath === '/login') {
+        console.log('[Layout] Authenticated on login page, redirecting to dashboard');
+        goto('/dashboard');
+        return;
       }
-    };
-    
-    activityEvents.forEach(event => {
-      window.addEventListener(event, handleActivity, { passive: true });
-    });
-    
-    // Track route navigation for session activity
-    const unsubscribePage = page.subscribe(() => {
-      if (browser && $isAuthenticated) {
-        updateSessionActivity();
-      }
-    });
-    
-    const unsubscribe = isAuthenticated.subscribe(value => {
-      if (!value && $page.url.pathname !== '/login') {
+      
+      // If not authenticated and on protected route, redirect to login
+      if (!value && !isPublic) {
+        console.log('[Layout] Not authenticated on protected route, redirecting to login');
         goto('/login');
-      } else if (value) {
-        // Load search data when authenticated
+        return;
+      }
+      
+      // Load search data when authenticated
+      if (value) {
+        console.log('[Layout] Authenticated, loading search data');
         loadSearchData();
-        // Update activity on authentication
-        updateSessionActivity();
       }
     });
 
-    // Dark Mode Init
-    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-      document.documentElement.classList.add('dark');
-      isDark = true;
-    } else {
-      document.documentElement.classList.remove('dark');
-      isDark = false;
+    // Dark Mode Init - with Safari private browsing safety
+    try {
+      const storedTheme = localStorage.getItem('theme');
+      if (storedTheme === 'dark' || (storedTheme === null && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+        isDark = true;
+      } else {
+        document.documentElement.classList.remove('dark');
+        isDark = false;
+      }
+    } catch (e) {
+      // Safari private browsing - use system preference
+      console.warn('localStorage access failed:', e);
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.classList.add('dark');
+        isDark = true;
+      }
     }
 
     // Load search data if already authenticated
-    if ($isAuthenticated) {
+    if ($isFirebaseAuthenticated) {
       loadSearchData();
     }
 
     // Add click outside listener
     if (browser) {
       document.addEventListener('click', handleClickOutside);
+      
+      // Initialize Firebase (Analytics + Push Notifications)
+      initializeFirebase();
     }
 
     return () => {
       unsubscribe();
-      unsubscribePage();
-      clearInterval(sessionCheckInterval);
-      activityEvents.forEach(event => {
-        window.removeEventListener(event, handleActivity);
-      });
       if (browser) {
         document.removeEventListener('click', handleClickOutside);
       }
@@ -201,10 +197,10 @@
     isDark = !isDark;
     if (isDark) {
       document.documentElement.classList.add('dark');
-      localStorage.theme = 'dark';
+      try { localStorage.setItem('theme', 'dark'); } catch (e) { /* Safari private */ }
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.theme = 'light';
+      try { localStorage.setItem('theme', 'light'); } catch (e) { /* Safari private */ }
     }
   }
 
@@ -350,7 +346,15 @@
   }
 </script>
 
-{#if $isAuthenticated && $page.url.pathname !== '/login'}
+{#if $isFirebaseLoading}
+<!-- Loading state while Firebase initializes -->
+<div class="flex items-center justify-center h-screen bg-background">
+  <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+</div>
+{:else if isPublicRoute}
+<!-- Public routes (landing page, login) - no sidebar -->
+<slot />
+{:else if $isFirebaseAuthenticated}
 <div class="flex flex-col h-screen w-full overflow-hidden bg-background text-foreground transition-colors duration-300">
   
   <!-- Top Bar (Desktop/Tablet) - Hidden in POS mode -->
@@ -418,7 +422,7 @@
     </div>
 
     <!-- Dark Mode Toggle -->
-    <button on:click={toggleTheme} class="p-2 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+    <button on:click={toggleTheme} class="p-2 rounded-lg hover:bg-secondary text-muted-foreground transition-colors ml-2">
       {#if isDark}
         <Sun size={20} />
       {:else}
@@ -456,7 +460,7 @@
   {#if !$isPosMode}
   <aside class="hidden md:flex flex-col fixed left-0 top-0 bottom-0 w-64 bg-card border-r border-border p-4 overflow-y-auto">
     <div class="mb-6 px-2 flex justify-center">
-      <img src={isDark ? "/2.svg" : "/1.svg"} alt="FacturAI" class="h-24 w-auto" />
+      <img src={isDark ? "/cuadra_logo_white.png" : "/cuadra_logo.png"} alt="Cuadra" class="h-10 w-auto" />
     </div>
     
     <nav class="space-y-6">
@@ -465,7 +469,7 @@
         <a 
           href={homeTab.href} 
           class="flex items-center space-x-3 px-4 py-2 rounded-lg transition-all duration-200
-                 {($page.url.pathname === '/') 
+                 {($page.url.pathname === '/dashboard') 
                    ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' 
                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}"
         >
@@ -509,7 +513,7 @@
     </nav>
 
     <!-- Sidebar Footer / Settings could go here if not in group -->
-    <div class="mt-auto pt-6 border-t border-border">
+    <div class="mt-auto pt-6 border-t border-border space-y-3">
         <div class="px-4 flex items-center justify-between">
             <div class="text-xs text-muted-foreground">
                 v0.0.1

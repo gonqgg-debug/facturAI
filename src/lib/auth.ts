@@ -3,11 +3,42 @@ import { browser } from '$app/environment';
 import type { User, Role, PermissionKey } from './types';
 import { encryptedStorage, clearEncryptionKey as clearEncKey } from './encryption';
 
+// ============ SAFE STORAGE HELPERS ============
+// Safari private browsing and other edge cases can throw on localStorage access
+
+function safeLocalStorageGet(key: string): string | null {
+    if (!browser) return null;
+    try {
+        return localStorage.getItem(key);
+    } catch (error) {
+        console.warn('localStorage.getItem failed (private browsing?):', error);
+        return null;
+    }
+}
+
+function safeLocalStorageSet(key: string, value: string): void {
+    if (!browser) return;
+    try {
+        localStorage.setItem(key, value);
+    } catch (error) {
+        console.warn('localStorage.setItem failed (private browsing?):', error);
+    }
+}
+
+function safeLocalStorageRemove(key: string): void {
+    if (!browser) return;
+    try {
+        localStorage.removeItem(key);
+    } catch (error) {
+        console.warn('localStorage.removeItem failed:', error);
+    }
+}
+
 // ============ LEGACY AUTH (backward compatibility) ============
 // Will be phased out once multi-user is fully active
 
 function createAuthStore() {
-    const stored = browser ? localStorage.getItem('isAuthenticated') === 'true' : false;
+    const stored = browser ? safeLocalStorageGet('isAuthenticated') === 'true' : false;
     const { subscribe, set } = writable(stored);
 
     return {
@@ -16,26 +47,22 @@ function createAuthStore() {
             // Legacy login - will be replaced by user-based login
             // For now, any valid user PIN works
             set(true);
-            if (browser) localStorage.setItem('isAuthenticated', 'true');
+            safeLocalStorageSet('isAuthenticated', 'true');
             return true;
         },
         logout: () => {
             set(false);
-            if (browser) {
-                localStorage.removeItem('isAuthenticated');
-                localStorage.removeItem('currentUserId');
-            }
+            safeLocalStorageRemove('isAuthenticated');
+            safeLocalStorageRemove('currentUserId');
             currentUser.set(null);
             currentRole.set(null);
         },
         setAuthenticated: (value: boolean) => {
             set(value);
-            if (browser) {
-                if (value) {
-                    localStorage.setItem('isAuthenticated', 'true');
-                } else {
-                    localStorage.removeItem('isAuthenticated');
-                }
+            if (value) {
+                safeLocalStorageSet('isAuthenticated', 'true');
+            } else {
+                safeLocalStorageRemove('isAuthenticated');
             }
         }
     };
@@ -62,11 +89,11 @@ const SESSION_START_KEY = 'session_start_time';
 export function updateSessionActivity(): void {
     if (!browser) return;
     const now = Date.now();
-    localStorage.setItem(SESSION_ACTIVITY_KEY, now.toString());
+    safeLocalStorageSet(SESSION_ACTIVITY_KEY, now.toString());
     
     // Set session start time if it doesn't exist (first activity after login)
-    if (!localStorage.getItem(SESSION_START_KEY)) {
-        localStorage.setItem(SESSION_START_KEY, now.toString());
+    if (!safeLocalStorageGet(SESSION_START_KEY)) {
+        safeLocalStorageSet(SESSION_START_KEY, now.toString());
     }
 }
 
@@ -74,8 +101,8 @@ export function updateSessionActivity(): void {
 export function checkSessionTimeout(): { expired: boolean; timeRemaining?: number } {
     if (!browser) return { expired: false };
     
-    const lastActivity = localStorage.getItem(SESSION_ACTIVITY_KEY);
-    const sessionStart = localStorage.getItem(SESSION_START_KEY);
+    const lastActivity = safeLocalStorageGet(SESSION_ACTIVITY_KEY);
+    const sessionStart = safeLocalStorageGet(SESSION_START_KEY);
     
     // No session data means no active session
     if (!lastActivity || !sessionStart) {
@@ -101,8 +128,8 @@ export function checkSessionTimeout(): { expired: boolean; timeRemaining?: numbe
 // Clear session timeout data
 function clearSessionData(): void {
     if (!browser) return;
-    localStorage.removeItem(SESSION_ACTIVITY_KEY);
-    localStorage.removeItem(SESSION_START_KEY);
+    safeLocalStorageRemove(SESSION_ACTIVITY_KEY);
+    safeLocalStorageRemove(SESSION_START_KEY);
 }
 
 // Check if user has a specific permission
@@ -143,7 +170,7 @@ function checkRateLimit(pin: string): { allowed: boolean; remainingAttempts: num
     if (!browser) return { allowed: true, remainingAttempts: MAX_LOGIN_ATTEMPTS };
     
     const key = getLoginAttemptsKey(pin);
-    const stored = localStorage.getItem(key);
+    const stored = safeLocalStorageGet(key);
     const now = Date.now();
     
     if (!stored) {
@@ -164,13 +191,13 @@ function checkRateLimit(pin: string): { allowed: boolean; remainingAttempts: num
         
         // Reset if lockout period has passed
         if (attempts.lockedUntil && now >= attempts.lockedUntil) {
-            localStorage.removeItem(key);
+            safeLocalStorageRemove(key);
             return { allowed: true, remainingAttempts: MAX_LOGIN_ATTEMPTS };
         }
         
         // Reset attempts if outside the time window
         if (now - attempts.lastAttempt > ATTEMPT_WINDOW) {
-            localStorage.removeItem(key);
+            safeLocalStorageRemove(key);
             return { allowed: true, remainingAttempts: MAX_LOGIN_ATTEMPTS };
         }
         
@@ -182,7 +209,7 @@ function checkRateLimit(pin: string): { allowed: boolean; remainingAttempts: num
         };
     } catch {
         // Invalid stored data, reset
-        localStorage.removeItem(key);
+        safeLocalStorageRemove(key);
         return { allowed: true, remainingAttempts: MAX_LOGIN_ATTEMPTS };
     }
 }
@@ -192,7 +219,7 @@ function recordFailedAttempt(pin: string): void {
     
     const key = getLoginAttemptsKey(pin);
     const now = Date.now();
-    const stored = localStorage.getItem(key);
+    const stored = safeLocalStorageGet(key);
     
     let attempts: LoginAttempt;
     
@@ -218,13 +245,13 @@ function recordFailedAttempt(pin: string): void {
         attempts.lockedUntil = now + LOCKOUT_DURATION;
     }
     
-    localStorage.setItem(key, JSON.stringify(attempts));
+    safeLocalStorageSet(key, JSON.stringify(attempts));
 }
 
 function clearLoginAttempts(pin: string): void {
     if (!browser) return;
     const key = getLoginAttemptsKey(pin);
-    localStorage.removeItem(key);
+    safeLocalStorageRemove(key);
 }
 
 // Login with PIN - returns user if found, null otherwise
@@ -255,7 +282,7 @@ export async function loginWithPin(pin: string): Promise<User | null> {
         clearLoginAttempts(pin);
         
         // Get user's role
-        const role = await db.roles.get(user.roleId);
+        const role = await db.localRoles.get(user.roleId);
         
         // Update stores
         currentUser.set(user);
@@ -312,7 +339,7 @@ export async function restoreSession(): Promise<boolean> {
             let userId: string | null = null;
             
             // First, try plaintext (for backward compatibility and if encryption fails)
-            userId = localStorage.getItem('currentUserId');
+            userId = safeLocalStorageGet('currentUserId');
             
             // If no plaintext, try encrypted storage
             if (!userId) {
@@ -321,30 +348,30 @@ export async function restoreSession(): Promise<boolean> {
                 } catch (error) {
                     // If encryption/decryption fails, try plaintext as fallback
                     console.warn('Encrypted storage access failed, trying plaintext fallback:', error);
-                    userId = localStorage.getItem('currentUserId');
+                    userId = safeLocalStorageGet('currentUserId');
                 }
             }
             
             // If we found encrypted data but decryption returned null, try plaintext
             if (!userId) {
-                const encryptedValue = localStorage.getItem('currentUserId');
+                const encryptedValue = safeLocalStorageGet('currentUserId');
                 if (encryptedValue && !encryptedValue.startsWith('encrypted:')) {
                     // It's plaintext, use it
                     userId = encryptedValue;
                 }
             }
             
-            const wasAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+            const wasAuthenticated = safeLocalStorageGet('isAuthenticated') === 'true';
             
             // Only proceed if we have both userId and authenticated flag
             if (!userId || !wasAuthenticated) {
                 // Don't clear session here - might be in the middle of encryption migration
                 // Only clear if explicitly not authenticated
-                if (wasAuthenticated === false || (userId === null && !localStorage.getItem('currentUserId'))) {
+                if (wasAuthenticated === false || (userId === null && !safeLocalStorageGet('currentUserId'))) {
                     clearSessionData();
                     await encryptedStorage.removeItem('currentUserId').catch(() => {});
-                    localStorage.removeItem('currentUserId');
-                    localStorage.removeItem('isAuthenticated');
+                    safeLocalStorageRemove('currentUserId');
+                    safeLocalStorageRemove('isAuthenticated');
                 }
                 return false;
             }
@@ -352,16 +379,28 @@ export async function restoreSession(): Promise<boolean> {
             // Validate user exists and is active
             try {
                 const { db } = await import('./db');
-                const user = await db.users.get(Number(userId));
+                
+                // Validate userId is a valid number before querying
+                const numericUserId = Number(userId);
+                if (!Number.isFinite(numericUserId) || numericUserId <= 0) {
+                    console.warn('Invalid userId stored, clearing session:', userId);
+                    clearSessionData();
+                    await encryptedStorage.removeItem('currentUserId').catch(() => {});
+                    safeLocalStorageRemove('currentUserId');
+                    safeLocalStorageRemove('isAuthenticated');
+                    return false;
+                }
+                
+                const user = await db.users.get(numericUserId);
                 
                 if (user && user.isActive) {
-                    const role = await db.roles.get(user.roleId);
+                    const role = await db.localRoles.get(user.roleId);
                     currentUser.set(user);
                     currentRole.set(role || null);
                     isAuthenticated.setAuthenticated(true);
                     
                     // If we used plaintext, try to encrypt it for future use (non-blocking)
-                    const currentValue = localStorage.getItem('currentUserId');
+                    const currentValue = safeLocalStorageGet('currentUserId');
                     if (currentValue && !currentValue.startsWith('encrypted:')) {
                         // Migrate to encrypted storage in background (don't wait)
                         encryptedStorage.setItem('currentUserId', userId).catch(() => {
@@ -375,7 +414,11 @@ export async function restoreSession(): Promise<boolean> {
                     return true;
                 }
             } catch (error) {
-                console.error('Error restoring session:', error);
+                // Properly log error details for debugging
+                const errorMsg = error instanceof Error 
+                    ? error.message 
+                    : (typeof error === 'object' ? JSON.stringify(error) : String(error));
+                console.error('Error restoring session:', errorMsg);
                 // Don't log out on database errors - might be temporary
                 return false;
             }
@@ -383,8 +426,8 @@ export async function restoreSession(): Promise<boolean> {
             // User not found or inactive - clear session
             clearSessionData();
             await encryptedStorage.removeItem('currentUserId').catch(() => {});
-            localStorage.removeItem('currentUserId');
-            localStorage.removeItem('isAuthenticated');
+            safeLocalStorageRemove('currentUserId');
+            safeLocalStorageRemove('isAuthenticated');
             return false;
         } finally {
             isRestoringSession = false;
@@ -403,12 +446,197 @@ export async function logout() {
     clearSessionData();
     // Clear encrypted storage
     await encryptedStorage.removeItem('currentUserId');
-    localStorage.removeItem('currentUserId'); // Also remove plaintext if exists
+    safeLocalStorageRemove('currentUserId'); // Also remove plaintext if exists
     // Clear encryption key (will regenerate on next login)
     clearEncKey();
+}
+
+// ============ FIREBASE -> LOCAL AUTH BRIDGE ============
+
+/**
+ * Login using Firebase authentication (for store owners/admins)
+ * This creates/finds an admin user and sets up local authentication
+ * after Firebase authentication has completed.
+ * 
+ * @param firebaseUserOverride - Optional Firebase user to use instead of getting from store
+ */
+export async function loginWithFirebase(firebaseUserOverride?: { email: string | null; displayName: string | null; uid: string }): Promise<User | null> {
+    if (!browser) return null;
+    
+    let firebaseUser = firebaseUserOverride;
+    
+    // If no override provided, try to get from Firebase store
+    if (!firebaseUser) {
+        const { getCurrentUser } = await import('./firebase');
+        const currentUser = getCurrentUser();
+        if (currentUser) {
+            firebaseUser = {
+                email: currentUser.email,
+                displayName: currentUser.displayName,
+                uid: currentUser.uid
+            };
+        }
+    }
+    
+    if (!firebaseUser) {
+        console.error('[Auth] No Firebase user found');
+        return null;
+    }
+    
+    console.log('[Auth] loginWithFirebase called for:', firebaseUser.email);
+    
+    const { db } = await import('./db');
+    
+    let user: User | undefined;
+    
+    try {
+        // Look for an existing user linked to this Firebase account
+        // Or find/create an admin user for the store owner
+        if (firebaseUser.email) {
+            console.log('[Auth] Searching for user with email:', firebaseUser.email);
+            user = await db.users
+                .where('email')
+                .equals(firebaseUser.email)
+                .first();
+            console.log('[Auth] User search result:', user ? `Found ID ${user.id}` : 'Not found');
+        }
+        
+        if (!user) {
+            // Create a new admin user for this Firebase account
+            console.log('[Auth] Creating admin user for Firebase account:', firebaseUser.email);
+            
+            // Get or create the admin role
+            console.log('[Auth] Looking for Administrador role...');
+            let adminRole = await db.localRoles
+                .where('name')
+                .equals('Administrador')
+                .first();
+            
+            if (!adminRole) {
+                console.log('[Auth] Creating Administrador role...');
+                // Create admin role with all permissions
+                const adminRoleId = await db.localRoles.add({
+                    name: 'Administrador',
+                    permissions: [
+                        'pos.access', 'pos.sell', 'pos.apply_discount', 'pos.void_item', 'pos.process_return', 'pos.view_returns',
+                        'shifts.open', 'shifts.close', 'shifts.view_all', 'shifts.cash_in_out',
+                        'inventory.view', 'inventory.adjust', 'inventory.view_costs',
+                        'catalog.view', 'catalog.edit', 'catalog.delete', 'catalog.import',
+                        'customers.view', 'customers.edit', 'customers.delete', 'customers.view_balance',
+                        'invoices.view', 'invoices.capture', 'invoices.edit', 'invoices.delete', 'payments.record',
+                        'reports.view', 'reports.export', 'reports.view_profit',
+                        'settings.view', 'settings.edit',
+                        'users.manage',
+                        'system.backup', 'system.reset'
+                    ],
+                    createdAt: new Date()
+                });
+                adminRole = await db.localRoles.get(adminRoleId);
+                console.log('[Auth] Created Administrador role with ID:', adminRoleId);
+            } else {
+                console.log('[Auth] Found existing Administrador role:', adminRole.id);
+            }
+            
+            // Generate a random PIN for the new user
+            const randomPin = String(Math.floor(1000 + Math.random() * 9000));
+            
+            // Create the admin user
+            console.log('[Auth] Creating new user...');
+            const userId = await db.users.add({
+                displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Admin',
+                email: firebaseUser.email || undefined,
+                pin: randomPin,
+                roleId: adminRole!.id!,
+                roleName: adminRole!.name,
+                isActive: true,
+                createdAt: new Date(),
+                lastLogin: new Date()
+            });
+            
+            user = await db.users.get(userId);
+            console.log('[Auth] Created admin user with ID:', userId, 'PIN:', randomPin);
+        } else {
+            console.log('[Auth] Found existing user:', user.id, user.displayName);
+            // Update last login
+            if (user.id) {
+                await db.users.update(user.id, { lastLogin: new Date() });
+            }
+        }
+    } catch (dbError) {
+        console.error('[Auth] Database operation failed:', dbError);
+        throw dbError;
+    }
+    
+    if (!user) {
+        console.error('[Auth] Failed to create/find user');
+        return null;
+    }
+    
+    console.log('[Auth] Found/created user:', user.id, user.displayName);
+    
+    // Get user's role
+    const role = await db.localRoles.get(user.roleId);
+    console.log('[Auth] User role:', role?.name);
+    
+    // Update stores - this sets up local authentication
+    console.log('[Auth] Setting currentUser store...');
+    currentUser.set(user);
+    
+    console.log('[Auth] Setting currentRole store...');
+    currentRole.set(role || null);
+    
+    console.log('[Auth] Setting isAuthenticated to true...');
+    isAuthenticated.setAuthenticated(true);
+    
+    // Initialize session
+    console.log('[Auth] Updating session activity...');
+    updateSessionActivity();
+    
+    // Store user ID for session persistence - use BOTH encrypted and plaintext for reliability
+    if (browser) {
+        const userIdStr = String(user.id);
+        console.log('[Auth] Storing user ID:', userIdStr);
+        
+        // Store in plaintext localStorage as backup (more reliable)
+        safeLocalStorageSet('currentUserId', userIdStr);
+        
+        // Also try encrypted storage
+        try {
+            await encryptedStorage.setItem('currentUserId', userIdStr);
+            console.log('[Auth] User ID stored in encrypted storage');
+        } catch (err) {
+            console.warn('[Auth] Failed to store in encrypted storage, using plaintext:', err);
+        }
+        
+        // Verify localStorage was set correctly
+        const storedAuth = safeLocalStorageGet('isAuthenticated');
+        const storedUserId = safeLocalStorageGet('currentUserId');
+        console.log('[Auth] Verification - isAuthenticated in localStorage:', storedAuth);
+        console.log('[Auth] Verification - currentUserId in localStorage:', storedUserId);
+    }
+    
+    console.log('[Auth] Firebase user logged in as:', user.displayName);
+    return user;
 }
 
 // Permission guard for routes - can be used in load functions
 export function requirePermission(permission: PermissionKey): boolean {
     return hasPermission(permission);
 }
+
+// ============ FIREBASE AUTH RE-EXPORTS ============
+// Re-export Firebase auth functions and stores from firebase.ts for convenience
+
+export {
+    firebaseUser,
+    firebaseUserEmail,
+    firebaseUserId,
+    isFirebaseAuthenticated,
+    signInWithEmail,
+    signInWithGoogle,
+    signUpWithEmail,
+    firebaseSignOut as signOutFirebase,
+    resetPassword as sendPasswordReset,
+    getCurrentUser,
+    initializeFirebase
+} from './firebase';
