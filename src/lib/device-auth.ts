@@ -227,40 +227,48 @@ async function verifyDeviceRegistration(deviceId: string, token: string): Promis
  * 4. Register this device to the store
  */
 export async function ensureStoreExists(): Promise<string | null> {
+    console.log('[DeviceAuth] ensureStoreExists called');
+    
     const supabase = getSupabase();
     if (!supabase) {
-        console.error('Supabase not configured');
+        console.error('[DeviceAuth] Supabase not configured - check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
         return null;
     }
+    console.log('[DeviceAuth] Supabase client available');
     
     const firebaseUser = getCurrentUser();
     if (!firebaseUser) {
-        console.error('No Firebase user - must be signed in');
+        console.error('[DeviceAuth] No Firebase user - must be signed in first');
         return null;
     }
     
     const firebaseUid = firebaseUser.uid;
     const email = firebaseUser.email;
+    console.log('[DeviceAuth] Firebase user:', email, 'UID:', firebaseUid);
     
     deviceAuthStore.update(s => ({ ...s, state: 'registering', error: null }));
     
     try {
         // Check if store exists for this Firebase user
+        console.log('[DeviceAuth] Checking for existing store with firebase_uid:', firebaseUid);
         const { data: existingStore, error: fetchError } = await supabase
             .from('stores')
             .select('id, name')
             .eq('firebase_uid', firebaseUid)
             .single();
         
+        console.log('[DeviceAuth] Store lookup result:', { existingStore, fetchError });
+        
         let storeId: string;
         
         if (existingStore && !fetchError) {
             // Store exists, use it
-            console.log('Found existing store for Firebase user:', existingStore.name);
+            console.log('[DeviceAuth] Found existing store:', existingStore.name, 'ID:', existingStore.id);
             storeId = existingStore.id;
         } else {
             // Create new store for this Firebase user
-            console.log('Creating new store for Firebase user:', email);
+            console.log('[DeviceAuth] No existing store found, creating new one for:', email);
+            console.log('[DeviceAuth] Fetch error was:', fetchError?.message || 'none (just no data)');
             
             const storeName = email?.split('@')[0] || 'Mi Tienda';
             
@@ -274,23 +282,27 @@ export async function ensureStoreExists(): Promise<string | null> {
                 .select('id')
                 .single();
             
+            console.log('[DeviceAuth] Store creation result:', { newStore, createError });
+            
             if (createError || !newStore) {
-                console.error('Failed to create store:', createError);
+                console.error('[DeviceAuth] Failed to create store:', createError?.message, createError?.details, createError?.hint);
                 deviceAuthStore.update(s => ({ 
                     ...s, 
                     state: 'error', 
-                    error: 'Failed to create store' 
+                    error: `Failed to create store: ${createError?.message || 'unknown error'}` 
                 }));
                 return null;
             }
             
             storeId = newStore.id;
+            console.log('[DeviceAuth] Created new store with ID:', storeId);
         }
         
         // Register this device to the store
         const deviceToken = crypto.randomUUID();
         const deviceName = getDeviceName();
         
+        console.log('[DeviceAuth] Registering device to store:', storeId);
         const { data: deviceData, error: deviceError } = await supabase
             .from('devices')
             .insert({
@@ -305,17 +317,20 @@ export async function ensureStoreExists(): Promise<string | null> {
             .select('id')
             .single();
         
+        console.log('[DeviceAuth] Device registration result:', { deviceData, deviceError });
+        
         if (deviceError || !deviceData) {
-            console.error('Failed to register device:', deviceError);
+            console.error('[DeviceAuth] Failed to register device:', deviceError?.message, deviceError?.details, deviceError?.hint);
             deviceAuthStore.update(s => ({ 
                 ...s, 
                 state: 'error', 
-                error: 'Failed to register device' 
+                error: `Failed to register device: ${deviceError?.message || 'unknown error'}` 
             }));
             return null;
         }
         
         // Store credentials locally
+        console.log('[DeviceAuth] Storing credentials locally...');
         storeDeviceCredentials(deviceData.id, storeId, deviceToken);
         
         // Update store state
@@ -331,15 +346,15 @@ export async function ensureStoreExists(): Promise<string | null> {
             error: null
         });
         
-        console.log('Device registered successfully to store:', storeId);
+        console.log('[DeviceAuth] ✅ Device registered successfully to store:', storeId);
         return storeId;
         
     } catch (err) {
-        console.error('Error ensuring store exists:', err);
+        console.error('[DeviceAuth] ❌ Exception in ensureStoreExists:', err);
         deviceAuthStore.update(s => ({ 
             ...s, 
             state: 'error', 
-            error: 'Registration failed' 
+            error: `Registration failed: ${err instanceof Error ? err.message : 'unknown error'}` 
         }));
         return null;
     }

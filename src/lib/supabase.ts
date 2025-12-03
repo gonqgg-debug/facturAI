@@ -446,11 +446,14 @@ export function getSupabase(): SupabaseClient<Database> | null {
     if (!browser) return null;
     
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        console.warn('Supabase not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env');
+        console.error('[Supabase] NOT CONFIGURED!');
+        console.error('[Supabase] VITE_SUPABASE_URL:', SUPABASE_URL ? 'SET' : 'MISSING');
+        console.error('[Supabase] VITE_SUPABASE_ANON_KEY:', SUPABASE_ANON_KEY ? 'SET' : 'MISSING');
         return null;
     }
     
     if (!supabaseInstance) {
+        console.log('[Supabase] Creating client for:', SUPABASE_URL);
         supabaseInstance = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
             auth: {
                 persistSession: false, // We handle our own device tokens
