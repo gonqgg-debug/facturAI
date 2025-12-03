@@ -544,6 +544,6 @@ export function stopSyncService(): void {
  * Trigger manual sync
  */
 export async function triggerSync(): Promise<SyncResult> {
-    return syncService.forceSync();
+    return syncService.syncNow();
 }
 
