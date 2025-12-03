@@ -18,10 +18,11 @@
     AlertCircle
   } from 'lucide-svelte';
   import { deviceAuth, getStoreId, getDeviceId } from '$lib/device-auth';
-  import { syncStatus, lastSyncTime } from '$lib/sync-store';
+  import { syncStatus, getLastSyncTimestamp } from '$lib/sync-store';
 
   let isSigningOut = false;
   let deviceInfo: { deviceId: string | null; storeId: string | null } | null = null;
+  let lastSyncTime: string | null = null;
   
   onMount(() => {
     const storeId = getStoreId();
@@ -29,6 +30,7 @@
     if (storeId || deviceId) {
       deviceInfo = { deviceId, storeId };
     }
+    lastSyncTime = getLastSyncTimestamp();
   });
 
   async function handleSignOut() {
@@ -188,7 +190,7 @@
             {$locale === 'es' ? 'Última sincronización' : 'Last sync'}
           </span>
           <span class="text-sm font-medium">
-            {$lastSyncTime ? formatDate($lastSyncTime) : ($locale === 'es' ? 'Nunca' : 'Never')}
+            {lastSyncTime ? formatDate(lastSyncTime) : ($locale === 'es' ? 'Nunca' : 'Never')}
           </span>
         </div>
       </div>
