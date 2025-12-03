@@ -8,6 +8,8 @@
   import { browser } from '$app/environment';
   import { db } from '$lib/db';
   import { initializeFirebase, trackScreenView, trackLogin, isFirebaseAuthenticated, isFirebaseLoading, firebaseUserEmail } from '$lib/firebase';
+  import { initializeSyncService } from '$lib/sync-service';
+  import { initializeDeviceAuth } from '$lib/device-auth';
   import Fuse from 'fuse.js';
   import type { Product, Invoice } from '$lib/types';
   import { Input } from '$lib/components/ui/input';
@@ -146,9 +148,17 @@
         return;
       }
       
-      // Load search data when authenticated
+      // Initialize sync and load data when authenticated
       if (value) {
-        console.log('[Layout] Authenticated, loading search data');
+        console.log('[Layout] Authenticated, initializing services...');
+        // Initialize device auth and sync service for returning users
+        initializeDeviceAuth().then(() => {
+          console.log('[Layout] Device auth initialized');
+          initializeSyncService();
+          console.log('[Layout] Sync service initialized');
+        }).catch(err => {
+          console.warn('[Layout] Device auth/sync init failed:', err);
+        });
         loadSearchData();
       }
     });

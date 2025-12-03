@@ -16,6 +16,7 @@
     initializeFirebase
   } from '$lib/firebase';
   import { ensureStoreExists } from '$lib/device-auth';
+  import { initializeSyncService } from '$lib/sync-service';
 
   // Auth mode: 'signin' | 'signup' | 'reset'
   type AuthMode = 'signin' | 'signup' | 'reset';
@@ -41,12 +42,19 @@
     
     console.log('[Login] Authentication successful, setting up...');
     
-    // Try to setup store for sync (non-blocking)
+    // Try to setup store for sync
     try {
-      await ensureStoreExists();
-      console.log('[Login] Store setup complete');
+      const storeId = await ensureStoreExists();
+      console.log('[Login] Store setup complete, storeId:', storeId);
+      
+      // Initialize sync service if store was created/found
+      if (storeId) {
+        console.log('[Login] Starting sync service...');
+        await initializeSyncService();
+        console.log('[Login] Sync service started');
+      }
     } catch (err) {
-      console.warn('[Login] Store setup failed (sync disabled):', err);
+      console.warn('[Login] Store/sync setup failed:', err);
     }
     
     // Redirect to dashboard
