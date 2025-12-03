@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { db, generateId } from '$lib/db';
-  import { saveSupplier, deleteSupplier as deleteSupplierOp } from '$lib/db-operations';
+  import { saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierOp } from '$lib/db-operations';
   import type { Supplier, Invoice } from '$lib/types';
   import { 
     Plus, Search, Edit2, Trash2, Phone, Mail, MapPin, 
@@ -159,10 +159,10 @@
 
       if (editingSupplier?.id) {
         // Update existing supplier using tracked operation
-        await saveSupplier({ ...supplierData, id: editingSupplier.id } as Supplier);
+        await saveSupplierToDb({ ...supplierData, id: editingSupplier.id } as Supplier);
       } else {
         // Create new supplier using tracked operation (ID generated automatically)
-        await saveSupplier(supplierData as Supplier);
+        await saveSupplierToDb(supplierData as Supplier);
       }
 
       await loadSuppliers();
