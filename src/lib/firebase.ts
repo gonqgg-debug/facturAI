@@ -100,24 +100,30 @@ export const firebaseUserId = derived(
 export function initializeFirebase(): void {
     if (!browser) return;
     
+    console.log('[Firebase] Initializing Firebase...');
+    console.log('[Firebase] Config check - apiKey:', !!firebaseConfig.apiKey);
+    console.log('[Firebase] Config check - authDomain:', firebaseConfig.authDomain);
+    console.log('[Firebase] Config check - projectId:', !!firebaseConfig.projectId);
+    
     // Check if config is available
     if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
-        console.warn('Firebase not configured. Add VITE_FIREBASE_* variables to .env');
+        console.error('[Firebase] NOT CONFIGURED! Missing apiKey or projectId');
+        console.error('[Firebase] Add VITE_FIREBASE_* variables to .env');
         authStateStore.update(s => ({ ...s, loading: false }));
         return;
     }
     
     try {
         app = initializeApp(firebaseConfig);
-        console.log('Firebase initialized successfully');
+        console.log('[Firebase] App initialized successfully');
         
         // Initialize Auth
         auth = getAuth(app);
-        console.log('Firebase Auth initialized');
+        console.log('[Firebase] Auth initialized');
         
         // Listen for auth state changes
         onAuthStateChanged(auth, (user) => {
-            console.log('Auth state changed:', user?.email || 'signed out');
+            console.log('[Firebase] Auth state changed:', user?.email || 'signed out');
             authStateStore.set({
                 user,
                 loading: false,
@@ -125,12 +131,16 @@ export function initializeFirebase(): void {
             });
         });
         
-        // Initialize Analytics
-        analytics = getAnalytics(app);
-        console.log('Firebase Analytics initialized');
+        // Initialize Analytics (non-blocking)
+        try {
+            analytics = getAnalytics(app);
+            console.log('[Firebase] Analytics initialized');
+        } catch (analyticsError) {
+            console.warn('[Firebase] Analytics failed (non-critical):', analyticsError);
+        }
         
     } catch (error) {
-        console.error('Failed to initialize Firebase:', error);
+        console.error('[Firebase] Failed to initialize:', error);
         authStateStore.update(s => ({ 
             ...s, 
             loading: false, 
@@ -210,16 +220,27 @@ export async function signUpWithEmail(email: string, password: string): Promise<
  * Sign in with Google
  */
 export async function signInWithGoogle(): Promise<User> {
-    if (!auth) throw new Error('Firebase Auth not initialized');
+    console.log('[Firebase] signInWithGoogle called');
     
+    if (!auth) {
+        console.error('[Firebase] Auth not initialized!');
+        throw new Error('Firebase Auth not initialized');
+    }
+    
+    console.log('[Firebase] Auth is initialized, starting Google sign-in...');
     authStateStore.update(s => ({ ...s, loading: true, error: null }));
     
     try {
         const provider = new GoogleAuthProvider();
+        console.log('[Firebase] GoogleAuthProvider created, opening popup...');
         const result = await signInWithPopup(auth, provider);
+        console.log('[Firebase] Google sign-in successful:', result.user.email);
         trackLogin('google');
         return result.user;
     } catch (error) {
+        console.error('[Firebase] Google sign-in error:', error);
+        console.error('[Firebase] Error code:', (error as { code?: string })?.code);
+        console.error('[Firebase] Error message:', (error as Error)?.message);
         const message = getAuthErrorMessage(error);
         authStateStore.update(s => ({ ...s, loading: false, error: message }));
         throw new Error(message);
