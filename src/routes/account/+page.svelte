@@ -17,16 +17,17 @@
     CheckCircle2,
     AlertCircle
   } from 'lucide-svelte';
-  import { deviceAuthStore, getStoredDeviceCredentials } from '$lib/device-auth';
+  import { deviceAuth, getStoreId, getDeviceId } from '$lib/device-auth';
   import { syncStatus, lastSyncTime } from '$lib/sync-store';
 
   let isSigningOut = false;
-  let deviceInfo: { deviceId: string; storeId: string } | null = null;
+  let deviceInfo: { deviceId: string | null; storeId: string | null } | null = null;
   
   onMount(() => {
-    const creds = getStoredDeviceCredentials();
-    if (creds) {
-      deviceInfo = { deviceId: creds.deviceId, storeId: creds.storeId };
+    const storeId = getStoreId();
+    const deviceId = getDeviceId();
+    if (storeId || deviceId) {
+      deviceInfo = { deviceId, storeId };
     }
   });
 
@@ -167,7 +168,7 @@
             {$locale === 'es' ? 'Dispositivo' : 'Device'}
           </span>
           <span class="text-sm font-medium">
-            {#if $deviceAuthStore.state === 'registered'}
+            {#if $deviceAuth.state === 'registered'}
               <span class="flex items-center gap-1 text-green-600 dark:text-green-400">
                 <CheckCircle2 size={14} />
                 {$locale === 'es' ? 'Registrado' : 'Registered'}
@@ -175,7 +176,7 @@
             {:else}
               <span class="flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
                 <AlertCircle size={14} />
-                {$deviceAuthStore.state}
+                {$deviceAuth.state}
               </span>
             {/if}
           </span>
