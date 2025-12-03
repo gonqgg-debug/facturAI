@@ -13,6 +13,9 @@ package-lock.json
 dexie-cloud.json
 dexie-cloud.key
 
+# Firebase Service Worker (generated at build time with env vars)
+static/firebase-messaging-sw.js
+
 # Test artifacts
 coverage/
 test-results/
