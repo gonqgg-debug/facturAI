@@ -354,10 +354,46 @@
     calculatingRows.add(index);
     calculatingRows = calculatingRows;
     
-    // Recalculate this specific item from its total
+    // Recalculate this specific item from its total (Total is king - adjusts price)
     invoice.items[index] = recalculateFromTotal(invoice.items[index]);
-    // Then update the global totals with debounce
-    debouncedRecalc(index);
+    
+    // Update global totals WITHOUT recalculating line items
+    updateGlobalTotals();
+    
+    // Clear row indicator
+    setTimeout(() => {
+      calculatingRows.delete(index);
+      calculatingRows = calculatingRows;
+    }, 100);
+  }
+  
+  // Update only the global totals (subtotal, itbis, total) without recalculating line items
+  function updateGlobalTotals() {
+    if (!invoice || !invoice.items) return;
+    
+    let subtotal = 0;
+    let itbisTotal = 0;
+    let total = 0;
+    
+    invoice.items.forEach(item => {
+      subtotal += item.value || 0;
+      itbisTotal += item.itbis || 0;
+      total += item.amount || 0;
+    });
+    
+    invoice.subtotal = Number(subtotal.toFixed(2));
+    invoice.itbisTotal = Number(itbisTotal.toFixed(2));
+    invoice.total = Number((total - (invoice.discount || 0)).toFixed(2));
+    
+    currentInvoice.set(invoice);
+    checkPrices();
+  }
+  
+  // Handle tax rate change - recalculate price to keep total the same
+  function handleTaxRateChange(index: number) {
+    if (!invoice || !invoice.items) return;
+    // When tax rate changes, keep total the same and adjust price
+    handleTotalChange(index);
   }
 
   // Handle real-time input changes for line items
@@ -1445,28 +1481,10 @@
                       {/if}
                     </div>
                   </Table.Cell>
-                  <Table.Cell class="p-2 relative">
-                    <div class="relative">
-                      <input 
-                        type="number" 
-                        bind:value={item.unitPrice} 
-                        on:input={() => handleItemInput(i, 'unitPrice')} 
-                        on:blur={(e) => formatOnBlur(e, i, 'unitPrice')}
-                        class="w-full bg-transparent text-foreground outline-none text-right border-b border-transparent focus:border-primary focus:bg-muted/30 transition-colors {calculatingRows.has(i) ? 'animate-pulse' : ''} {priceEdited ? 'text-amber-600 dark:text-amber-400' : ''} {priceAlerts[i] ? (priceAlerts[i].type === 'up' ? 'text-red-500' : 'text-green-500') : ''}" 
-                        data-row={i} data-col="2"
-                        on:keydown={(e) => handleKeydown(e, i, 2)}
-                        step="0.01"
-                      />
-                      {#if priceEdited && originalItem}
-                        <Tooltip.Root>
-                          <Tooltip.Trigger>
-                            <span class="absolute -top-1 right-0 w-2 h-2 bg-amber-500 rounded-full"></span>
-                          </Tooltip.Trigger>
-                          <Tooltip.Content>OCR: ${originalItem.unitPrice?.toFixed(2)}</Tooltip.Content>
-                        </Tooltip.Root>
-                      {/if}
+                  <Table.Cell class="p-2 w-24">
+                    <div class="flex items-center gap-1">
                       {#if priceAlerts[i]}
-                        <div class="absolute right-full mr-2 top-1/2 transform -translate-y-1/2 group/tooltip">
+                        <div class="group/tooltip flex-shrink-0">
                           {#if priceAlerts[i].type === 'up'}
                             <TrendingUp size={14} class="text-red-500" />
                           {:else}
@@ -1474,7 +1492,7 @@
                           {/if}
                           
                           <!-- Tooltip -->
-                          <div class="absolute bottom-full mb-2 right-0 w-48 bg-popover text-popover-foreground border border-border p-2 rounded-lg text-xs z-50 hidden group-hover/tooltip:block shadow-xl">
+                          <div class="absolute bottom-full mb-2 left-0 w-48 bg-popover text-popover-foreground border border-border p-2 rounded-lg text-xs z-50 hidden group-hover/tooltip:block shadow-xl">
                             <div class="font-bold mb-1">Price Change</div>
                             <div class="text-muted-foreground">Was: <span class="text-foreground">{priceAlerts[i].lastPrice.toFixed(2)}</span></div>
                             <div class="text-muted-foreground">Date: <span class="text-foreground">{priceAlerts[i].lastDate}</span></div>
@@ -1484,13 +1502,33 @@
                           </div>
                         </div>
                       {/if}
+                      <div class="relative flex-1">
+                        <input 
+                          type="number" 
+                          bind:value={item.unitPrice} 
+                          on:input={() => handleItemInput(i, 'unitPrice')} 
+                          on:blur={(e) => formatOnBlur(e, i, 'unitPrice')}
+                          class="w-full bg-transparent text-foreground outline-none text-right font-mono border-b border-transparent focus:border-primary focus:bg-muted/30 transition-colors {calculatingRows.has(i) ? 'animate-pulse' : ''} {priceEdited ? 'text-amber-600 dark:text-amber-400' : ''} {priceAlerts[i] ? (priceAlerts[i].type === 'up' ? 'text-red-500' : 'text-green-500') : ''}" 
+                          data-row={i} data-col="2"
+                          on:keydown={(e) => handleKeydown(e, i, 2)}
+                          step="0.01"
+                        />
+                        {#if priceEdited && originalItem}
+                          <Tooltip.Root>
+                            <Tooltip.Trigger>
+                              <span class="absolute -top-1 right-0 w-2 h-2 bg-amber-500 rounded-full"></span>
+                            </Tooltip.Trigger>
+                            <Tooltip.Content>OCR: ${originalItem.unitPrice?.toFixed(2)}</Tooltip.Content>
+                          </Tooltip.Root>
+                        {/if}
+                      </div>
                     </div>
                   </Table.Cell>
                   <Table.Cell class="p-2 text-center hidden md:table-cell">
                     <input 
                       type="checkbox" 
                       bind:checked={item.priceIncludesTax} 
-                      on:change={() => handleTotalChange(i)}
+                      on:change={() => handleTaxRateChange(i)}
                       class="w-4 h-4 rounded border-input bg-input text-primary focus:ring-primary"
                     />
                   </Table.Cell>
@@ -1500,7 +1538,7 @@
                   <Table.Cell class="p-2 hidden md:table-cell">
                     <select 
                       bind:value={item.taxRate} 
-                      on:change={handleRecalc}
+                      on:change={() => handleTaxRateChange(i)}
                       class="w-full bg-transparent text-foreground outline-none text-center text-xs appearance-none"
                     >
                       <option value={0.18}>18%</option>
@@ -1516,8 +1554,8 @@
                       type="number" 
                       step="0.01"
                       bind:value={item.amount} 
-                      on:input={() => handleItemInput(i, 'unitPrice')}
-                      on:blur={(e) => { formatOnBlur(e, i, 'amount'); handleTotalChange(i); }}
+                      on:input={() => handleTotalChange(i)}
+                      on:blur={(e) => formatOnBlur(e, i, 'amount')}
                       class="w-full bg-muted/50 rounded px-2 py-1 text-foreground outline-none text-right font-mono border border-transparent focus:border-primary transition-colors {calculatingRows.has(i) ? 'ring-1 ring-primary/50' : ''}" 
                       data-row={i} data-col="5"
                       on:keydown={(e) => handleKeydown(e, i, 5)}
