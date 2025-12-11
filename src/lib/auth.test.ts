@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { PermissionKey, Role, User } from './types';
 
 // Create localStorage mock
 const localStorageMock = {
@@ -48,6 +49,37 @@ vi.mock('./encryption', () => ({
     clearEncryptionKey: vi.fn()
 }));
 
+const SELL_PERMISSION: PermissionKey = 'pos.sell';
+const INVENTORY_PERMISSION: PermissionKey = 'inventory.view';
+const REPORT_PERMISSION: PermissionKey = 'reports.view';
+const ADMIN_PERMISSION: PermissionKey = 'users.manage';
+const SYSTEM_PERMISSION: PermissionKey = 'system.reset';
+
+const createTestRole = (overrides: Partial<Role> = {}): Role => ({
+    id: overrides.id ?? 1,
+    name: overrides.name ?? 'Test Role',
+    permissions: overrides.permissions ?? [],
+    createdAt: overrides.createdAt ?? new Date(),
+    description: overrides.description,
+    isSystem: overrides.isSystem,
+    ...overrides
+});
+
+const createTestUser = (overrides: Partial<User> = {}): User => ({
+    id: overrides.id,
+    username: overrides.username ?? 'test-user',
+    displayName: overrides.displayName ?? 'Test User',
+    pin: overrides.pin ?? '1234',
+    roleId: overrides.roleId ?? 1,
+    roleName: overrides.roleName ?? 'Test Role',
+    email: overrides.email,
+    phone: overrides.phone,
+    isActive: overrides.isActive ?? true,
+    lastLogin: overrides.lastLogin,
+    createdAt: overrides.createdAt ?? new Date(),
+    createdBy: overrides.createdBy
+});
+
 const mockDb = {
     users: {
         where: vi.fn().mockReturnValue({
@@ -60,8 +92,14 @@ const mockDb = {
         get: vi.fn().mockResolvedValue(null),
         update: vi.fn().mockResolvedValue(1)
     },
-    roles: {
-        get: vi.fn().mockResolvedValue(null)
+    localRoles: {
+        where: vi.fn().mockReturnValue({
+            equals: vi.fn().mockReturnValue({
+                first: vi.fn().mockResolvedValue(null)
+            })
+        }),
+        get: vi.fn().mockResolvedValue(null),
+        add: vi.fn().mockResolvedValue(1)
     }
 };
 
@@ -76,6 +114,7 @@ describe('Authentication Rate Limiting', () => {
         vi.clearAllMocks();
         mockEncryptedStorage.getItem.mockResolvedValue(null);
         mockDb.users.get.mockResolvedValue(null);
+        mockDb.localRoles.get.mockResolvedValue(null);
     });
 
     describe('Rate Limit Configuration', () => {
@@ -304,19 +343,12 @@ describe('Authentication Rate Limiting', () => {
         it('should return user on successful login', async () => {
             const { loginWithPin } = await import('./auth');
             
-            const mockUser = {
-                id: 1,
-                name: 'Test User',
-                pin: '1234',
-                roleId: 1,
-                isActive: true
-            };
-            
-            const mockRole = {
+            const mockUser = createTestUser({ id: 1, pin: '1234' });
+            const mockRole = createTestRole({
                 id: 1,
                 name: 'Admin',
-                permissions: ['sales', 'inventory']
-            };
+                permissions: [SELL_PERMISSION, INVENTORY_PERMISSION]
+            });
             
             // Mock successful user lookup
             mockDb.users.where.mockReturnValue({
@@ -326,7 +358,7 @@ describe('Authentication Rate Limiting', () => {
                     })
                 })
             });
-            mockDb.roles.get.mockResolvedValue(mockRole);
+            mockDb.localRoles.get.mockResolvedValue(mockRole);
             
             const result = await loginWithPin('1234');
             
@@ -337,13 +369,7 @@ describe('Authentication Rate Limiting', () => {
         it('should clear failed attempts on successful login', async () => {
             const { loginWithPin } = await import('./auth');
             
-            const mockUser = {
-                id: 1,
-                name: 'Test User',
-                pin: '5678',
-                roleId: 1,
-                isActive: true
-            };
+            const mockUser = createTestUser({ id: 1, pin: '5678' });
             
             // Set up some failed attempts
             const attemptKey = 'login_attempts_' + btoa('5678').slice(0, 10);
@@ -373,13 +399,7 @@ describe('Authentication Rate Limiting', () => {
         it('should update last login timestamp', async () => {
             const { loginWithPin } = await import('./auth');
             
-            const mockUser = {
-                id: 1,
-                name: 'Test User',
-                pin: '1111',
-                roleId: 1,
-                isActive: true
-            };
+            const mockUser = createTestUser({ id: 1, pin: '1111' });
             
             mockDb.users.where.mockReturnValue({
                 equals: vi.fn().mockReturnValue({
@@ -403,7 +423,7 @@ describe('Authentication Rate Limiting', () => {
             currentRole.set(null);
             
             // Without a role set, should return false
-            expect(hasPermission('sales')).toBe(false);
+            expect(hasPermission(SELL_PERMISSION)).toBe(false);
         });
 
         it('should have userPermissions derived store', async () => {
@@ -416,28 +436,32 @@ describe('Authentication Rate Limiting', () => {
         it('should check permissions correctly when role is set', async () => {
             const { currentRole, hasPermission } = await import('./auth');
             
-            currentRole.set({
-                id: 1,
-                name: 'Admin',
-                permissions: ['sales', 'inventory', 'reports']
-            });
+            currentRole.set(
+                createTestRole({
+                    id: 1,
+                    name: 'Admin',
+                    permissions: [SELL_PERMISSION, INVENTORY_PERMISSION, REPORT_PERMISSION]
+                })
+            );
             
-            expect(hasPermission('sales')).toBe(true);
-            expect(hasPermission('inventory')).toBe(true);
-            expect(hasPermission('admin')).toBe(false);
+            expect(hasPermission(SELL_PERMISSION)).toBe(true);
+            expect(hasPermission(INVENTORY_PERMISSION)).toBe(true);
+            expect(hasPermission(ADMIN_PERMISSION)).toBe(false);
         });
 
         it('should requirePermission work correctly', async () => {
             const { requirePermission, currentRole } = await import('./auth');
             
-            currentRole.set({
-                id: 1,
-                name: 'Cashier',
-                permissions: ['sales']
-            });
+            currentRole.set(
+                createTestRole({
+                    id: 2,
+                    name: 'Cashier',
+                    permissions: [SELL_PERMISSION]
+                })
+            );
             
-            expect(requirePermission('sales')).toBe(true);
-            expect(requirePermission('admin')).toBe(false);
+            expect(requirePermission(SELL_PERMISSION)).toBe(true);
+            expect(requirePermission(ADMIN_PERMISSION)).toBe(false);
         });
     });
 
@@ -483,19 +507,12 @@ describe('Authentication Rate Limiting', () => {
         it('should return true when valid session and user found', async () => {
             const { restoreSession } = await import('./auth');
             
-            const mockUser = {
-                id: 1,
-                name: 'Test User',
-                pin: '1234',
-                roleId: 1,
-                isActive: true
-            };
-            
-            const mockRole = {
+            const mockUser = createTestUser({ id: 1, pin: '1234' });
+            const mockRole = createTestRole({
                 id: 1,
                 name: 'Admin',
-                permissions: ['sales']
-            };
+                permissions: [SELL_PERMISSION]
+            });
             
             // Set up valid session
             const now = Date.now();
@@ -509,7 +526,7 @@ describe('Authentication Rate Limiting', () => {
             });
             
             mockDb.users.get.mockResolvedValue(mockUser);
-            mockDb.roles.get.mockResolvedValue(mockRole);
+            mockDb.localRoles.get.mockResolvedValue(mockRole);
             
             const result = await restoreSession();
             expect(result).toBe(true);
@@ -532,16 +549,10 @@ describe('Authentication Rate Limiting', () => {
             // Encrypted storage has the userId
             mockEncryptedStorage.getItem.mockResolvedValue('2');
             
-            const mockUser = {
-                id: 2,
-                name: 'Test User',
-                pin: '1234',
-                roleId: 1,
-                isActive: true
-            };
+            const mockUser = createTestUser({ id: 2 });
             
             mockDb.users.get.mockResolvedValue(mockUser);
-            mockDb.roles.get.mockResolvedValue({ id: 1, name: 'Admin', permissions: [] });
+            mockDb.localRoles.get.mockResolvedValue(createTestRole({ id: 1, name: 'Admin' }));
             
             const result = await restoreSession();
             expect(result).toBe(true);
@@ -551,13 +562,7 @@ describe('Authentication Rate Limiting', () => {
         it('should return false when user is inactive', async () => {
             const { restoreSession } = await import('./auth');
             
-            const mockUser = {
-                id: 1,
-                name: 'Test User',
-                pin: '1234',
-                roleId: 1,
-                isActive: false // Inactive user
-            };
+            const mockUser = createTestUser({ id: 1, isActive: false });
             
             const now = Date.now();
             localStorageMock.store['session_last_activity'] = now.toString();
@@ -612,16 +617,10 @@ describe('Authentication Rate Limiting', () => {
                 return localStorageMock.store[key] ?? null;
             });
             
-            const mockUser = {
-                id: 1,
-                name: 'Test User',
-                pin: '1234',
-                roleId: 1,
-                isActive: true
-            };
+            const mockUser = createTestUser({ id: 1 });
             
             mockDb.users.get.mockResolvedValue(mockUser);
-            mockDb.roles.get.mockResolvedValue({ id: 1, name: 'Admin', permissions: [] });
+            mockDb.localRoles.get.mockResolvedValue(createTestRole({ id: 1, name: 'Admin' }));
             
             // Call multiple times simultaneously
             const promise1 = restoreSession();
@@ -730,8 +729,8 @@ describe('Auth Store Methods', () => {
         const { get } = await import('svelte/store');
         
         // Set up some state
-        currentUser.set({ id: 1, name: 'Test', pin: '1234', roleId: 1, isActive: true });
-        currentRole.set({ id: 1, name: 'Admin', permissions: [] });
+        currentUser.set(createTestUser());
+        currentRole.set(createTestRole({ name: 'Admin', permissions: [] }));
         
         // Call legacy logout
         isAuthenticated.logout();
@@ -758,22 +757,26 @@ describe('userPermissions Derived Store', () => {
         const { userPermissions, currentRole } = await import('./auth');
         const { get } = await import('svelte/store');
         
-        currentRole.set({ id: 1, name: 'Test', permissions: ['sales', 'inventory'] });
+        currentRole.set(
+            createTestRole({ permissions: [SELL_PERMISSION, INVENTORY_PERMISSION] })
+        );
         
         const perms = get(userPermissions);
-        expect(perms.hasAny('sales', 'admin')).toBe(true);
-        expect(perms.hasAny('admin', 'superadmin')).toBe(false);
+        expect(perms.hasAny(SELL_PERMISSION, ADMIN_PERMISSION)).toBe(true);
+        expect(perms.hasAny(ADMIN_PERMISSION, SYSTEM_PERMISSION)).toBe(false);
     });
 
     it('should have hasAll method', async () => {
         const { userPermissions, currentRole } = await import('./auth');
         const { get } = await import('svelte/store');
         
-        currentRole.set({ id: 1, name: 'Test', permissions: ['sales', 'inventory', 'reports'] });
+        currentRole.set(
+            createTestRole({ permissions: [SELL_PERMISSION, INVENTORY_PERMISSION, REPORT_PERMISSION] })
+        );
         
         const perms = get(userPermissions);
-        expect(perms.hasAll('sales', 'inventory')).toBe(true);
-        expect(perms.hasAll('sales', 'admin')).toBe(false);
+        expect(perms.hasAll(SELL_PERMISSION, INVENTORY_PERMISSION)).toBe(true);
+        expect(perms.hasAll(SELL_PERMISSION, ADMIN_PERMISSION)).toBe(false);
     });
 
     it('should return empty permissions when no role', async () => {
@@ -783,8 +786,8 @@ describe('userPermissions Derived Store', () => {
         currentRole.set(null);
         
         const perms = get(userPermissions);
-        expect(perms.has('sales')).toBe(false);
-        expect(perms.hasAny('sales', 'inventory')).toBe(false);
-        expect(perms.hasAll('sales')).toBe(false);
+        expect(perms.has(SELL_PERMISSION)).toBe(false);
+        expect(perms.hasAny(SELL_PERMISSION, INVENTORY_PERMISSION)).toBe(false);
+        expect(perms.hasAll(SELL_PERMISSION)).toBe(false);
     });
 });

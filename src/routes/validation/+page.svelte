@@ -27,13 +27,13 @@
 
   let invoice = $currentInvoice;
   let suppliers: Supplier[] = [];
-  let selectedSupplierId: number | null = null;
+  let selectedSupplierId: string | null = null;
   let products: Product[] = [];
   let allProducts: Product[] = []; // All products for fuzzy matching
   
   // Purchase Order linking
   let purchaseOrders: PurchaseOrder[] = [];
-  let selectedPurchaseOrderId: number | null = null;
+  let selectedPurchaseOrderId: string | null = null;
   let selectedPO: PurchaseOrder | null = null;
   let priceAlerts: Record<number, { type: 'up' | 'down', diff: number, lastPrice: number, lastDate: string }> = {};
   let isSaving = false;
@@ -159,7 +159,7 @@
   );
 
   // Handle PO selection change
-  function handlePOChange(poId: number | null) {
+  function handlePOChange(poId: string | null) {
     selectedPurchaseOrderId = poId;
     if (poId) {
       selectedPO = purchaseOrders.find(po => po.id === poId) || null;
@@ -190,13 +190,13 @@
     };
   }
 
-  async function loadProducts(supplierId: number) {
+  async function loadProducts(supplierId: string) {
     products = await db.products.where('supplierId').equals(supplierId).toArray();
     autoLinkProducts();
     checkPrices();
   }
 
-  function updateDueDate(supplierId: number) {
+  function updateDueDate(supplierId: string) {
     const supplier = suppliers.find(s => s.id === supplierId);
     if (supplier?.defaultCreditDays && invoice?.issueDate) {
       const issueDate = new Date(invoice.issueDate);
@@ -1111,7 +1111,7 @@
             <div class="flex gap-2">
               <Select.Root 
                 selected={selectedSupplierId ? { value: String(selectedSupplierId), label: suppliers.find(s => s.id === selectedSupplierId)?.name || '' } : undefined}
-                onSelectedChange={(v) => { selectedSupplierId = v?.value ? Number(v.value) : null; }}
+                onSelectedChange={(v) => { selectedSupplierId = v?.value ?? null; }}
               >
                 <Select.Trigger class="flex-1 bg-input/50 h-10 text-sm">
                   <Select.Value placeholder="-- Select or Create Provider --" />
@@ -1303,7 +1303,7 @@
             <Card.Content>
               <Select.Root 
                 selected={selectedPurchaseOrderId ? { value: String(selectedPurchaseOrderId), label: availablePOs.find(po => po.id === selectedPurchaseOrderId)?.poNumber || '' } : undefined}
-                onSelectedChange={(v) => handlePOChange(v?.value ? Number(v.value) : null)}
+                onSelectedChange={(v) => handlePOChange(v?.value ?? null)}
               >
                 <Select.Trigger class="w-full bg-input/50 h-10 text-sm">
                   <Select.Value placeholder="-- No Purchase Order --" />
