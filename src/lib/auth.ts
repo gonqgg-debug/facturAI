@@ -540,9 +540,16 @@ export async function loginWithFirebase(firebaseUserOverride?: { email: string |
             // Generate a random PIN for the new user
             const randomPin = String(Math.floor(1000 + Math.random() * 9000));
             
+            // Ensure we persist a username to satisfy User contract / Dexie schema
+            const derivedUsername =
+                firebaseUser.email?.split('@')[0]?.toLowerCase() ||
+                firebaseUser.displayName?.replace(/\s+/g, '_').toLowerCase() ||
+                `admin_${Date.now()}`;
+            
             // Create the admin user
             console.log('[Auth] Creating new user...');
             const userId = await db.users.add({
+                username: derivedUsername,
                 displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Admin',
                 email: firebaseUser.email || undefined,
                 pin: randomPin,

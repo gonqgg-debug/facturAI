@@ -48,6 +48,8 @@ const mockLocalStorage = {
 };
 
 describe('Encryption', () => {
+    let cryptoDescriptor: PropertyDescriptor | undefined;
+
     beforeEach(() => {
         vi.clearAllMocks();
         mockLocalStorage.clear();
@@ -55,7 +57,11 @@ describe('Encryption', () => {
         mockBrowser.mockReturnValue(true);
 
         // Setup global crypto mock
-        global.crypto = mockCrypto as any;
+        cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+        Object.defineProperty(globalThis, 'crypto', {
+            value: mockCrypto,
+            configurable: true
+        });
         global.localStorage = mockLocalStorage as any;
         global.btoa = vi.fn((str: string) => Buffer.from(str, 'binary').toString('base64'));
         global.atob = vi.fn((str: string) => Buffer.from(str, 'base64').toString('binary'));
@@ -79,6 +85,13 @@ describe('Encryption', () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+        if (cryptoDescriptor) {
+            Object.defineProperty(globalThis, 'crypto', cryptoDescriptor);
+        } else {
+            // Cleanup any test-specific override
+            // @ts-expect-error - cleanup for tests
+            delete globalThis.crypto;
+        }
     });
 
     describe('initEncryptionKey', () => {
@@ -111,7 +124,7 @@ describe('Encryption', () => {
 
         it('should handle key generation errors gracefully', async () => {
             mockCrypto.subtle.generateKey.mockRejectedValue(new Error('Crypto error'));
-            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
             
             const key = await initEncryptionKey();
             expect(key).toBeNull();
@@ -154,7 +167,7 @@ describe('Encryption', () => {
 
         it('should handle encryption errors gracefully', async () => {
             mockCrypto.subtle.encrypt.mockRejectedValue(new Error('Encryption failed'));
-            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
             
             const result = await encrypt('test');
             expect(result).toBe('test'); // Graceful degradation
@@ -221,7 +234,7 @@ describe('Encryption', () => {
 
         it('should return null if decryption fails', async () => {
             mockCrypto.subtle.decrypt.mockRejectedValue(new Error('Decryption failed'));
-            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
             
             const result = await decrypt('encrypted:invalid');
             expect(result).toBeNull();
@@ -291,14 +304,14 @@ describe('Encryption', () => {
 
         it('should fall back to plaintext if encryption fails', async () => {
             mockCrypto.subtle.encrypt.mockRejectedValue(new Error('Encryption failed'));
-            const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
             
             await encryptedStorage.setItem('test-key', 'test value');
             // The encrypt function catches the error and returns the value as-is
             // So setItem receives the plaintext value
             expect(mockLocalStorage.setItem).toHaveBeenCalledWith('test-key', 'test value');
             // The error is logged in the encrypt function
-            expect(consoleErrorSpy).toHaveBeenCalledWith(
+            expect(consoleWarnSpy).toHaveBeenCalledWith(
                 'Encryption failed:',
                 expect.any(Error)
             );
@@ -345,7 +358,7 @@ describe('Encryption', () => {
             // Should return null after error handling
             expect(result).toBeNull();
             expect(consoleSpy).toHaveBeenCalledWith(
-                'Error getting encrypted item, trying plaintext:',
+                'localStorage.getItem failed:',
                 expect.any(Error)
             );
         });

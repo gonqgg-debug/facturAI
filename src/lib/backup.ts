@@ -142,12 +142,12 @@ const backupMetadataSchema = z.object({
     checksum: z.string(),
     encrypted: z.boolean(),
     tables: z.array(z.string()),
-    recordCounts: z.record(z.number())
+    recordCounts: z.record(z.string(), z.number())
 });
 
 const backupDataSchema = z.object({
     metadata: backupMetadataSchema,
-    data: z.record(z.array(z.unknown()))
+    data: z.record(z.string(), z.array(z.unknown()))
 });
 
 // ============ ENCRYPTION UTILITIES ============

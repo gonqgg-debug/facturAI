@@ -174,6 +174,7 @@ export async function decrypt(encryptedValue: string): Promise<string | null> {
 // Clear encryption key (call on logout)
 export function clearEncryptionKey(): void {
     encryptionKey = null;
+    cryptoUnavailable = false;
 }
 
 // Safe localStorage access helpers (Safari private browsing compatibility)
