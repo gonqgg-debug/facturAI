@@ -454,9 +454,14 @@ export async function logout() {
 // ============ FIREBASE -> LOCAL AUTH BRIDGE ============
 
 /**
- * Login using Firebase authentication (for store owners/admins)
- * This creates/finds an admin user and sets up local authentication
+ * Login using Firebase authentication (for store owners/admins and invited team members)
+ * This finds or creates a user and sets up local authentication
  * after Firebase authentication has completed.
+ * 
+ * Priority order for user lookup:
+ * 1. Find user by firebaseUid (team member who accepted invite)
+ * 2. Find user by email (existing admin/owner)
+ * 3. Create new admin user (store owner first login)
  * 
  * @param firebaseUserOverride - Optional Firebase user to use instead of getting from store
  */
@@ -490,19 +495,42 @@ export async function loginWithFirebase(firebaseUserOverride?: { email: string |
     let user: User | undefined;
     
     try {
-        // Look for an existing user linked to this Firebase account
-        // Or find/create an admin user for the store owner
-        if (firebaseUser.email) {
+        // PRIORITY 1: Look for a user linked by Firebase UID (team member who accepted invite)
+        console.log('[Auth] Searching for user with firebaseUid:', firebaseUser.uid);
+        user = await db.users
+            .filter(u => u.firebaseUid === firebaseUser!.uid)
+            .first();
+        
+        if (user) {
+            console.log('[Auth] Found user by firebaseUid:', user.id, user.displayName);
+        }
+        
+        // PRIORITY 2: Look for a user by email (existing admin/owner or user before linking)
+        if (!user && firebaseUser.email) {
             console.log('[Auth] Searching for user with email:', firebaseUser.email);
             user = await db.users
                 .where('email')
                 .equals(firebaseUser.email)
                 .first();
-            console.log('[Auth] User search result:', user ? `Found ID ${user.id}` : 'Not found');
+            
+            if (user) {
+                console.log('[Auth] Found user by email:', user.id, user.displayName);
+                
+                // Link Firebase UID to this user if not already linked
+                if (!user.firebaseUid && user.id) {
+                    console.log('[Auth] Linking Firebase UID to existing user');
+                    await db.users.update(user.id, { 
+                        firebaseUid: firebaseUser.uid,
+                        hasFullAccess: true
+                    });
+                    user.firebaseUid = firebaseUser.uid;
+                    user.hasFullAccess = true;
+                }
+            }
         }
         
+        // PRIORITY 3: Create a new admin user for this Firebase account (store owner first login)
         if (!user) {
-            // Create a new admin user for this Firebase account
             console.log('[Auth] Creating admin user for Firebase account:', firebaseUser.email);
             
             // Get or create the admin role
@@ -540,11 +568,16 @@ export async function loginWithFirebase(firebaseUserOverride?: { email: string |
             // Generate a random PIN for the new user
             const randomPin = String(Math.floor(1000 + Math.random() * 9000));
             
-            // Create the admin user
+            // Create the admin user with Firebase linking
             console.log('[Auth] Creating new user...');
+            const displayName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Admin';
+            const username = firebaseUser.email?.split('@')[0]?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'admin';
             const userId = await db.users.add({
-                displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Admin',
+                username,
+                displayName,
                 email: firebaseUser.email || undefined,
+                firebaseUid: firebaseUser.uid,
+                hasFullAccess: true,
                 pin: randomPin,
                 roleId: adminRole!.id!,
                 roleName: adminRole!.name,

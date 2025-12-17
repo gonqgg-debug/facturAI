@@ -29,7 +29,9 @@ import type {
     // NCF & Audit
     NCFRange, NCFUsage, AccountingAuditEntry,
     // Settings
-    ReceiptSettings
+    ReceiptSettings,
+    // Team Invites
+    TeamInvite
 } from './types';
 
 // Type for pending sync changes
@@ -85,6 +87,9 @@ export class MinimarketDatabase extends Dexie {
     accountingAuditLog!: Table<AccountingAuditEntry>;
     receiptSettings!: Table<ReceiptSettings>;
     
+    // Team invites for full account access
+    teamInvites!: Table<TeamInvite>;
+    
     // Sync tracking table for Supabase sync
     pendingChanges!: Table<PendingChangeRecord>;
 
@@ -95,6 +100,122 @@ export class MinimarketDatabase extends Dexie {
         super('Jardines3MinimarketDB');
         
         // ============ SCHEMA DEFINITION ============
+        // Version 22: Added realmId to users and roles for multi-tenant sync
+        this.version(22).stores({
+            // Synced tables - use id for UUID primary keys (we generate UUIDs ourselves)
+            invoices: 'id, providerName, issueDate, ncf, status, paymentStatus, dueDate, receiptId, realmId, [issueDate+providerName]',
+            suppliers: 'id, name, rnc, isActive, category, realmId',
+            rules: 'id, supplierId, realmId',
+            globalContext: 'id, title, type, category, realmId',
+            products: 'id, supplierId, name, category, barcode, productId, realmId, [supplierId+name]',
+            stockMovements: 'id, productId, type, date, invoiceId, receiptId, saleId, returnId, realmId',
+            bankAccounts: 'id, bankName, isDefault, isActive, realmId',
+            payments: 'id, invoiceId, saleId, returnId, supplierId, customerId, paymentDate, paymentMethod, bankAccountId, realmId',
+            customers: 'id, name, type, isActive, rnc, realmId',
+            sales: 'id, date, customerId, paymentStatus, shiftId, receiptNumber, cashierId, hasReturns, realmId',
+            returns: 'id, date, originalSaleId, originalReceiptNumber, customerId, shiftId, processedBy, refundStatus, realmId',
+            customerSegments: 'id, segmentId, segmentName, segmentType, confidenceScore, lastUpdated, realmId',
+            weatherRecords: 'id, date, condition, precipitationLevel, location, realmId',
+            purchaseOrders: 'id, poNumber, supplierId, status, orderDate, expectedDate, realmId',
+            receipts: 'id, receiptNumber, supplierId, purchaseOrderId, receiptDate, invoiceId, realmId',
+            
+            // Accounting tables - FIFO Inventory
+            inventoryLots: 'id, productId, purchaseDate, status, expirationDate, invoiceId, receiptId, realmId, [productId+status]',
+            costConsumptions: 'id, saleId, returnId, adjustmentId, lotId, productId, date, realmId',
+            
+            // Accounting tables - Journal System
+            journalEntries: 'id, entryNumber, date, sourceType, sourceId, shiftId, status, realmId, [date+sourceType]',
+            
+            // Accounting tables - ITBIS Tracking
+            itbisSummaries: 'id, period, status, realmId',
+            
+            // Accounting tables - Card Settlements
+            cardSettlements: 'id, settlementDate, status, bankAccountId, journalEntryId, realmId',
+            
+            // NCF tracking
+            ncfRanges: 'id, type, isActive, expirationDate, realmId',
+            ncfUsage: 'id, ncf, type, saleId, issuedAt, voided, realmId',
+
+            // Audit log
+            accountingAuditLog: 'id, timestamp, action, entityType, entityId, userId, realmId',
+            
+            // Receipt/Ticket settings
+            receiptSettings: 'id, realmId',
+            
+            // Team invites for full account access (uses storeId which maps to realmId)
+            teamInvites: 'id, &token, email, userId, status, expiresAt, storeId',
+            
+            // User management - now syncable with realmId for multi-tenant support
+            shifts: '++id, shiftNumber, status, openedAt, closedAt, cashierId, realmId',
+            users: '++id, username, roleId, isActive, &pin, email, firebaseUid, realmId',
+            localRoles: '++id, name, isSystem, realmId',
+            transactionFeatures: '++id, timestamp, hourOfDay, dayOfWeek, totalValue, shiftId, realmId',
+            realTimeInsights: '++id, insightType, expiresAt, createdAt, realmId',
+            
+            // Sync tracking for Supabase
+            pendingChanges: '++id, tableName, recordId, timestamp, synced'
+        }).upgrade(async () => {
+            console.log('Upgraded to schema v22 - added realmId to users and roles for multi-tenant sync');
+        });
+
+        // Version 21: Added team invites for full account access
+        this.version(21).stores({
+            // Synced tables - use id for UUID primary keys (we generate UUIDs ourselves)
+            invoices: 'id, providerName, issueDate, ncf, status, paymentStatus, dueDate, receiptId, realmId, [issueDate+providerName]',
+            suppliers: 'id, name, rnc, isActive, category, realmId',
+            rules: 'id, supplierId, realmId',
+            globalContext: 'id, title, type, category, realmId',
+            products: 'id, supplierId, name, category, barcode, productId, realmId, [supplierId+name]',
+            stockMovements: 'id, productId, type, date, invoiceId, receiptId, saleId, returnId, realmId',
+            bankAccounts: 'id, bankName, isDefault, isActive, realmId',
+            payments: 'id, invoiceId, saleId, returnId, supplierId, customerId, paymentDate, paymentMethod, bankAccountId, realmId',
+            customers: 'id, name, type, isActive, rnc, realmId',
+            sales: 'id, date, customerId, paymentStatus, shiftId, receiptNumber, cashierId, hasReturns, realmId',
+            returns: 'id, date, originalSaleId, originalReceiptNumber, customerId, shiftId, processedBy, refundStatus, realmId',
+            customerSegments: 'id, segmentId, segmentName, segmentType, confidenceScore, lastUpdated, realmId',
+            weatherRecords: 'id, date, condition, precipitationLevel, location, realmId',
+            purchaseOrders: 'id, poNumber, supplierId, status, orderDate, expectedDate, realmId',
+            receipts: 'id, receiptNumber, supplierId, purchaseOrderId, receiptDate, invoiceId, realmId',
+            
+            // Accounting tables - FIFO Inventory
+            inventoryLots: 'id, productId, purchaseDate, status, expirationDate, invoiceId, receiptId, realmId, [productId+status]',
+            costConsumptions: 'id, saleId, returnId, adjustmentId, lotId, productId, date, realmId',
+            
+            // Accounting tables - Journal System
+            journalEntries: 'id, entryNumber, date, sourceType, sourceId, shiftId, status, realmId, [date+sourceType]',
+            
+            // Accounting tables - ITBIS Tracking
+            itbisSummaries: 'id, period, status, realmId',
+            
+            // Accounting tables - Card Settlements
+            cardSettlements: 'id, settlementDate, status, bankAccountId, journalEntryId, realmId',
+            
+            // NCF tracking
+            ncfRanges: 'id, type, isActive, expirationDate',
+            ncfUsage: 'id, ncf, type, saleId, issuedAt, voided',
+
+            // Audit log
+            accountingAuditLog: 'id, timestamp, action, entityType, entityId, userId',
+            
+            // Receipt/Ticket settings
+            receiptSettings: 'id',
+            
+            // Team invites for full account access
+            teamInvites: 'id, &token, email, userId, status, expiresAt, storeId',
+            
+            // Local-only tables ($ prefix removed since Dexie Cloud is gone)
+            shifts: '++id, shiftNumber, status, openedAt, closedAt, cashierId',
+            users: '++id, username, roleId, isActive, &pin, email, firebaseUid',
+            localRoles: '++id, name, isSystem',
+            transactionFeatures: '++id, timestamp, hourOfDay, dayOfWeek, totalValue, shiftId',
+            realTimeInsights: '++id, insightType, expiresAt, createdAt',
+            
+            // Sync tracking for Supabase
+            pendingChanges: '++id, tableName, recordId, timestamp, synced'
+        }).upgrade(async () => {
+            console.log('Upgraded to schema v21 - added team invites for full account access');
+        });
+
         // Version 20: Added NCF and accounting audit tables
         this.version(20).stores({
             // Synced tables - use id for UUID primary keys (we generate UUIDs ourselves)

@@ -851,6 +851,9 @@ export interface Role {
     permissions: PermissionKey[];
     isSystem?: boolean;         // Built-in roles (admin, cashier, etc)
     createdAt: Date;
+    
+    // Multi-tenant sync support
+    realmId?: string;           // Store/tenant ID for sync
 }
 
 export interface User {
@@ -863,6 +866,10 @@ export interface User {
     email?: string;
     phone?: string;
     
+    // Firebase linking (for full web access)
+    firebaseUid?: string;       // Links to Firebase account
+    hasFullAccess?: boolean;    // Can login via email (not just PIN)
+    
     // Status
     isActive: boolean;
     lastLogin?: Date;
@@ -870,6 +877,26 @@ export interface User {
     // Metadata
     createdAt: Date;
     createdBy?: number;         // User who created this user
+    
+    // Multi-tenant sync support
+    realmId?: string;           // Store/tenant ID for sync
+}
+
+// ============ TEAM INVITES ============
+
+export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
+
+export interface TeamInvite {
+    id?: string;
+    userId: number;              // The local user being invited
+    email: string;               // Email to send invite to
+    token: string;               // Unique invite token
+    storeId: string;             // Store this invite belongs to
+    invitedBy: number;           // User ID of inviter
+    status: InviteStatus;
+    createdAt: Date;
+    expiresAt: Date;             // 7 days from creation
+    acceptedAt?: Date;
 }
 
 // ============ RECEIPT SETTINGS ============

@@ -6,9 +6,11 @@
   import { t } from '$lib/i18n';
   import * as Select from '$lib/components/ui/select';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import * as Dialog from '$lib/components/ui/dialog';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { Switch } from '$lib/components/ui/switch';
+  import { Button } from '$lib/components/ui/button';
   import { 
     Users, 
     UserPlus, 
@@ -21,18 +23,44 @@
     Mail,
     Phone,
     Key,
-    Clock
+    Clock,
+    Send,
+    Link,
+    Copy,
+    CheckCircle2,
+    Loader2,
+    RefreshCw,
+    ExternalLink
   } from 'lucide-svelte';
-  import type { User, Role } from '$lib/types';
+  import type { User, Role, TeamInvite } from '$lib/types';
+  import { 
+    createAndSendInvite, 
+    getPendingInvite, 
+    revokeInvite, 
+    resendInvite,
+    getInviteUrl
+  } from '$lib/team-invites';
+  import { currentUser } from '$lib/auth';
 
   let users: User[] = [];
   let roles: Role[] = [];
+  let userInvites: Map<number, TeamInvite | null> = new Map();
   let showUserModal = false;
   let editingUser: User | null = null;
   let userForm: Partial<User> = getEmptyUserForm();
   let deleteUserDialogOpen = false;
   let userToDelete: User | null = null;
   let userFormError = '';
+  
+  // Invite modal state
+  let showInviteModal = false;
+  let inviteUser: User | null = null;
+  let inviteEmail = '';
+  let inviteSending = false;
+  let inviteError = '';
+  let inviteSuccess = false;
+  let inviteLink = '';
+  let copiedLink = false;
 
   function getEmptyUserForm(): Partial<User> {
     return {
@@ -58,6 +86,15 @@
       const role = roles.find(r => r.id === u.roleId);
       return { ...u, roleName: role?.name };
     });
+    
+    // Load pending invites for each user
+    for (const user of users) {
+      if (user.id && !user.firebaseUid) {
+        const invite = await getPendingInvite(user.id);
+        userInvites.set(user.id, invite);
+      }
+    }
+    userInvites = userInvites; // Trigger reactivity
   }
 
   function openAddUserModal() {
@@ -177,6 +214,121 @@
     ];
     return colors[(id ?? 0) % colors.length];
   }
+
+  // Invite functions
+  function openInviteModal(user: User) {
+    inviteUser = user;
+    inviteEmail = user.email || '';
+    inviteError = '';
+    inviteSuccess = false;
+    inviteLink = '';
+    copiedLink = false;
+    showInviteModal = true;
+  }
+
+  function closeInviteModal() {
+    showInviteModal = false;
+    inviteUser = null;
+    inviteEmail = '';
+    inviteError = '';
+    inviteSuccess = false;
+    inviteLink = '';
+  }
+
+  async function sendInvite() {
+    if (!inviteUser?.id || !inviteEmail) return;
+    
+    // Validate email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(inviteEmail)) {
+      inviteError = $locale === 'es' ? 'Por favor ingresa un email válido' : 'Please enter a valid email';
+      return;
+    }
+    
+    inviteSending = true;
+    inviteError = '';
+    
+    try {
+      const invite = await createAndSendInvite(
+        inviteUser.id,
+        inviteEmail,
+        $currentUser?.id || 0
+      );
+      
+      inviteLink = getInviteUrl(invite.token);
+      inviteSuccess = true;
+      
+      // Update local state
+      userInvites.set(inviteUser.id, invite);
+      userInvites = userInvites;
+      
+      // Update user email if changed
+      if (inviteUser.email !== inviteEmail) {
+        await db.users.update(inviteUser.id, { email: inviteEmail });
+        await loadUsersAndRoles();
+      }
+    } catch (e: any) {
+      console.error('Failed to send invite:', e);
+      inviteError = e.message || ($locale === 'es' ? 'Error al enviar invitación' : 'Failed to send invite');
+    } finally {
+      inviteSending = false;
+    }
+  }
+
+  async function handleResendInvite(user: User) {
+    if (!user.id) return;
+    
+    const invite = userInvites.get(user.id);
+    if (!invite?.id) return;
+    
+    try {
+      const newInvite = await resendInvite(invite.id);
+      userInvites.set(user.id, newInvite);
+      userInvites = userInvites;
+      alert($locale === 'es' ? 'Invitación reenviada' : 'Invite resent');
+    } catch (e: any) {
+      console.error('Failed to resend invite:', e);
+      alert(e.message || ($locale === 'es' ? 'Error al reenviar' : 'Failed to resend'));
+    }
+  }
+
+  async function handleRevokeInvite(user: User) {
+    if (!user.id) return;
+    
+    const invite = userInvites.get(user.id);
+    if (!invite?.id) return;
+    
+    if (!confirm($locale === 'es' ? '¿Cancelar esta invitación?' : 'Cancel this invite?')) {
+      return;
+    }
+    
+    try {
+      await revokeInvite(invite.id);
+      userInvites.set(user.id, null);
+      userInvites = userInvites;
+    } catch (e: any) {
+      console.error('Failed to revoke invite:', e);
+      alert(e.message || ($locale === 'es' ? 'Error al cancelar' : 'Failed to cancel'));
+    }
+  }
+
+  async function copyInviteLink() {
+    if (!inviteLink) return;
+    
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      copiedLink = true;
+      setTimeout(() => { copiedLink = false; }, 2000);
+    } catch (e) {
+      console.error('Failed to copy:', e);
+    }
+  }
+
+  function getInviteStatus(user: User): 'none' | 'pending' | 'linked' {
+    if (user.firebaseUid) return 'linked';
+    if (user.id && userInvites.get(user.id)) return 'pending';
+    return 'none';
+  }
 </script>
 
 <svelte:head>
@@ -235,11 +387,17 @@
       </div>
     {:else}
       {#each users as user}
+        {@const inviteStatus = getInviteStatus(user)}
         <div class="bg-card text-card-foreground border border-border rounded-xl p-4 group hover:border-primary/30 transition-colors {!user.isActive ? 'opacity-60' : ''}">
           <div class="flex items-center gap-4">
             <!-- Avatar -->
-            <div class="w-14 h-14 {getUserColor(user.id)} rounded-xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+            <div class="w-14 h-14 {getUserColor(user.id)} rounded-xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0 relative">
               {getUserInitials(user.displayName)}
+              {#if inviteStatus === 'linked'}
+                <div class="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-card">
+                  <CheckCircle2 size={12} class="text-white" />
+                </div>
+              {/if}
             </div>
             
             <!-- Info -->
@@ -254,6 +412,22 @@
                 {#if !user.isActive}
                   <span class="text-xs bg-red-500/20 text-red-500 px-2 py-0.5 rounded-full">
                     {$locale === 'es' ? 'Inactivo' : 'Inactive'}
+                  </span>
+                {/if}
+                {#if inviteStatus === 'linked'}
+                  <span class="text-xs bg-emerald-500/20 text-emerald-600 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 size={10} />
+                    {$locale === 'es' ? 'Cuenta Completa' : 'Full Access'}
+                  </span>
+                {:else if inviteStatus === 'pending'}
+                  <span class="text-xs bg-amber-500/20 text-amber-600 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Clock size={10} />
+                    {$locale === 'es' ? 'Invitación Pendiente' : 'Invite Pending'}
+                  </span>
+                {:else}
+                  <span class="text-xs bg-slate-500/20 text-slate-500 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Key size={10} />
+                    {$locale === 'es' ? 'Solo PIN' : 'PIN Only'}
                   </span>
                 {/if}
               </div>
@@ -275,6 +449,30 @@
             
             <!-- Actions -->
             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {#if inviteStatus === 'none' && user.email !== $firebaseUserEmail}
+                <button 
+                  on:click={() => openInviteModal(user)}
+                  class="text-primary hover:bg-primary/10 p-2 rounded-lg transition-colors"
+                  title={$locale === 'es' ? 'Enviar Invitación' : 'Send Invite'}
+                >
+                  <Send size={18} />
+                </button>
+              {:else if inviteStatus === 'pending'}
+                <button 
+                  on:click={() => handleResendInvite(user)}
+                  class="text-amber-500 hover:bg-amber-500/10 p-2 rounded-lg transition-colors"
+                  title={$locale === 'es' ? 'Reenviar Invitación' : 'Resend Invite'}
+                >
+                  <RefreshCw size={18} />
+                </button>
+                <button 
+                  on:click={() => handleRevokeInvite(user)}
+                  class="text-muted-foreground hover:text-red-500 p-2 rounded-lg hover:bg-red-500/10 transition-colors"
+                  title={$locale === 'es' ? 'Cancelar Invitación' : 'Cancel Invite'}
+                >
+                  <X size={18} />
+                </button>
+              {/if}
               <button 
                 on:click={() => openEditUserModal(user)}
                 class="text-muted-foreground hover:text-foreground p-2 rounded-lg hover:bg-muted transition-colors"
@@ -526,4 +724,146 @@
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>
+
+<!-- Send Invite Modal -->
+<Dialog.Root bind:open={showInviteModal}>
+  <Dialog.Content class="sm:max-w-md">
+    <Dialog.Header>
+      <Dialog.Title class="flex items-center gap-2">
+        <Send size={20} />
+        {$locale === 'es' ? 'Enviar Invitación' : 'Send Invite'}
+      </Dialog.Title>
+      <Dialog.Description>
+        {$locale === 'es' 
+          ? `Invita a ${inviteUser?.displayName} a crear una cuenta completa para acceder desde cualquier dispositivo.`
+          : `Invite ${inviteUser?.displayName} to create a full account for access from any device.`}
+      </Dialog.Description>
+    </Dialog.Header>
+    
+    {#if inviteSuccess}
+      <!-- Success State -->
+      <div class="py-6 text-center space-y-4">
+        <div class="w-16 h-16 rounded-full bg-emerald-500/20 mx-auto flex items-center justify-center">
+          <CheckCircle2 size={32} class="text-emerald-500" />
+        </div>
+        <div>
+          <h3 class="font-semibold text-lg">
+            {$locale === 'es' ? '¡Invitación Enviada!' : 'Invite Sent!'}
+          </h3>
+          <p class="text-sm text-muted-foreground mt-1">
+            {$locale === 'es' 
+              ? `Se envió un email a ${inviteEmail} con instrucciones para crear su cuenta.`
+              : `An email was sent to ${inviteEmail} with instructions to create their account.`}
+          </p>
+        </div>
+        
+        <!-- Copy Link Section -->
+        <div class="bg-muted/50 rounded-lg p-3 space-y-2">
+          <p class="text-xs text-muted-foreground">
+            {$locale === 'es' 
+              ? 'También puedes compartir este enlace directamente:'
+              : 'You can also share this link directly:'}
+          </p>
+          <div class="flex gap-2">
+            <input 
+              type="text" 
+              readonly 
+              value={inviteLink}
+              class="flex-1 text-xs bg-background border border-border rounded px-2 py-1.5 truncate"
+            />
+            <Button 
+              variant="outline" 
+              size="sm" 
+              on:click={copyInviteLink}
+              class="flex-shrink-0"
+            >
+              {#if copiedLink}
+                <Check size={14} class="mr-1" />
+                {$locale === 'es' ? 'Copiado' : 'Copied'}
+              {:else}
+                <Copy size={14} class="mr-1" />
+                {$locale === 'es' ? 'Copiar' : 'Copy'}
+              {/if}
+            </Button>
+          </div>
+        </div>
+      </div>
+      
+      <Dialog.Footer>
+        <Button on:click={closeInviteModal}>
+          {$locale === 'es' ? 'Cerrar' : 'Close'}
+        </Button>
+      </Dialog.Footer>
+    {:else}
+      <!-- Form State -->
+      <div class="space-y-4 py-4">
+        {#if inviteError}
+          <div class="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm flex items-center gap-2">
+            <AlertTriangle size={16} />
+            {inviteError}
+          </div>
+        {/if}
+        
+        <div class="space-y-2">
+          <Label for="invite-email">{$locale === 'es' ? 'Email del Usuario' : 'User Email'}</Label>
+          <Input 
+            id="invite-email"
+            type="email"
+            bind:value={inviteEmail}
+            placeholder="email@ejemplo.com"
+            disabled={inviteSending}
+          />
+          <p class="text-xs text-muted-foreground">
+            {$locale === 'es' 
+              ? 'El usuario recibirá un email con un enlace para crear su cuenta.'
+              : 'The user will receive an email with a link to create their account.'}
+          </p>
+        </div>
+        
+        <!-- Info about what happens -->
+        <div class="bg-primary/5 border border-primary/20 rounded-lg p-3 space-y-2">
+          <h4 class="text-sm font-medium text-primary">
+            {$locale === 'es' ? '¿Qué incluye la cuenta completa?' : 'What does full access include?'}
+          </h4>
+          <ul class="text-xs text-muted-foreground space-y-1">
+            <li class="flex items-center gap-2">
+              <Check size={12} class="text-emerald-500" />
+              {$locale === 'es' ? 'Acceso desde cualquier dispositivo' : 'Access from any device'}
+            </li>
+            <li class="flex items-center gap-2">
+              <Check size={12} class="text-emerald-500" />
+              {$locale === 'es' ? 'Login con email y contraseña' : 'Login with email and password'}
+            </li>
+            <li class="flex items-center gap-2">
+              <Check size={12} class="text-emerald-500" />
+              {$locale === 'es' ? 'Mantiene los mismos permisos de su rol' : 'Keeps same role permissions'}
+            </li>
+            <li class="flex items-center gap-2">
+              <Check size={12} class="text-emerald-500" />
+              {$locale === 'es' ? 'PIN sigue funcionando para POS rápido' : 'PIN still works for quick POS access'}
+            </li>
+          </ul>
+        </div>
+      </div>
+      
+      <Dialog.Footer>
+        <Button variant="outline" on:click={closeInviteModal} disabled={inviteSending}>
+          {$locale === 'es' ? 'Cancelar' : 'Cancel'}
+        </Button>
+        <Button 
+          on:click={sendInvite} 
+          disabled={inviteSending || !inviteEmail}
+        >
+          {#if inviteSending}
+            <Loader2 size={16} class="mr-2 animate-spin" />
+            {$locale === 'es' ? 'Enviando...' : 'Sending...'}
+          {:else}
+            <Send size={16} class="mr-2" />
+            {$locale === 'es' ? 'Enviar Invitación' : 'Send Invite'}
+          {/if}
+        </Button>
+      </Dialog.Footer>
+    {/if}
+  </Dialog.Content>
+</Dialog.Root>
 
