@@ -448,7 +448,7 @@
             </div>
             
             <!-- Actions -->
-            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div class="flex items-center gap-1">
               {#if inviteStatus === 'none' && user.email !== $firebaseUserEmail}
                 <button 
                   on:click={() => openInviteModal(user)}
