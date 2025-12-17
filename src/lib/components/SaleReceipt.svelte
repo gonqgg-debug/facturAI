@@ -59,35 +59,26 @@
     const printWindow = window.open('', '_blank', 'width=300,height=600');
     if (!printWindow) return;
 
+    const doc = printWindow.document;
+    doc.open();
+    doc.write('<!DOCTYPE html><html><head></head><body></body></html>');
+    doc.close();
+
+    // Set title
+    doc.title = 'Receipt #' + (sale.receiptNumber || sale.id);
+
+    // Create and configure style element using DOM APIs to avoid PostCSS parsing
+    const styleEl = doc.createElement('style');
     const fontSize = settings.fontSize === 'small' ? '10px' : settings.fontSize === 'large' ? '14px' : '12px';
     const pw = settings.paperWidth === '58mm' ? '58mm' : '80mm';
+    
+    // Build styles using cssText to avoid PostCSS interference
+    styleEl.textContent = getPrintStyles(pw, fontSize);
+    doc.head.appendChild(styleEl);
 
-    // Build print HTML - avoiding template literal CSS that confuses PostCSS
-    const printStyles = [
-      '@page { size: ' + pw + ' auto; margin: 0; }',
-      'body { font-family: "Courier New", monospace; font-size: ' + fontSize + '; line-height: 1.4; padding: 10px; max-width: ' + pw + '; margin: 0 auto; }',
-      '.header { text-align: center; margin-bottom: 10px; }',
-      '.header h1 { font-size: 16px; margin: 0; font-weight: bold; }',
-      '.header p { margin: 2px 0; font-size: 11px; }',
-      '.divider { border-top: 1px dashed #000; margin: 8px 0; }',
-      '.info-row { display: flex; justify-content: space-between; }',
-      '.items { margin: 10px 0; }',
-      '.item { margin-bottom: 4px; }',
-      '.item-name { font-weight: bold; }',
-      '.item-details { display: flex; justify-content: space-between; padding-left: 10px; font-size: 11px; }',
-      '.totals { margin-top: 10px; }',
-      '.total-row { display: flex; justify-content: space-between; }',
-      '.total-row.grand { font-weight: bold; font-size: 14px; margin-top: 5px; }',
-      '.payment { margin-top: 10px; }',
-      '.footer { text-align: center; margin-top: 15px; font-size: 11px; }',
-      '.footer p { margin: 2px 0; }'
-    ].join(' ');
+    // Add content
+    doc.body.innerHTML = printContent.innerHTML;
 
-    const receiptTitle = 'Receipt #' + (sale.receiptNumber || sale.id);
-    const htmlContent = '<!DOCTYPE html><html><head><title>' + receiptTitle + '</title><style>' + printStyles + '</style></head><body>' + printContent.innerHTML + '</body></html>';
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
     printWindow.focus();
     
     // Wait for content to load then print
@@ -95,6 +86,29 @@
       printWindow.print();
       printWindow.close();
     }, 250);
+  }
+
+  // Separate function to build print styles - keeps CSS out of main function scope
+  function getPrintStyles(paperWidth: string, fontSize: string): string {
+    const rules: string[] = [];
+    rules.push('@page { size: ' + paperWidth + ' auto; margin: 0; }');
+    rules.push('body { font-family: "Courier New", monospace; font-size: ' + fontSize + '; line-height: 1.4; padding: 10px; max-width: ' + paperWidth + '; margin: 0 auto; }');
+    rules.push('.header { text-align: center; margin-bottom: 10px; }');
+    rules.push('.header h1 { font-size: 16px; margin: 0; font-weight: bold; }');
+    rules.push('.header p { margin: 2px 0; font-size: 11px; }');
+    rules.push('.divider { border-top: 1px dashed #000; margin: 8px 0; }');
+    rules.push('.info-row { display: flex; justify-content: space-between; }');
+    rules.push('.items { margin: 10px 0; }');
+    rules.push('.item { margin-bottom: 4px; }');
+    rules.push('.item-name { font-weight: bold; }');
+    rules.push('.item-details { display: flex; justify-content: space-between; padding-left: 10px; font-size: 11px; }');
+    rules.push('.totals { margin-top: 10px; }');
+    rules.push('.total-row { display: flex; justify-content: space-between; }');
+    rules.push('.total-row.grand { font-weight: bold; font-size: 14px; margin-top: 5px; }');
+    rules.push('.payment { margin-top: 10px; }');
+    rules.push('.footer { text-align: center; margin-top: 15px; font-size: 11px; }');
+    rules.push('.footer p { margin: 2px 0; }');
+    return rules.join(' ');
   }
 </script>
 
