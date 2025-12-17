@@ -213,6 +213,371 @@ export interface StockMovement {
     returnId?: string;   // Reference to return (if applicable)
     date: string;
     notes?: string;
+    // FIFO cost tracking
+    unitCost?: number;   // FIFO cost at time of movement
+    totalCost?: number;  // Total cost for this movement
+}
+
+// ============ FIFO INVENTORY LAYERS ============
+
+/**
+ * Inventory Lot for FIFO costing
+ * Each purchase creates a new lot with its cost
+ * Sales consume from oldest lots first
+ */
+export interface InventoryLot {
+    id?: string;
+    productId: string;
+    invoiceId?: string;           // Source purchase invoice
+    receiptId?: string;           // Source receipt
+    
+    // Lot Details
+    lotNumber?: string;           // Optional: supplier lot number
+    purchaseDate: string;         // When purchased (FIFO sort key)
+    expirationDate?: string;      // For perishables
+    
+    // FIFO Tracking
+    originalQuantity: number;     // Initial quantity in this lot
+    remainingQuantity: number;    // Current available quantity
+    unitCost: number;             // Cost per unit (ex-tax)
+    unitCostIncTax?: number;      // Cost per unit (inc-tax) for reference
+    taxRate: number;              // ITBIS rate on purchase (0.18, 0.16, 0)
+    
+    // Status
+    status: 'active' | 'depleted' | 'expired' | 'returned';
+    createdAt: Date;
+    depletedAt?: Date;
+}
+
+/**
+ * Records each consumption of inventory lots
+ * Links to sales, returns, or adjustments
+ */
+export interface CostConsumption {
+    id?: string;
+    saleId?: string;              // If from a sale
+    returnId?: string;            // If from a return (negative consumption)
+    adjustmentId?: string;        // If from stock adjustment (shrinkage/waste)
+    
+    // What was consumed
+    lotId: string;                // Which lot was consumed
+    productId: string;
+    quantity: number;             // Quantity consumed from this lot
+    unitCost: number;             // FIFO cost per unit
+    totalCost: number;            // quantity * unitCost
+    
+    // When
+    date: string;
+    createdAt: Date;
+}
+
+// ============ DOUBLE-ENTRY JOURNAL SYSTEM ============
+
+/**
+ * Chart of Accounts for Dominican Republic Mini Market
+ * Based on Dominican accounting standards
+ */
+export type AccountCode = 
+    // Assets (1xxx)
+    | '1101'  // Caja (Cash)
+    | '1102'  // Bancos (Bank Accounts)
+    | '1103'  // Cuentas por Cobrar Clientes (Accounts Receivable)
+    | '1104'  // ITBIS Pagado (Input VAT / ITBIS Receivable)
+    | '1105'  // Anticipos a Proveedores (Supplier Advances)
+    | '1106'  // Cuentas por Cobrar Tarjetas (Card Receivables)
+    | '1201'  // Inventario de Mercancías (Merchandise Inventory)
+    // Liabilities (2xxx)
+    | '2101'  // Cuentas por Pagar Proveedores (Accounts Payable)
+    | '2102'  // ITBIS Por Pagar (Output VAT / ITBIS Payable)
+    | '2103'  // ITBIS Retenido por Terceros (VAT Withheld by Card Processors)
+    | '2104'  // Retenciones ISR (Income Tax Withholdings)
+    // Revenue (4xxx)
+    | '4101'  // Ventas de Mercancías (Sales Revenue)
+    | '4102'  // Descuentos en Ventas (Sales Discounts - contra)
+    | '4103'  // Devoluciones en Ventas (Sales Returns - contra)
+    // Cost of Sales (5xxx)
+    | '5101'  // Costo de Mercancía Vendida (Cost of Goods Sold)
+    // Operating Expenses (6xxx)
+    | '6101'  // Gastos por Merma/Rotura (Shrinkage/Breakage)
+    | '6102'  // Gastos por Vencimiento (Expiration Losses)
+    | '6103'  // Gastos por Pérdida/Robo (Theft/Loss)
+    | '6104'  // Comisiones Bancarias/Tarjetas (Bank/Card Fees)
+    | '6105'  // Gastos de Servicios Públicos (Utilities)
+    | '6106'  // Gastos de Mantenimiento (Maintenance)
+    | '6107'  // Gastos de Nómina (Payroll)
+    | '6199'  // Otros Gastos Operativos (Other Operating Expenses);
+
+/**
+ * Account names in Spanish (DR standard)
+ */
+export const ACCOUNT_NAMES: Record<AccountCode, string> = {
+    '1101': 'Caja',
+    '1102': 'Bancos',
+    '1103': 'Cuentas por Cobrar Clientes',
+    '1104': 'ITBIS Pagado',
+    '1105': 'Anticipos a Proveedores',
+    '1106': 'Cuentas por Cobrar Tarjetas',
+    '1201': 'Inventario de Mercancías',
+    '2101': 'Cuentas por Pagar Proveedores',
+    '2102': 'ITBIS Por Pagar',
+    '2103': 'ITBIS Retenido por Terceros',
+    '2104': 'Retenciones ISR',
+    '4101': 'Ventas de Mercancías',
+    '4102': 'Descuentos en Ventas',
+    '4103': 'Devoluciones en Ventas',
+    '5101': 'Costo de Mercancía Vendida',
+    '6101': 'Gastos por Merma/Rotura',
+    '6102': 'Gastos por Vencimiento',
+    '6103': 'Gastos por Pérdida/Robo',
+    '6104': 'Comisiones Bancarias/Tarjetas',
+    '6105': 'Gastos de Servicios Públicos',
+    '6106': 'Gastos de Mantenimiento',
+    '6107': 'Gastos de Nómina',
+    '6199': 'Otros Gastos Operativos'
+};
+
+/**
+ * A single line in a journal entry
+ * Either debit OR credit should be non-zero, not both
+ */
+export interface JournalEntryLine {
+    accountCode: AccountCode;
+    accountName: string;          // Denormalized for display
+    description?: string;         // Line-specific description
+    
+    debit: number;                // Debit amount (0 if credit)
+    credit: number;               // Credit amount (0 if debit)
+    
+    // Tax breakdown (for ITBIS accounts)
+    taxRate?: number;             // 0.18, 0.16, or 0
+}
+
+/**
+ * Journal Entry - the core of double-entry accounting
+ * Total debits must equal total credits
+ */
+export interface JournalEntry {
+    id?: string;
+    entryNumber: string;          // Sequential: JE-2024-00001
+    date: string;                 // Entry date (YYYY-MM-DD)
+    description: string;          // Entry description
+    
+    // Source reference - what created this entry
+    sourceType: 'sale' | 'purchase' | 'adjustment' | 'card_settlement' | 'shift_close' | 'return' | 'manual';
+    sourceId?: string;            // ID of the source document
+    shiftId?: number;             // If related to a shift
+    
+    // Entry lines (minimum 2)
+    lines: JournalEntryLine[];
+    
+    // Totals (must be equal for valid entry)
+    totalDebit: number;
+    totalCredit: number;
+    
+    // Status
+    status: 'draft' | 'posted' | 'voided';
+    postedAt?: Date;
+    postedBy?: string;
+    voidedAt?: Date;
+    voidedBy?: string;
+    voidReason?: string;
+    
+    // Metadata
+    createdAt: Date;
+    createdBy?: string;
+}
+
+// ============ FINANCIAL REPORTING ============
+
+export interface AccountBalance {
+    account: AccountCode;
+    name: string;
+    debit: number;
+    credit: number;
+    balance: number;
+}
+
+export interface IncomeStatement {
+    period: { start: string; end: string };
+    revenue: { account: AccountCode; name: string; amount: number }[];
+    totalRevenue: number;
+    costOfGoodsSold: number;
+    grossProfit: number;
+    operatingExpenses: { account: AccountCode; name: string; amount: number }[];
+    totalExpenses: number;
+    netIncome: number;
+}
+
+export interface BalanceSheet {
+    asOfDate: string;
+    assets: { current: AccountBalance[]; total: number };
+    liabilities: { current: AccountBalance[]; total: number };
+    equity: { retained: number; total: number };
+}
+
+export interface CashFlowStatement {
+    period: { start: string; end: string };
+    operating: { label: string; amount: number }[];
+    investing: { label: string; amount: number }[];
+    financing: { label: string; amount: number }[];
+    netChange: number;
+    beginningCash: number;
+    endingCash: number;
+}
+
+export interface AgingBucket {
+    current: number;      // 0-30 days
+    days31to60: number;
+    days61to90: number;
+    over90: number;
+    total: number;
+}
+
+export interface ARAgingReport {
+    customers: { id: string; name: string; aging: AgingBucket }[];
+    totals: AgingBucket;
+}
+
+export interface APAgingReport {
+    suppliers: { id: string; name: string; aging: AgingBucket }[];
+    totals: AgingBucket;
+}
+
+// ============ NCF (TAX RECEIPT) ============
+
+export type NCFType = 'B01' | 'B02' | 'B03' | 'B04' | 'B11' | 'B13' | 'B14' | 'B15';
+
+export interface NCFRange {
+    id?: string;
+    type: NCFType;
+    prefix: string;
+    startNumber: number;
+    endNumber: number;
+    currentNumber: number;
+    expirationDate: string;
+    isActive: boolean;
+    createdAt: Date;
+}
+
+export interface NCFUsage {
+    id?: string;
+    ncf: string;
+    type: NCFType;
+    saleId?: string;
+    customerId?: string;
+    issuedAt: Date;
+    amount: number;
+    voided: boolean;
+    voidedAt?: Date;
+    voidReason?: string;
+}
+
+// ============ ACCOUNTING AUDIT LOG ============
+
+export type AuditAction =
+    | 'journal_entry_created'
+    | 'journal_entry_voided'
+    | 'ncf_issued'
+    | 'ncf_voided'
+    | 'period_closed'
+    | 'period_reopened'
+    | 'itbis_recalculated'
+    | 'settlement_created'
+    | 'fifo_lot_created'
+    | 'fifo_consumption';
+
+export interface AccountingAuditEntry {
+    id?: string;
+    timestamp: Date;
+    action: AuditAction;
+    entityType: 'journal_entry' | 'ncf' | 'itbis_period' | 'settlement' | 'fifo_lot';
+    entityId: string;
+    userId?: number;
+    userName?: string;
+    details: Record<string, unknown>;
+    previousState?: Record<string, unknown>;
+}
+
+// ============ ITBIS TRACKING ============
+
+/**
+ * Monthly ITBIS Summary for tax reporting
+ * Tracks collected (payable) and paid (receivable) ITBIS by rate
+ */
+export interface ITBISSummary {
+    id?: string;
+    period: string;               // YYYY-MM format
+    
+    // ITBIS Collected from Sales (Liability - must pay to DGII)
+    itbis18Collected: number;     // 18% rate collected
+    itbis16Collected: number;     // 16% rate collected
+    salesExempt: number;          // Exempt sales amount (for reporting)
+    totalItbisCollected: number;  // Sum of collected
+    
+    // ITBIS Paid on Purchases (Asset - credit against payable)
+    itbis18Paid: number;          // 18% rate paid
+    itbis16Paid: number;          // 16% rate paid
+    purchasesExempt: number;      // Exempt purchases amount
+    totalItbisPaid: number;       // Sum of paid
+    
+    // ITBIS Retained by Third Parties (Card processors, etc.)
+    itbisRetainedByCards: number; // 2% retention by card processors
+    otherRetentions: number;      // Other withholdings
+    totalItbisRetained: number;   // Sum of retained
+    
+    // Calculated: Net ITBIS Due to DGII
+    // = Collected - Paid - Retained
+    netItbisDue: number;
+    
+    // Filing status
+    status: 'open' | 'closed' | 'filed';
+    filedAt?: Date;
+    dgiiConfirmation?: string;    // DGII confirmation number
+    
+    // Metadata
+    createdAt: Date;
+    updatedAt?: Date;
+}
+
+// ============ CARD SETTLEMENT ============
+
+/**
+ * Card payment settlement record
+ * Tracks pending card sales and their reconciliation
+ */
+export interface CardSettlement {
+    id?: string;
+    
+    // Settlement period
+    settlementDate: string;       // Date of bank deposit
+    periodStart: string;          // Start of sales period
+    periodEnd: string;            // End of sales period
+    
+    // Amounts
+    grossAmount: number;          // Total card sales
+    commissionRate: number;       // e.g., 0.038 for 3.8%
+    commissionAmount: number;     // Gross * commissionRate
+    itbisRetentionRate: number;   // Standard 0.02 (2%) ITBIS retention
+    itbisRetentionAmount: number; // Gross * itbisRetentionRate
+    netDeposit: number;           // Gross - commission - retention
+    
+    // Bank info
+    bankAccountId?: string;
+    depositReference?: string;    // Bank reference number
+    
+    // Related sales
+    saleIds: string[];            // IDs of sales included
+    
+    // Journal entry created
+    journalEntryId?: string;
+    
+    // Status
+    status: 'pending' | 'reconciled' | 'disputed';
+    reconciledAt?: Date;
+    
+    // Metadata
+    notes?: string;
+    createdAt: Date;
 }
 
 // ============ PURCHASE ORDERS & RECEIPTS ============
@@ -296,6 +661,7 @@ export interface Sale {
     date: string;
     customerId?: string;       // Optional: cash sale if not specified
     customerName?: string;     // Denormalized for quick display
+    ncf?: string;              // Assigned tax receipt number (optional)
     
     // Items
     items: InvoiceItem[];      // Reusing InvoiceItem structure
@@ -308,8 +674,16 @@ export interface Sale {
     
     // Payment info
     paymentMethod: PaymentMethodType;
-    paymentStatus: 'pending' | 'partial' | 'paid';
+    paymentStatus: 'pending' | 'partial' | 'paid' | 'delivery';
     paidAmount: number;
+    
+    // Delivery info
+    isDelivery?: boolean;           // True if this is a delivery order
+    deliveryAddress?: string;       // Delivery address
+    deliveryPhone?: string;         // Contact phone for delivery
+    deliveryNotes?: string;         // Special delivery instructions
+    deliveredAt?: Date;             // When delivery was completed
+    deliveredBy?: string;           // Who made the delivery
     
     // Shift/Register
     shiftId?: number;          // Link to local cash register shift (local ID)
@@ -355,6 +729,9 @@ export interface CashRegisterShift {
     totalTransferSales?: number;
     totalCreditSales?: number;
     salesCount?: number;
+    cogsTotal?: number;
+    grossMargin?: number;
+    cogsJournalEntryId?: string;
     
     // Other movements
     cashIn?: number;           // Cash added during shift (not from sales)
@@ -494,6 +871,80 @@ export interface User {
     createdAt: Date;
     createdBy?: number;         // User who created this user
 }
+
+// ============ RECEIPT SETTINGS ============
+
+export interface ReceiptSettings {
+    id?: string;
+    // Business Info
+    businessName: string;
+    rnc: string;
+    address: string;
+    phone: string;
+    email: string;
+    website: string;
+    
+    // Display Options
+    showLogo: boolean;
+    logoUrl: string;
+    showRnc: boolean;
+    showAddress: boolean;
+    showPhone: boolean;
+    showEmail: boolean;
+    showWebsite: boolean;
+    
+    // Receipt Content
+    showNcf: boolean;
+    showShiftNumber: boolean;
+    showCashierName: boolean;
+    showItemSku: boolean;
+    showTaxBreakdown: boolean;
+    showPaymentDetails: boolean;
+    
+    // Footer
+    footerLine1: string;
+    footerLine2: string;
+    footerLine3: string;
+    showNoReturnsPolicy: boolean;
+    noReturnsPolicyText: string;
+    
+    // Formatting
+    paperWidth: '58mm' | '80mm';
+    fontSize: 'small' | 'medium' | 'large';
+    
+    // Timestamps
+    createdAt?: Date;
+    updatedAt?: Date;
+}
+
+export const DEFAULT_RECEIPT_SETTINGS: ReceiptSettings = {
+    businessName: 'Mi Negocio',
+    rnc: '',
+    address: '',
+    phone: '',
+    email: '',
+    website: '',
+    showLogo: false,
+    logoUrl: '',
+    showRnc: true,
+    showAddress: true,
+    showPhone: true,
+    showEmail: false,
+    showWebsite: false,
+    showNcf: true,
+    showShiftNumber: true,
+    showCashierName: true,
+    showItemSku: false,
+    showTaxBreakdown: true,
+    showPaymentDetails: true,
+    footerLine1: '¡Gracias por su compra!',
+    footerLine2: 'Vuelva pronto',
+    footerLine3: '',
+    showNoReturnsPolicy: true,
+    noReturnsPolicyText: 'No se aceptan devoluciones sin recibo',
+    paperWidth: '80mm',
+    fontSize: 'medium'
+};
 
 // Default roles with their permissions
 export const DEFAULT_ROLES: Omit<Role, 'id' | 'createdAt'>[] = [

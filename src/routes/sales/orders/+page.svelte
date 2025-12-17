@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
-  import { db } from '$lib/db';
+  import { db, generateId } from '$lib/db';
   import { 
     Search, Eye, RotateCcw, Calendar, User, CreditCard, Banknote, 
     Receipt, X, CheckCircle2, ChevronLeft, Package, Clock,
@@ -509,20 +509,23 @@
         createdAt: now
       };
       
-      const returnId = await db.returns.add(returnRecord);
-      lastReturn = { ...returnRecord, id: returnId as number };
+      const returnUuid = generateId();
+      returnRecord.id = returnUuid;
+      await db.returns.add(returnRecord);
+      lastReturn = { ...returnRecord, id: returnUuid };
       
       for (const ri of selectedReturnItems) {
         if (ri.item.productId) {
-          const productId = parseInt(ri.item.productId);
+          const productId = ri.item.productId;
           const product = await db.products.get(productId);
           
           if (product) {
             const movement: StockMovement = {
-              productId,
+              id: generateId(),
+              productId: String(productId),
               type: 'return',
               quantity: ri.returnQty,
-              returnId: returnId as number,
+              returnId: returnUuid,
               date: dateStr,
               notes: `${$locale === 'es' ? 'Devolución' : 'Return'} - ${returnSale.receiptNumber}`
             };
@@ -542,8 +545,9 @@
       });
       
       const payment: Payment = {
-        returnId: returnId as number,
-        customerId: returnSale.customerId,
+        id: generateId(),
+        returnId: returnUuid,
+        customerId: returnSale.customerId ? String(returnSale.customerId) : undefined,
         amount: returnTotal,
         currency: 'DOP',
         paymentDate: dateStr,

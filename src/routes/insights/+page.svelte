@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { db } from '$lib/db';
-    import { apiKey, customerSegments, realTimeInsights, insightsLoading, lastInsightsUpdate, weatherApiKey, storeLocation, currentWeather, isWeatherConfigured } from '$lib/stores';
+    import { customerSegments, realTimeInsights, insightsLoading, lastInsightsUpdate, weatherApiKey, storeLocation, currentWeather, isWeatherConfigured } from '$lib/stores';
     import { 
         batchExtractFeatures, 
         runAllClustering, 
@@ -236,10 +236,8 @@
     }
     
     async function runAIAnalysis() {
-        if (!$apiKey) {
-            error = 'Please configure your API key in Settings first';
-            return;
-        }
+        // API key is now configured server-side via environment variable (XAI_API_KEY)
+        // No client-side key check needed
         
         analyzing = true;
         insightsLoading.set(true);
@@ -301,7 +299,7 @@
                 <RefreshCw size={16} class={loading ? 'animate-spin mr-2' : 'mr-2'} />
                 Refresh
             </Button>
-            <Button on:click={runAIAnalysis} disabled={analyzing || !$apiKey}>
+            <Button on:click={runAIAnalysis} disabled={analyzing}>
                 {#if analyzing}
                     <RefreshCw size={16} class="animate-spin mr-2" />
                     Analyzing...

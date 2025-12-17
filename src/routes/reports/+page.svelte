@@ -3,8 +3,11 @@
   import { browser } from '$app/environment';
   import { db } from '$lib/db';
   import { BarChart3, Package, DollarSign, TrendingUp, TrendingDown, Calendar, FileText, Download, Receipt } from 'lucide-svelte';
-  import type { Product, Sale, Invoice } from '$lib/types';
+  import type { Product, Sale, Invoice, JournalEntry, AccountCode } from '$lib/types';
   import { getProductCostExTax, getProductPriceExTax, ITBIS_RATE } from '$lib/tax';
+  import { getAccountBalance, getJournalEntriesForPeriod } from '$lib/journal';
+  import { getITBISSummary } from '$lib/itbis';
+  import { getTotalInventoryValuation, getCOGSForPeriod } from '$lib/fifo';
   import * as Card from '$lib/components/ui/card';
   import * as Tabs from '$lib/components/ui/tabs';
   import * as Table from '$lib/components/ui/table';
@@ -15,12 +18,24 @@
   import { Button } from '$lib/components/ui/button';
   import { Separator } from '$lib/components/ui/separator';
   import { DatePicker } from '$lib/components/ui/date-picker';
+  import { locale } from '$lib/stores';
   import * as XLSX from 'xlsx';
 
   // Data
   let products: Product[] = [];
   let sales: Sale[] = [];
   let invoices: Invoice[] = [];
+  let journalEntries: JournalEntry[] = [];
+  
+  // Journal-based P&L data
+  let journalCOGS = 0;
+  let journalShrinkage = 0;
+  let journalCardFees = 0;
+  let journalOtherExpenses = 0;
+  let fifoInventoryValue = 0;
+  let itbisNetDue = 0;
+  let cardReceivablesBalance = 0;
+  let inventoryGLBalance = 0;
   
   // Date filters
   let startDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
@@ -38,6 +53,61 @@
     products = await db.products.toArray();
     sales = await db.sales.toArray();
     invoices = await db.invoices.toArray();
+    
+    // Load journal-based data
+    await loadJournalData();
+  }
+  
+  async function loadJournalData() {
+    if (!browser) return;
+    
+    try {
+      // Get journal entries for the period
+      journalEntries = await getJournalEntriesForPeriod(startDate, endDate);
+      
+      // Calculate COGS from journal
+      const cogsBalance = await getAccountBalance('5101', startDate, endDate);
+      journalCOGS = cogsBalance.debit; // COGS is a debit balance
+      
+      // Calculate shrinkage/waste from journal
+      const shrinkageBalance1 = await getAccountBalance('6101', startDate, endDate);
+      const shrinkageBalance2 = await getAccountBalance('6102', startDate, endDate);
+      const shrinkageBalance3 = await getAccountBalance('6103', startDate, endDate);
+      journalShrinkage = shrinkageBalance1.debit + shrinkageBalance2.debit + shrinkageBalance3.debit;
+      
+      // Calculate card fees from journal
+      const cardFeesBalance = await getAccountBalance('6104', startDate, endDate);
+      journalCardFees = cardFeesBalance.debit;
+      
+      // Reconciliations
+      const itbis = await getITBISSummary(startDate.slice(0, 7));
+      itbisNetDue = itbis?.netItbisDue ?? 0;
+      
+      const cardReceivables = await getAccountBalance('1106', startDate, endDate);
+      cardReceivablesBalance = cardReceivables.balance;
+      
+      const inventoryBalance = await getAccountBalance('1201', startDate, endDate);
+      inventoryGLBalance = inventoryBalance.balance;
+      
+      // Calculate other operating expenses
+      const utilitiesBalance = await getAccountBalance('6105', startDate, endDate);
+      const maintenanceBalance = await getAccountBalance('6106', startDate, endDate);
+      const payrollBalance = await getAccountBalance('6107', startDate, endDate);
+      const otherBalance = await getAccountBalance('6199', startDate, endDate);
+      journalOtherExpenses = utilitiesBalance.debit + maintenanceBalance.debit + payrollBalance.debit + otherBalance.debit;
+      
+      // Get FIFO inventory valuation
+      const fifoValuation = await getTotalInventoryValuation();
+      fifoInventoryValue = fifoValuation.totalValue;
+      
+    } catch (e) {
+      console.error('Error loading journal data:', e);
+    }
+  }
+  
+  // Reload journal data when dates change
+  $: if (browser && startDate && endDate) {
+    loadJournalData();
   }
 
   // Filter by date range
@@ -105,8 +175,8 @@
   // Revenue for P&L should be net of ITBIS (tax is pass-through)
   $: revenue = netSalesRevenue;
   
-  // Cost of goods sold (using tax-exclusive costs)
-  $: costOfGoodsSold = filteredSales.reduce((sum, sale) => {
+  // Cost of goods sold - prefer journal-based FIFO COGS if available
+  $: costOfGoodsSold = journalCOGS > 0 ? journalCOGS : filteredSales.reduce((sum, sale) => {
     return sum + sale.items.reduce((itemSum, item) => {
       const product = products.find(p => p.id?.toString() === item.productId);
       // Use tax-exclusive cost for accurate COGS
@@ -118,22 +188,36 @@
   $: grossProfit = revenue - costOfGoodsSold;
   $: grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
   
-  // Operating expenses from invoices (non-inventory categories)
-  $: operatingExpenses = filteredInvoices
+  // Operating expenses - combine journal-based and invoice-based
+  $: operatingExpensesFromInvoices = filteredInvoices
     .filter(inv => inv.category !== 'Inventory')
     .reduce((sum, inv) => sum + inv.total, 0);
   
-  $: expensesByCategory = filteredInvoices
-    .filter(inv => inv.category !== 'Inventory')
-    .reduce((acc, inv) => {
-      const cat = inv.category || 'Other';
-      if (!acc[cat]) acc[cat] = 0;
-      acc[cat] += inv.total;
-      return acc;
-    }, {} as Record<string, number>);
+  // Total operating expenses with journal-based breakdown
+  $: operatingExpenses = journalOtherExpenses > 0 
+    ? journalOtherExpenses + journalShrinkage + journalCardFees
+    : operatingExpensesFromInvoices;
+  
+  $: expensesByCategory = {
+    ...(filteredInvoices
+      .filter(inv => inv.category !== 'Inventory')
+      .reduce((acc, inv) => {
+        const cat = inv.category || 'Other';
+        if (!acc[cat]) acc[cat] = 0;
+        acc[cat] += inv.total;
+        return acc;
+      }, {} as Record<string, number>)),
+    // Add journal-based expenses
+    ...(journalShrinkage > 0 ? { 'Merma/Rotura': journalShrinkage } : {}),
+    ...(journalCardFees > 0 ? { 'Comisiones Tarjetas': journalCardFees } : {})
+  };
   
   $: netProfit = grossProfit - operatingExpenses;
   $: netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+  
+  // Use FIFO inventory valuation if available
+  $: displayInventoryValue = fifoInventoryValue > 0 ? fifoInventoryValue : totalInventoryValue;
+  $: inventoryGap = displayInventoryValue - inventoryGLBalance;
 
   function getPaymentMethodLabel(method: string): string {
     switch (method) {
@@ -181,8 +265,12 @@
   <!-- Header -->
   <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight">Reports</h1>
-      <p class="text-muted-foreground mt-1">Business analytics and financial overview</p>
+      <h1 class="text-3xl font-bold tracking-tight">
+        {$locale === 'es' ? 'Análisis del Negocio' : 'Business Analytics'}
+      </h1>
+      <p class="text-muted-foreground mt-1">
+        {$locale === 'es' ? 'Ventas, rentabilidad y desempeño del negocio' : 'Sales, profitability and business performance'}
+      </p>
     </div>
     
     <!-- Date Range Picker -->
@@ -199,6 +287,46 @@
         class="w-44 h-9" 
       />
     </div>
+  </div>
+  
+  <!-- Audit & Reconciliation -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <Card.Root>
+      <Card.Content class="p-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs uppercase text-muted-foreground">ITBIS Net Due</div>
+            <div class="text-2xl font-bold">${itbisNetDue.toLocaleString()}</div>
+            <div class="text-xs text-muted-foreground">Collected - Paid - Retentions</div>
+          </div>
+          <Receipt class="text-primary" size={24} />
+        </div>
+      </Card.Content>
+    </Card.Root>
+    <Card.Root>
+      <Card.Content class="p-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs uppercase text-muted-foreground">Card Receivables</div>
+            <div class="text-2xl font-bold">${cardReceivablesBalance.toLocaleString()}</div>
+            <div class="text-xs text-muted-foreground">Account 1106</div>
+          </div>
+          <DollarSign class="text-blue-500" size={24} />
+        </div>
+      </Card.Content>
+    </Card.Root>
+    <Card.Root>
+      <Card.Content class="p-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs uppercase text-muted-foreground">Inventory vs GL</div>
+            <div class="text-2xl font-bold">{inventoryGap >= 0 ? '+' : ''}{inventoryGap.toLocaleString()}</div>
+            <div class="text-xs text-muted-foreground">FIFO ${displayInventoryValue.toLocaleString()} vs 1201 ${inventoryGLBalance.toLocaleString()}</div>
+          </div>
+          <Package class="text-green-500" size={24} />
+        </div>
+      </Card.Content>
+    </Card.Root>
   </div>
   
   <!-- Report Tabs -->

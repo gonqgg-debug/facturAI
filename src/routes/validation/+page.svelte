@@ -2,14 +2,17 @@
   import { onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { currentInvoice, apiKey, isProcessing } from '$lib/stores';
-  import { db } from '$lib/db';
+  import { db, generateId } from '$lib/db';
   import { recalculateInvoice, validateNcf, getNcfType, recalculateFromTotal } from '$lib/tax';
   import { parseInvoiceWithGrok } from '$lib/grok';
   import { Save, RefreshCw, AlertTriangle, Check, TrendingUp, TrendingDown, Brain, Link, Package, Calendar, Search, Plus, X, Sparkles, ArrowRight, UserPlus, ClipboardList, Minus, Pencil, Eye } from 'lucide-svelte';
   import SupplierFormModal from '$lib/components/SupplierFormModal.svelte';
-  import type { Supplier, Product, StockMovement, PurchaseOrder } from '$lib/types';
+import type { Supplier, Product, StockMovement, PurchaseOrder, Invoice } from '$lib/types';
   import { findProductMatches, autoLinkInvoiceItems, type MatchResult, type ProductMatch } from '$lib/matcher';
   import { checkLowStock, generateStockUpdateAlerts, type StockAlert } from '$lib/alerts';
+import { addInventoryLot } from '$lib/fifo';
+import { recordPurchaseITBIS } from '$lib/itbis';
+  import { getProductCostExTax, getPriceWithoutTax } from '$lib/tax';
   import * as Sheet from '$lib/components/ui/sheet';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Table from '$lib/components/ui/table';
@@ -475,19 +478,24 @@
     
     try {
       // 1. Save/Update Supplier if needed
-      let supplierId = selectedSupplierId;
+      let supplierId: string | number | undefined = selectedSupplierId;
       if (!supplierId) {
-        // Create new supplier
-        supplierId = await db.suppliers.add({
+        // Create new supplier with UUID
+        const newSupplierId = generateId();
+        await db.suppliers.add({
+          id: newSupplierId,
           name: invoice.providerName || 'Unknown',
           rnc: invoice.providerRnc || '',
           examples: []
-        }) as number;
+        });
+        supplierId = newSupplierId;
       }
 
       // 2. Save Invoice with payment status
+      const invoiceId = generateId();
       const finalInvoice = {
         ...invoice,
+        id: invoiceId,
         status: 'verified' as const,
         paymentStatus: 'pending' as const,
         providerName: suppliers.find(s => s.id === supplierId)?.name || invoice.providerName,
@@ -495,9 +503,11 @@
         createdAt: invoice.createdAt ? new Date(invoice.createdAt) : new Date()
       };
       
-      // Remove the id if it exists (let Dexie auto-generate a new one)
-      const { id: _, ...invoiceWithoutId } = finalInvoice;
-      const invoiceId = await db.invoices.add(invoiceWithoutId as any) as number;
+      await db.invoices.add(finalInvoice as any);
+      const savedInvoice: Invoice = finalInvoice as Invoice;
+      
+      // Record ITBIS paid for this purchase
+      await recordPurchaseITBIS(savedInvoice);
 
       // 3. Train (Optional - auto add to examples)
       // We update the supplier's examples with this validated one
@@ -512,6 +522,29 @@
       // 4. Update Product Prices AND Stock (for Inventory category)
       const isInventoryInvoice = invoice.category === 'Inventory';
       const today = new Date().toISOString().split('T')[0];
+      
+      if (isInventoryInvoice && invoice.items) {
+        const issues: string[] = [];
+        invoice.items.forEach((item, idx) => {
+          const rate = item.taxRate;
+          if (rate === undefined || rate === null) {
+            issues.push(`Fila ${idx + 1}: falta tasa ITBIS (18%, 16% o 0%).`);
+          }
+          if (!item.unitPrice || item.unitPrice <= 0) {
+            issues.push(`Fila ${idx + 1}: precio unitario inválido.`);
+          }
+          const priceIncludesTax = item.priceIncludesTax ?? true;
+          const costExTax = getPriceWithoutTax(item.unitPrice || 0, rate ?? 0, priceIncludesTax);
+          if (costExTax <= 0) {
+            issues.push(`Fila ${idx + 1}: costo sin ITBIS no puede ser cero.`);
+          }
+        });
+        if (issues.length > 0) {
+          alert(issues.join('\n'));
+          isSaving = false;
+          return;
+        }
+      }
       
       if (invoice.items) {
         for (const item of invoice.items) {
@@ -552,22 +585,44 @@
                   previousStock
                 });
                 
-                // Create stock movement record
+                // Calculate cost ex-tax for FIFO lot
+                const taxRate = item.taxRate ?? existing.costTaxRate ?? 0.18;
+                const priceIncludesTax = item.priceIncludesTax ?? existing.costIncludesTax ?? true;
+                const costExTax = getPriceWithoutTax(item.unitPrice, taxRate, priceIncludesTax);
+                
+                // Create FIFO inventory lot
+                await addInventoryLot(
+                  existing.id,
+                  item.quantity,
+                  costExTax,
+                  taxRate,
+                  {
+                    invoiceId: String(invoiceId),
+                    purchaseDate: invoice.issueDate || today
+                  }
+                );
+                
+                // Create stock movement record with cost tracking
                 const movement: StockMovement = {
+                  id: generateId(),
                   productId: existing.id,
                   type: 'in',
                   quantity: item.quantity,
-                  invoiceId: invoiceId,
+                  invoiceId: String(invoiceId),
                   date: today,
-                  notes: `Invoice from ${invoice.providerName}`
+                  notes: `Invoice from ${invoice.providerName}`,
+                  unitCost: costExTax,
+                  totalCost: costExTax * item.quantity
                 };
                 await db.stockMovements.add(movement);
               }
               
               await db.products.update(existing.id, updateData);
             } else {
-              // Create new product
+              // Create new product with UUID
+              const newProductId = generateId();
               const newProductData: Partial<Product> = {
+                id: newProductId,
                 supplierId,
                 name: item.description,
                 productId: item.productId,
@@ -582,17 +637,38 @@
                 newProductData.lastStockUpdate = today;
               }
               
-              const newProductId = await db.products.add(newProductData as Product) as number;
+              await db.products.add(newProductData as Product);
               
-              // Create stock movement for new product
+              // Create stock movement and FIFO lot for new product
               if (isInventoryInvoice) {
+                // Calculate cost ex-tax for FIFO lot
+                const taxRate = item.taxRate ?? 0.18;
+                const priceIncludesTax = item.priceIncludesTax ?? true;
+                const costExTax = getPriceWithoutTax(item.unitPrice, taxRate, priceIncludesTax);
+                
+                // Create FIFO inventory lot
+                await addInventoryLot(
+                  newProductId,
+                  item.quantity,
+                  costExTax,
+                  taxRate,
+                  {
+                    invoiceId: String(invoiceId),
+                    purchaseDate: invoice.issueDate || today
+                  }
+                );
+                
+                // Create stock movement with cost tracking
                 const movement: StockMovement = {
+                  id: generateId(),
                   productId: newProductId,
                   type: 'in',
                   quantity: item.quantity,
-                  invoiceId: invoiceId,
+                  invoiceId: String(invoiceId),
                   date: today,
-                  notes: `Invoice from ${invoice.providerName} (new product)`
+                  notes: `Invoice from ${invoice.providerName} (new product)`,
+                  unitCost: costExTax,
+                  totalCost: costExTax * item.quantity
                 };
                 await db.stockMovements.add(movement);
                 
@@ -919,7 +995,9 @@
   async function createAndLinkProduct() {
     if (!newProductName.trim() || activeLinkIndex === null || !invoice?.items) return;
     
+    const newId = generateId();
     const newProduct: Partial<Product> = {
+      id: newId,
       name: newProductName.trim(),
       supplierId: selectedSupplierId || undefined,
       lastPrice: invoice.items[activeLinkIndex].unitPrice || 0,
@@ -927,10 +1005,10 @@
     };
     
     try {
-      const newId = await db.products.add(newProduct as Product) as number;
+      await db.products.add(newProduct as Product);
       
       // Link to the new product
-      invoice.items[activeLinkIndex].productId = String(newId);
+      invoice.items[activeLinkIndex].productId = newId;
       invoice.items[activeLinkIndex].description = newProductName.trim();
       
       // Refresh products list

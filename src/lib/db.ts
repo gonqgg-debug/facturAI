@@ -20,7 +20,17 @@ export function generateId(): string {
         return v.toString(16);
     });
 }
-import type { Invoice, Supplier, KnowledgeBaseRule, GlobalContextItem, Product, StockMovement, BankAccount, Payment, Customer, Sale, CashRegisterShift, Return, User, Role, PurchaseOrder, Receipt } from './types';
+import type { 
+    Invoice, Supplier, KnowledgeBaseRule, GlobalContextItem, Product, StockMovement, 
+    BankAccount, Payment, Customer, Sale, CashRegisterShift, Return, User, Role, 
+    PurchaseOrder, Receipt,
+    // Accounting types
+    InventoryLot, CostConsumption, JournalEntry, ITBISSummary, CardSettlement,
+    // NCF & Audit
+    NCFRange, NCFUsage, AccountingAuditEntry,
+    // Settings
+    ReceiptSettings
+} from './types';
 
 // Type for pending sync changes
 export interface PendingChangeRecord {
@@ -64,6 +74,17 @@ export class MinimarketDatabase extends Dexie {
     transactionFeatures!: Table<TransactionFeatures>;
     realTimeInsights!: Table<RealTimeInsight>;
     
+    // Accounting tables (FIFO, Journal, ITBIS)
+    inventoryLots!: Table<InventoryLot>;
+    costConsumptions!: Table<CostConsumption>;
+    journalEntries!: Table<JournalEntry>;
+    itbisSummaries!: Table<ITBISSummary>;
+    cardSettlements!: Table<CardSettlement>;
+    ncfRanges!: Table<NCFRange>;
+    ncfUsage!: Table<NCFUsage>;
+    accountingAuditLog!: Table<AccountingAuditEntry>;
+    receiptSettings!: Table<ReceiptSettings>;
+    
     // Sync tracking table for Supabase sync
     pendingChanges!: Table<PendingChangeRecord>;
 
@@ -74,11 +95,111 @@ export class MinimarketDatabase extends Dexie {
         super('Jardines3MinimarketDB');
         
         // ============ SCHEMA DEFINITION ============
-        // Version 18: Removed Dexie Cloud, using Supabase for sync
+        // Version 20: Added NCF and accounting audit tables
+        this.version(20).stores({
+            // Synced tables - use id for UUID primary keys (we generate UUIDs ourselves)
+            invoices: 'id, providerName, issueDate, ncf, status, paymentStatus, dueDate, receiptId, realmId, [issueDate+providerName]',
+            suppliers: 'id, name, rnc, isActive, category, realmId',
+            rules: 'id, supplierId, realmId',
+            globalContext: 'id, title, type, category, realmId',
+            products: 'id, supplierId, name, category, barcode, productId, realmId, [supplierId+name]',
+            stockMovements: 'id, productId, type, date, invoiceId, receiptId, saleId, returnId, realmId',
+            bankAccounts: 'id, bankName, isDefault, isActive, realmId',
+            payments: 'id, invoiceId, saleId, returnId, supplierId, customerId, paymentDate, paymentMethod, bankAccountId, realmId',
+            customers: 'id, name, type, isActive, rnc, realmId',
+            sales: 'id, date, customerId, paymentStatus, shiftId, receiptNumber, cashierId, hasReturns, realmId',
+            returns: 'id, date, originalSaleId, originalReceiptNumber, customerId, shiftId, processedBy, refundStatus, realmId',
+            customerSegments: 'id, segmentId, segmentName, segmentType, confidenceScore, lastUpdated, realmId',
+            weatherRecords: 'id, date, condition, precipitationLevel, location, realmId',
+            purchaseOrders: 'id, poNumber, supplierId, status, orderDate, expectedDate, realmId',
+            receipts: 'id, receiptNumber, supplierId, purchaseOrderId, receiptDate, invoiceId, realmId',
+            
+            // Accounting tables - FIFO Inventory
+            inventoryLots: 'id, productId, purchaseDate, status, expirationDate, invoiceId, receiptId, realmId, [productId+status]',
+            costConsumptions: 'id, saleId, returnId, adjustmentId, lotId, productId, date, realmId',
+            
+            // Accounting tables - Journal System
+            journalEntries: 'id, entryNumber, date, sourceType, sourceId, shiftId, status, realmId, [date+sourceType]',
+            
+            // Accounting tables - ITBIS Tracking
+            itbisSummaries: 'id, period, status, realmId',
+            
+            // Accounting tables - Card Settlements
+            cardSettlements: 'id, settlementDate, status, bankAccountId, journalEntryId, realmId',
+            
+            // NCF tracking
+            ncfRanges: 'id, type, isActive, expirationDate',
+            ncfUsage: 'id, ncf, type, saleId, issuedAt, voided',
+
+            // Audit log
+            accountingAuditLog: 'id, timestamp, action, entityType, entityId, userId',
+            
+            // Receipt/Ticket settings
+            receiptSettings: 'id',
+            
+            // Local-only tables ($ prefix removed since Dexie Cloud is gone)
+            shifts: '++id, shiftNumber, status, openedAt, closedAt, cashierId',
+            users: '++id, username, roleId, isActive, &pin',
+            localRoles: '++id, name, isSystem',
+            transactionFeatures: '++id, timestamp, hourOfDay, dayOfWeek, totalValue, shiftId',
+            realTimeInsights: '++id, insightType, expiresAt, createdAt',
+            
+            // Sync tracking for Supabase
+            pendingChanges: '++id, tableName, recordId, timestamp, synced'
+        }).upgrade(async () => {
+            console.log('Upgraded to schema v20 - added NCF and accounting audit tables');
+        });
+
+        // Version 19: Added accounting tables (FIFO, Journal, ITBIS, Card Settlements)
         // id = UUID string primary key (manually generated)
         // ++id = Auto-increment integer primary key (local-only tables)
         // $ prefix removed from local tables since Dexie Cloud is no longer used
         
+        this.version(19).stores({
+            // Synced tables - use id for UUID primary keys (we generate UUIDs ourselves)
+            invoices: 'id, providerName, issueDate, ncf, status, paymentStatus, dueDate, receiptId, realmId, [issueDate+providerName]',
+            suppliers: 'id, name, rnc, isActive, category, realmId',
+            rules: 'id, supplierId, realmId',
+            globalContext: 'id, title, type, category, realmId',
+            products: 'id, supplierId, name, category, barcode, productId, realmId, [supplierId+name]',
+            stockMovements: 'id, productId, type, date, invoiceId, receiptId, saleId, returnId, realmId',
+            bankAccounts: 'id, bankName, isDefault, isActive, realmId',
+            payments: 'id, invoiceId, saleId, returnId, supplierId, customerId, paymentDate, paymentMethod, bankAccountId, realmId',
+            customers: 'id, name, type, isActive, rnc, realmId',
+            sales: 'id, date, customerId, paymentStatus, shiftId, receiptNumber, cashierId, hasReturns, realmId',
+            returns: 'id, date, originalSaleId, originalReceiptNumber, customerId, shiftId, processedBy, refundStatus, realmId',
+            customerSegments: 'id, segmentId, segmentName, segmentType, confidenceScore, lastUpdated, realmId',
+            weatherRecords: 'id, date, condition, precipitationLevel, location, realmId',
+            purchaseOrders: 'id, poNumber, supplierId, status, orderDate, expectedDate, realmId',
+            receipts: 'id, receiptNumber, supplierId, purchaseOrderId, receiptDate, invoiceId, realmId',
+            
+            // Accounting tables - FIFO Inventory
+            inventoryLots: 'id, productId, purchaseDate, status, expirationDate, invoiceId, receiptId, realmId, [productId+status]',
+            costConsumptions: 'id, saleId, returnId, adjustmentId, lotId, productId, date, realmId',
+            
+            // Accounting tables - Journal System
+            journalEntries: 'id, entryNumber, date, sourceType, sourceId, shiftId, status, realmId, [date+sourceType]',
+            
+            // Accounting tables - ITBIS Tracking
+            itbisSummaries: 'id, period, status, realmId',
+            
+            // Accounting tables - Card Settlements
+            cardSettlements: 'id, settlementDate, status, bankAccountId, journalEntryId, realmId',
+            
+            // Local-only tables ($ prefix removed since Dexie Cloud is gone)
+            shifts: '++id, shiftNumber, status, openedAt, closedAt, cashierId',
+            users: '++id, username, roleId, isActive, &pin',
+            localRoles: '++id, name, isSystem',
+            transactionFeatures: '++id, timestamp, hourOfDay, dayOfWeek, totalValue, shiftId',
+            realTimeInsights: '++id, insightType, expiresAt, createdAt',
+            
+            // Sync tracking for Supabase
+            pendingChanges: '++id, tableName, recordId, timestamp, synced'
+        }).upgrade(async () => {
+            console.log('Upgraded to schema v19 - added accounting tables (FIFO, Journal, ITBIS, Card Settlements)');
+        });
+
+        // Version 18: Removed Dexie Cloud, using Supabase for sync
         this.version(18).stores({
             // Synced tables - use id for UUID primary keys (we generate UUIDs ourselves)
             invoices: 'id, providerName, issueDate, ncf, status, paymentStatus, dueDate, receiptId, realmId, [issueDate+providerName]',
@@ -106,8 +227,6 @@ export class MinimarketDatabase extends Dexie {
             
             // Sync tracking for Supabase
             pendingChanges: '++id, tableName, recordId, timestamp, synced'
-        }).upgrade(async () => {
-            console.log('Upgraded to schema v18 - removed Dexie Cloud, using Supabase for sync');
         });
 
         // Keep previous versions for backward compatibility

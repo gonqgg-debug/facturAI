@@ -93,10 +93,27 @@ export const en = {
     quickCapture: 'Quick Capture',
     importInvoices: 'Import Invoices',
     purchaseHistory: 'Purchase History',
+    importHistory: 'Import History',
     inventory: 'Inventory',
     finance: 'Finance',
     resources: 'Resources',
-    system: 'System'
+    system: 'System',
+    taxes: 'Taxes',
+    // Finance section - clearer names
+    businessAnalytics: 'Business Analytics',
+    bankReconciliation: 'Bank & Cards',
+    accountingJournal: 'Accounting Journal',
+    // Taxes section
+    dgiiReports: 'DGII Reports',
+    purchaseInvoices: 'Purchase Invoices',
+    ncf: 'NCF',
+    financialReports: 'Financial Reports',
+    auditLog: 'Audit Log',
+    receiptSettings: 'Receipt Settings',
+    // Legacy keys for backwards compatibility
+    cardSettlements: 'Bank & Cards',
+    journalLedger: 'Accounting Journal',
+    reports: 'Business Analytics'
   },
   // Search
   search: {

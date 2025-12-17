@@ -2,13 +2,16 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { db } from '$lib/db';
-  import type { CashRegisterShift, CashDenomination, Sale } from '$lib/types';
+  import type { CashRegisterShift, CashDenomination, Sale, User } from '$lib/types';
   import { activeShift, activeShiftId, locale } from '$lib/stores';
   import { t } from '$lib/i18n';
+  import { getCOGSForShift } from '$lib/fifo';
+  import { createShiftCOGSEntry } from '$lib/journal';
+  import { loginWithPin, currentUser } from '$lib/auth';
   import { 
     Clock, DollarSign, TrendingUp, ShoppingCart, 
     CreditCard, Banknote, ArrowRightLeft, AlertTriangle,
-    CheckCircle2, XCircle, Plus, Minus, Calculator, History
+    CheckCircle2, XCircle, Plus, Minus, Calculator, History, Key, Users
   } from 'lucide-svelte';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Card from '$lib/components/ui/card';
@@ -31,11 +34,23 @@
   let currentShift: CashRegisterShift | null = null;
   let shiftHistory: CashRegisterShift[] = [];
   let shiftSales: Sale[] = [];
+  let grossMargin = 0;
+  let estimatedCOGS = 0;
   
   // Opening Shift
   let openShiftDialogOpen = false;
   let openingCash = 0;
   let cashierName = '';
+  
+  // PIN Authentication
+  let pinValue = '';
+  let pinError = '';
+  let isVerifyingPin = false;
+  let selectedUserId: number | null = null;  // User selected from dropdown
+  let selectedUser: User | null = null;       // Full user object
+  let authenticatedUser: User | null = null;  // User after PIN verification
+  let availableUsers: User[] = [];
+  let requirePinAuth = false; // Will be set to true if there are users with PINs
   
   // Closing Shift
   let closeShiftDialogOpen = false;
@@ -78,6 +93,7 @@
   $: totalCreditSales = shiftSales.filter(s => s.paymentStatus === 'pending').reduce((sum, s) => sum + Number(s.total || 0), 0);
   $: totalSales = shiftSales.reduce((sum, s) => sum + Number(s.total || 0), 0);
   $: salesCount = shiftSales.length;
+  $: grossMargin = Number(totalSales - (currentShift?.cogsTotal ?? estimatedCOGS ?? 0));
 
   // Expected cash calculation
   // Formula: Opening Cash + Cash Sales + Cash In - Cash Out
@@ -91,7 +107,33 @@
 
   onMount(async () => {
     await loadActiveShift();
+    await loadAvailableUsers();
   });
+  
+  async function loadAvailableUsers() {
+    if (!browser) return;
+    // Load users that have PINs configured
+    availableUsers = await db.users.filter(u => u.isActive && u.pin).toArray();
+    // If there are users with PINs, require PIN authentication
+    requirePinAuth = availableUsers.length > 0;
+    
+    // If user is already logged in (from Firebase/session), pre-populate
+    if ($currentUser) {
+      authenticatedUser = $currentUser;
+      selectedUser = $currentUser;
+      selectedUserId = $currentUser.id || null;
+      cashierName = $currentUser.displayName;
+    }
+  }
+  
+  function selectUser(userId: number | null) {
+    selectedUserId = userId;
+    selectedUser = userId ? availableUsers.find(u => u.id === userId) || null : null;
+    // Reset authentication when changing user
+    authenticatedUser = null;
+    pinValue = '';
+    pinError = '';
+  }
 
   async function loadActiveShift() {
     if (!browser) return;
@@ -119,6 +161,13 @@
     if (!browser) return;
     shiftSales = await db.sales.where('shiftId').equals(shiftId).toArray();
   }
+  
+  async function openCloseDialog() {
+    if (!browser || !currentShift?.id) return;
+    estimatedCOGS = await getCOGSForShift(currentShift.id);
+    grossMargin = Number(totalSales - estimatedCOGS);
+    closeShiftDialogOpen = true;
+  }
 
   async function generateShiftNumber(): Promise<string> {
     const now = new Date();
@@ -132,9 +181,61 @@
     
     return `${year}${month}${day}-${String(todayShifts + 1).padStart(3, '0')}`;
   }
+  
+  async function verifyPin() {
+    if (!selectedUser) {
+      pinError = $locale === 'es' ? 'Selecciona un cajero primero' : 'Select a cashier first';
+      return;
+    }
+    
+    if (!pinValue || pinValue.length < 4) {
+      pinError = $locale === 'es' ? 'Ingresa un PIN de al menos 4 dígitos' : 'Enter a PIN of at least 4 digits';
+      return;
+    }
+    
+    isVerifyingPin = true;
+    pinError = '';
+    
+    try {
+      // Verify PIN matches the selected user's PIN
+      if (selectedUser.pin === pinValue) {
+        authenticatedUser = selectedUser;
+        cashierName = selectedUser.displayName;
+        pinError = '';
+        
+        // Update last login
+        if (selectedUser.id) {
+          await db.users.update(selectedUser.id, { lastLogin: new Date() });
+        }
+      } else {
+        pinError = t('users.wrongPin', $locale);
+        authenticatedUser = null;
+      }
+    } catch (e: any) {
+      pinError = e.message || t('users.wrongPin', $locale);
+      authenticatedUser = null;
+    } finally {
+      isVerifyingPin = false;
+    }
+  }
+  
+  function clearPinAuth() {
+    pinValue = '';
+    pinError = '';
+    authenticatedUser = null;
+    selectedUser = null;
+    selectedUserId = null;
+    cashierName = '';
+  }
 
   async function openShift() {
     if (!browser) return;
+    
+    // If PIN auth is required but user not authenticated, don't proceed
+    if (requirePinAuth && !authenticatedUser) {
+      pinError = $locale === 'es' ? 'Debes ingresar tu PIN para abrir un turno' : 'You must enter your PIN to open a shift';
+      return;
+    }
     
     const shiftNumber = await generateShiftNumber();
     const now = new Date();
@@ -144,7 +245,8 @@
     
     const newShift: CashRegisterShift = {
       shiftNumber,
-      cashierName: cashierName || undefined,
+      cashierName: authenticatedUser?.displayName || cashierName || undefined,
+      cashierId: authenticatedUser?.id,
       openedAt: now,
       openingCash: parsedOpeningCash,
       status: 'open',
@@ -162,6 +264,11 @@
     openShiftDialogOpen = false;
     openingCash = 0;
     cashierName = '';
+    // Reset PIN state but keep authenticatedUser for session
+    pinValue = '';
+    pinError = '';
+    selectedUserId = authenticatedUser?.id || null;
+    selectedUser = authenticatedUser;
     
     dispatch('shiftOpened', newShift);
     await loadActiveShift();
@@ -169,8 +276,16 @@
 
   async function closeShift() {
     if (!browser || !currentShift?.id) return;
+    if (currentShift.status === 'closed') return;
     
     const now = new Date();
+    
+    // Calculate COGS using FIFO for this shift
+    // This is the "magic entry" that turns purchases into real expense
+    const totalCOGS = await getCOGSForShift(currentShift.id);
+    estimatedCOGS = totalCOGS;
+    const calculatedGrossMargin = Number(totalSales - totalCOGS);
+    grossMargin = calculatedGrossMargin;
     
     const updates: Partial<CashRegisterShift> = {
       closedAt: now,
@@ -183,6 +298,8 @@
       totalTransferSales,
       totalCreditSales,
       salesCount,
+      cogsTotal: totalCOGS,
+      grossMargin: calculatedGrossMargin,
       status: 'closed',
       closingNotes: closingNotes || undefined
     };
@@ -190,6 +307,17 @@
     await db.shifts.update(currentShift.id, updates);
     
     const closedShift = { ...currentShift, ...updates };
+    
+    // Create the COGS journal entry (Debit COGS, Credit Inventory)
+    // This automatically posts the accounting entry for cost of goods sold
+    if (totalCOGS > 0) {
+      const entry = await createShiftCOGSEntry(closedShift as CashRegisterShift, totalCOGS);
+      if (entry?.id) {
+        closedShift.cogsJournalEntryId = entry.id;
+        await db.shifts.update(currentShift.id, { cogsJournalEntryId: entry.id });
+      }
+      console.log(`Created COGS journal entry for shift #${closedShift.shiftNumber}: $${totalCOGS.toFixed(2)}`);
+    }
     
     currentShift = null;
     activeShiftId.set(null);
@@ -362,7 +490,7 @@
         <Button 
           variant="destructive" 
           class="w-full gap-2"
-          on:click={() => closeShiftDialogOpen = true}
+          on:click={openCloseDialog}
         >
           <XCircle size={16} />
           {t('shifts.closeShift', $locale)}
@@ -410,6 +538,11 @@
                     <span>${Math.abs(shift.cashDifference).toFixed(2)}</span>
                   </div>
                 {/if}
+                {#if shift.cogsTotal !== undefined}
+                  <div class="text-muted-foreground mt-1">
+                    COGS: ${(shift.cogsTotal || 0).toLocaleString()} • GM: ${((shift.grossMargin ?? (shift.totalSales || 0) - (shift.cogsTotal || 0))).toLocaleString()}
+                  </div>
+                {/if}
               </div>
             </div>
           </div>
@@ -420,7 +553,7 @@
 </div>
 
 <!-- Open Shift Dialog -->
-<Dialog.Root bind:open={openShiftDialogOpen}>
+<Dialog.Root bind:open={openShiftDialogOpen} onOpenChange={(open) => { if (!open) { clearPinAuth(); } }}>
   <Dialog.Content class="max-w-sm">
     <Dialog.Header>
       <Dialog.Title class="flex items-center gap-2">
@@ -428,20 +561,129 @@
         {t('shifts.openShift', $locale)}
       </Dialog.Title>
       <Dialog.Description>
-        {$locale === 'es' ? 'Ingresa el efectivo inicial en caja para comenzar el turno.' : 'Enter the starting cash to begin the shift.'}
+        {requirePinAuth 
+          ? ($locale === 'es' ? 'Selecciona tu usuario e ingresa tu PIN para comenzar.' : 'Select your user and enter your PIN to begin.')
+          : ($locale === 'es' ? 'Ingresa el efectivo inicial en caja para comenzar el turno.' : 'Enter the starting cash to begin the shift.')}
       </Dialog.Description>
     </Dialog.Header>
     
     <div class="space-y-4 py-4">
-      <div class="space-y-2">
-        <Label for="cashier">{t('receipt.cashier', $locale)} ({$locale === 'es' ? 'Opcional' : 'Optional'})</Label>
-        <Input 
-          id="cashier"
-          type="text" 
-          bind:value={cashierName} 
-          placeholder={$locale === 'es' ? 'Nombre del cajero' : 'Cashier name'}
-        />
-      </div>
+      {#if requirePinAuth}
+        <!-- Cashier Selection & PIN Authentication Section -->
+        {#if authenticatedUser}
+          <!-- User authenticated - show success state -->
+          <div class="space-y-2">
+            <Label class="flex items-center gap-2">
+              <CheckCircle2 size={14} class="text-green-500" />
+              {$locale === 'es' ? 'Cajero Verificado' : 'Cashier Verified'}
+            </Label>
+            <div class="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-green-500/20 rounded-full flex items-center justify-center">
+                  <CheckCircle2 size={20} class="text-green-500" />
+                </div>
+                <div>
+                  <div class="font-medium">{authenticatedUser.displayName}</div>
+                  <div class="text-xs text-muted-foreground">{authenticatedUser.roleName}</div>
+                </div>
+              </div>
+              <Button variant="ghost" size="sm" on:click={clearPinAuth}>
+                {$locale === 'es' ? 'Cambiar' : 'Change'}
+              </Button>
+            </div>
+          </div>
+        {:else}
+          <!-- Step 1: Select Cashier -->
+          <div class="space-y-2">
+            <Label for="cashier-select" class="flex items-center gap-2">
+              <Users size={14} />
+              {$locale === 'es' ? 'Seleccionar Cajero' : 'Select Cashier'} *
+            </Label>
+            <div class="grid gap-2">
+              {#each availableUsers as user}
+                <button
+                  type="button"
+                  class="flex items-center gap-3 p-3 rounded-lg border transition-all text-left
+                         {selectedUserId === user.id 
+                           ? 'border-primary bg-primary/5 ring-2 ring-primary/20' 
+                           : 'border-border hover:border-primary/50 hover:bg-muted/50'}"
+                  on:click={() => selectUser(user.id || null)}
+                >
+                  <div class="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold">
+                    {user.displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium truncate">{user.displayName}</div>
+                    <div class="text-xs text-muted-foreground">{user.roleName || user.username}</div>
+                  </div>
+                  {#if selectedUserId === user.id}
+                    <CheckCircle2 size={18} class="text-primary shrink-0" />
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          </div>
+          
+          <!-- Step 2: Enter PIN (only if user selected) -->
+          {#if selectedUser}
+            <div class="space-y-2 pt-2">
+              <Label for="cashier-pin" class="flex items-center gap-2">
+                <Key size={14} />
+                {t('users.enterPin', $locale)} *
+              </Label>
+              <div class="flex gap-2">
+                <Input 
+                  id="cashier-pin"
+                  type="password"
+                  inputmode="numeric"
+                  bind:value={pinValue}
+                  placeholder="••••"
+                  class="tracking-widest font-mono text-lg text-center flex-1"
+                  maxlength="6"
+                  on:keydown={(e) => e.key === 'Enter' && verifyPin()}
+                />
+                <Button 
+                  variant="default" 
+                  on:click={verifyPin}
+                  disabled={isVerifyingPin || pinValue.length < 4}
+                >
+                  {#if isVerifyingPin}
+                    <div class="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></div>
+                  {:else}
+                    <CheckCircle2 size={16} />
+                  {/if}
+                </Button>
+              </div>
+              
+              {#if pinError}
+                <div class="flex items-center gap-2 text-destructive text-sm">
+                  <AlertTriangle size={14} />
+                  {pinError}
+                </div>
+              {/if}
+              
+              <p class="text-xs text-muted-foreground">
+                {$locale === 'es' 
+                  ? `Ingresa el PIN de ${selectedUser.displayName}` 
+                  : `Enter the PIN for ${selectedUser.displayName}`}
+              </p>
+            </div>
+          {/if}
+        {/if}
+        
+        <Separator />
+      {:else}
+        <!-- No PIN required - optional cashier name -->
+        <div class="space-y-2">
+          <Label for="cashier">{t('receipt.cashier', $locale)} ({$locale === 'es' ? 'Opcional' : 'Optional'})</Label>
+          <Input 
+            id="cashier"
+            type="text" 
+            bind:value={cashierName} 
+            placeholder={$locale === 'es' ? 'Nombre del cajero' : 'Cashier name'}
+          />
+        </div>
+      {/if}
       
       <div class="space-y-2">
         <Label for="opening-cash">{t('shifts.openingCash', $locale)} *</Label>
@@ -460,10 +702,14 @@
     </div>
     
     <Dialog.Footer>
-      <Button variant="ghost" on:click={() => openShiftDialogOpen = false}>
+      <Button variant="ghost" on:click={() => { openShiftDialogOpen = false; clearPinAuth(); }}>
         {t('common.cancel', $locale)}
       </Button>
-      <Button variant="default" on:click={openShift}>
+      <Button 
+        variant="default" 
+        on:click={openShift}
+        disabled={requirePinAuth && !authenticatedUser}
+      >
         {t('shifts.openShift', $locale)}
       </Button>
     </Dialog.Footer>
@@ -510,6 +756,14 @@
         <div class="flex justify-between font-bold">
           <span>{t('shifts.expectedCash', $locale)}:</span>
           <span>${expectedCash.toLocaleString()}</span>
+        </div>
+        <div class="flex justify-between text-sm pt-2">
+          <span>COGS (FIFO):</span>
+          <span>${(estimatedCOGS || 0).toLocaleString()}</span>
+        </div>
+        <div class="flex justify-between text-sm font-medium">
+          <span>Margen bruto:</span>
+          <span>${grossMargin.toLocaleString()}</span>
         </div>
       </div>
 

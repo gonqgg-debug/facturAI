@@ -1,14 +1,17 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { db } from '$lib/db';
+  import { db, generateId } from '$lib/db';
   import { 
     Search, Plus, Minus, Trash2, ShoppingCart, User, CreditCard, Banknote, 
     Receipt, Sparkles, AlertTriangle, X, CheckCircle2, Clock, Printer,
-    Grid3X3, List, Scan, Home, ChevronLeft, Package, RotateCcw, Hash
+    Grid3X3, List, Scan, Home, ChevronLeft, Package, RotateCcw, Hash,
+    Truck, MapPin, Phone, FileText, CircleDot
   } from 'lucide-svelte';
   import type { Product, Customer, Sale, InvoiceItem, StockMovement, Payment, PaymentMethodType, CashRegisterShift, Return, ReturnItem } from '$lib/types';
-  import { getCartItemBreakdown, ITBIS_RATE } from '$lib/tax';
+import { getCartItemBreakdown, ITBIS_RATE, getProductCostExTax } from '$lib/tax';
+import { consumeFIFO, getActiveLots, getAvailableQuantity, restoreConsumptionForReturn } from '$lib/fifo';
+import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Select from '$lib/components/ui/select';
   import * as Card from '$lib/components/ui/card';
@@ -68,6 +71,18 @@
   let lastSaleId: number | null = null;
   let lastSale: Sale | null = null;
   
+  // Delivery state
+  let isDelivery = false;
+  let deliveryDialogOpen = false;
+  let deliveryAddress = '';
+  let deliveryPhone = '';
+  let deliveryNotes = '';
+  let pendingDeliveries: Sale[] = [];
+  let showPendingDeliveries = false;
+  let selectedDelivery: Sale | null = null;
+  let completeDeliveryDialogOpen = false;
+  let deliveryPaymentMethod: PaymentMethodType = 'cash';
+  
   // Receipt
   let showReceipt = false;
   
@@ -95,6 +110,7 @@
     isPosMode.set(true);
     await loadData();
     await loadActiveShift();
+    await loadPendingDeliveries();
     
     // Add global keydown listener for barcode scanning
     if (browser) {
@@ -231,6 +247,213 @@
       }
     }
   }
+  
+  // ============ DELIVERY FUNCTIONS ============
+  
+  async function loadPendingDeliveries() {
+    if (!browser) return;
+    const allSales = await db.sales.toArray();
+    pendingDeliveries = allSales.filter(s => 
+      s.isDelivery === true && s.paymentStatus === 'delivery'
+    ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+  
+  function openDeliveryDialog() {
+    if (cart.length === 0) {
+      alert($locale === 'es' 
+        ? 'Agregue productos al carrito antes de crear un delivery.' 
+        : 'Add products to cart before creating a delivery.');
+      return;
+    }
+    deliveryAddress = selectedCustomer?.address || '';
+    deliveryPhone = selectedCustomer?.phone || '';
+    deliveryNotes = '';
+    deliveryDialogOpen = true;
+  }
+  
+  async function createDeliveryOrder() {
+    if (!browser) return;
+    if (!$activeShift?.id) {
+      alert($locale === 'es'
+        ? 'Debe abrir un turno antes de crear deliveries.'
+        : 'You must open a shift before creating deliveries.');
+      return;
+    }
+    
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const receiptNumber = await generateReceiptNumber();
+    
+    // Create delivery order (no stock movement yet - will happen when completed)
+    const saleUuid = generateId();
+    const sale: Sale = {
+      id: saleUuid,
+      date: dateStr,
+      customerId: selectedCustomer?.id ? String(selectedCustomer.id) : undefined,
+      customerName: selectedCustomer?.name,
+      items: cart.map(item => ({
+        description: item.description,
+        productId: item.productId ? String(item.productId) : undefined,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        taxRate: item.taxRate ?? 0.18,
+        priceIncludesTax: item.priceIncludesTax ?? true,
+        value: item.value,
+        itbis: item.itbis,
+        amount: item.amount
+      })),
+      subtotal,
+      discount: 0,
+      itbisTotal,
+      total,
+      paymentMethod: 'cash', // Will be updated when delivery is completed
+      paymentStatus: 'delivery',
+      paidAmount: 0,
+      isDelivery: true,
+      deliveryAddress: deliveryAddress || undefined,
+      deliveryPhone: deliveryPhone || undefined,
+      deliveryNotes: deliveryNotes || undefined,
+      shiftId: $activeShift.id,
+      receiptNumber,
+      createdAt: now
+    };
+    
+    await db.sales.add(sale);
+    lastSale = sale;
+    
+    // Close dialog and show receipt
+    deliveryDialogOpen = false;
+    saleComplete = true;
+    showReceipt = true;
+    
+    // Clear cart
+    cart = [];
+    selectedCustomer = null;
+    
+    // Refresh pending deliveries
+    await loadPendingDeliveries();
+  }
+  
+  function openCompleteDeliveryDialog(delivery: Sale) {
+    selectedDelivery = delivery;
+    deliveryPaymentMethod = 'cash';
+    completeDeliveryDialogOpen = true;
+  }
+  
+  async function completeDelivery() {
+    if (!browser || !selectedDelivery?.id) return;
+    
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    
+    try {
+      // Process stock movements (deduct from inventory)
+      for (const item of selectedDelivery.items) {
+        if (item.productId) {
+          const productIdStr = String(item.productId);
+          
+          // Consume FIFO inventory
+          const { totalCost, avgUnitCost } = await consumeFIFO(
+            productIdStr,
+            item.quantity,
+            { saleId: selectedDelivery.id }
+          );
+          
+          // Create stock movement
+          const movement: StockMovement = {
+            id: generateId(),
+            productId: productIdStr,
+            type: 'out',
+            quantity: item.quantity,
+            saleId: selectedDelivery.id,
+            date: dateStr,
+            notes: `Delivery #${selectedDelivery.receiptNumber}`,
+            unitCost: avgUnitCost,
+            totalCost: totalCost
+          };
+          await db.stockMovements.add(movement);
+          
+          // Update product stock
+          const remainingLots = await getActiveLots(productIdStr);
+          const lotStock = remainingLots.reduce((sum, lot) => sum + lot.remainingQuantity, 0);
+          const hasLots = remainingLots.length > 0;
+          const product = await db.products.get(productIdStr);
+          const newStock = hasLots 
+            ? lotStock 
+            : Math.max(0, Number(product?.currentStock ?? 0) - Number(item.quantity));
+          
+          await db.products.update(productIdStr, {
+            currentStock: newStock,
+            lastStockUpdate: dateStr,
+            salesVolume: Number(product?.salesVolume ?? 0) + Number(item.quantity),
+            lastSaleDate: dateStr
+          });
+        }
+      }
+      
+      // Update sale status
+      await db.sales.update(selectedDelivery.id, {
+        paymentMethod: deliveryPaymentMethod,
+        paymentStatus: 'paid',
+        paidAmount: selectedDelivery.total,
+        deliveredAt: now
+      });
+      
+      // Create payment record
+      const payment: Payment = {
+        id: generateId(),
+        saleId: selectedDelivery.id,
+        customerId: selectedDelivery.customerId,
+        amount: selectedDelivery.total,
+        currency: 'DOP',
+        paymentDate: dateStr,
+        paymentMethod: deliveryPaymentMethod,
+        notes: `Delivery payment #${selectedDelivery.receiptNumber}`,
+        createdAt: now
+      };
+      await db.payments.add(payment);
+      
+      // Record ITBIS
+      try {
+        await recordSaleITBIS({ ...selectedDelivery, paymentStatus: 'paid' });
+      } catch (e) {
+        console.error('Error recording ITBIS:', e);
+      }
+      
+      // Close dialog and refresh
+      completeDeliveryDialogOpen = false;
+      selectedDelivery = null;
+      await loadPendingDeliveries();
+      
+      if (shiftManagerRef) {
+        await shiftManagerRef.refreshSales();
+      }
+      
+      alert($locale === 'es' ? '¡Delivery completado!' : 'Delivery completed!');
+    } catch (e) {
+      console.error('Error completing delivery:', e);
+      alert($locale === 'es' 
+        ? 'Error al completar el delivery. Intente nuevamente.' 
+        : 'Error completing delivery. Please try again.');
+    }
+  }
+  
+  async function cancelDelivery(delivery: Sale) {
+    if (!delivery.id) return;
+    
+    const confirmCancel = confirm($locale === 'es'
+      ? `¿Cancelar delivery #${delivery.receiptNumber}? Esta acción no se puede deshacer.`
+      : `Cancel delivery #${delivery.receiptNumber}? This action cannot be undone.`);
+    
+    if (!confirmCancel) return;
+    
+    await db.sales.update(delivery.id, {
+      paymentStatus: 'pending',
+      notes: (delivery.notes || '') + '\n[CANCELLED]'
+    });
+    
+    await loadPendingDeliveries();
+  }
 
   // Update filtered products based on category
   function updateFilteredProducts() {
@@ -307,6 +530,8 @@
       existing.value = breakdown.value;
       existing.itbis = breakdown.itbis;
       existing.amount = breakdown.amount;
+      existing.taxRate = breakdown.taxRate; // Ensure taxRate is always set
+      existing.priceIncludesTax = breakdown.priceIncludesTax;
       cart = [...cart];
     } else {
       // Use the tax utility to properly calculate values based on product tax configuration
@@ -351,6 +576,8 @@
     item.value = breakdown.value;
     item.itbis = breakdown.itbis;
     item.amount = breakdown.amount;
+    item.taxRate = breakdown.taxRate; // Ensure taxRate is always set
+    item.priceIncludesTax = breakdown.priceIncludesTax;
     cart = [...cart];
   }
   
@@ -365,6 +592,8 @@
     item.value = breakdown.value;
     item.itbis = breakdown.itbis;
     item.amount = breakdown.amount;
+    item.taxRate = breakdown.taxRate; // Ensure taxRate is always set
+    item.priceIncludesTax = breakdown.priceIncludesTax;
     cart = [...cart];
   }
   
@@ -389,7 +618,7 @@
     selectedCustomer = null;
   }
   
-  function openConfirmDialog() {
+async function openConfirmDialog() {
     if (!$hasActiveShift) {
       showShiftPanel = true;
       return;
@@ -399,57 +628,129 @@
       return;
     }
     
-    // Validate stock
-    for (const item of cart) {
-      const stock = item.productRef.currentStock ?? 0;
-      if (item.quantity > stock) {
+    try {
+      // Ensure each item has a tax rate set (check this first, before async operations)
+      for (const item of cart) {
+        // If taxRate is missing, recalculate from product
+        if (item.taxRate === undefined || item.taxRate === null) {
+          const breakdown = getCartItemBreakdown(item.productRef, item.quantity, item.unitPrice);
+          item.taxRate = breakdown.taxRate;
+          item.priceIncludesTax = breakdown.priceIncludesTax;
+          item.value = breakdown.value;
+          item.itbis = breakdown.itbis;
+          item.amount = breakdown.amount;
+        }
+      }
+      
+      // Validate stock against FIFO lots to prevent negative inventory
+      for (const item of cart) {
+        if (!item.productRef.id) continue;
+        try {
+          const available = await getAvailableQuantity(item.productRef.id);
+          if (item.quantity > available) {
+            alert($locale === 'es'
+              ? `Stock insuficiente para ${item.description}. Disponible: ${available}, solicitado: ${item.quantity}.`
+              : `Not enough stock for ${item.description}. Available: ${available}, requested: ${item.quantity}.`);
+            return;
+          }
+        } catch (e) {
+          console.error(`Error checking stock for ${item.description}:`, e);
+          // If we can't check stock, use currentStock as fallback
+          const currentStock = item.productRef.currentStock ?? 0;
+          if (item.quantity > currentStock) {
+            alert($locale === 'es'
+              ? `Stock insuficiente para ${item.description}. Disponible: ${currentStock}, solicitado: ${item.quantity}.`
+              : `Not enough stock for ${item.description}. Available: ${currentStock}, requested: ${item.quantity}.`);
+            return;
+          }
+        }
+      }
+      
+      // For credit sales, require a customer
+      if (isCredit && !selectedCustomer) {
+        alert($locale === 'es'
+          ? 'Debe seleccionar un cliente para ventas a crédito.'
+          : 'You must select a customer for credit sales.');
         return;
       }
-    }
-    
-    // For credit sales, require a customer
-    if (isCredit && !selectedCustomer) {
-      return;
-    }
-    
-    // Check credit limit
-    if (isCredit && selectedCustomer) {
-      const limit = selectedCustomer.creditLimit ?? 0;
-      const balance = selectedCustomer.currentBalance ?? 0;
-      if (limit > 0 && (balance + total) > limit) {
-        return;
+      
+      // Check credit limit
+      if (isCredit && selectedCustomer) {
+        const limit = selectedCustomer.creditLimit ?? 0;
+        const balance = selectedCustomer.currentBalance ?? 0;
+        if (limit > 0 && (balance + total) > limit) {
+          alert($locale === 'es'
+            ? `El cliente ha excedido su límite de crédito. Límite: $${limit.toLocaleString()}, Balance actual: $${balance.toLocaleString()}, Total venta: $${total.toLocaleString()}`
+            : `Customer has exceeded credit limit. Limit: $${limit.toLocaleString()}, Current balance: $${balance.toLocaleString()}, Sale total: $${total.toLocaleString()}`);
+          return;
+        }
       }
+      
+      // All validations passed - show confirmation dialog
+      confirmDialogOpen = true;
+    } catch (e) {
+      console.error('Error in openConfirmDialog:', e);
+      alert($locale === 'es' 
+        ? 'Error al validar la venta. Por favor intente nuevamente.'
+        : 'Error validating sale. Please try again.');
     }
-    
-    confirmDialogOpen = true;
   }
   
   async function confirmSale() {
-    if (!browser) return;
-    if (!$activeShift?.id) {
-      alert($locale === 'es' 
-        ? 'Debe abrir un turno antes de realizar ventas. Vaya a Configuración > Gestión de Turnos.'
-        : 'You must open a shift before making sales. Go to Settings > Shift Management.');
-      console.error('Cannot create sale: No active shift');
-      return;
-    }
-    
+    try {
+      if (!browser) return;
+      if (!$activeShift?.id) {
+        alert($locale === 'es' 
+          ? 'Debe abrir un turno antes de realizar ventas. Vaya a Configuración > Gestión de Turnos.'
+          : 'You must open a shift before making sales. Go to Settings > Shift Management.');
+        console.error('Cannot create sale: No active shift');
+        return;
+      }
+      
+      // Ensure tax rate is present (fallback to recalculation)
+      for (const item of cart) {
+        if (item.taxRate === undefined || item.taxRate === null) {
+          const breakdown = getCartItemBreakdown(item.productRef, item.quantity, item.unitPrice);
+          item.taxRate = breakdown.taxRate;
+          item.priceIncludesTax = breakdown.priceIncludesTax;
+          item.value = breakdown.value;
+          item.itbis = breakdown.itbis;
+          item.amount = breakdown.amount;
+        }
+      }
+      
+      // Final stock validation (avoid race conditions)
+      for (const item of cart) {
+        if (!item.productRef.id) continue;
+        const available = await getAvailableQuantity(item.productRef.id);
+        if (item.quantity > available) {
+          alert($locale === 'es'
+            ? `Stock insuficiente para ${item.description}. Disponible: ${available}, solicitado: ${item.quantity}.`
+            : `Not enough stock for ${item.description}. Available: ${available}, requested: ${item.quantity}.`);
+          return;
+        }
+      }
+      
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
     const receiptNumber = await generateReceiptNumber();
     
-    // Create sale record
+    // Generate UUID for the sale (required by current schema)
+    const saleUuid = generateId();
+    
+    // Create sale record - ensure all IDs are strings
     const sale: Sale = {
+      id: saleUuid,
       date: dateStr,
-      customerId: selectedCustomer?.id,
+      customerId: selectedCustomer?.id ? String(selectedCustomer.id) : undefined,
       customerName: selectedCustomer?.name,
       items: cart.map(item => ({
         description: item.description,
-        productId: item.productId,
+        productId: item.productId ? String(item.productId) : undefined,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
-        taxRate: item.taxRate,
-        priceIncludesTax: item.priceIncludesTax,
+        taxRate: item.taxRate ?? 0.18,
+        priceIncludesTax: item.priceIncludesTax ?? true,
         value: item.value,
         itbis: item.itbis,
         amount: item.amount
@@ -467,54 +768,102 @@
     };
     
     // Save sale
-    const saleId = await db.sales.add(sale);
-    lastSaleId = saleId as number;
-    lastSale = { ...sale, id: saleId as number };
+    await db.sales.add(sale);
+    lastSale = sale;
     
-    // Create stock movements and update product stock
+    // Create stock movements, update product stock, and consume FIFO inventory
     for (const item of cart) {
       if (item.productRef.id) {
-        const movement: StockMovement = {
-          productId: item.productRef.id,
-          type: 'out',
-          quantity: item.quantity,
-          saleId: saleId as number,
-          date: dateStr,
-          notes: `${$locale === 'es' ? 'Venta' : 'Sale'} #${receiptNumber}`
-        };
-        await db.stockMovements.add(movement);
+        // Keep the original ID type for database operations
+        const originalProductId = item.productRef.id;
+        // Use string version for FIFO (which expects strings)
+        const productIdStr = String(originalProductId);
         
-        const newStock = Math.max(0, Number(item.productRef.currentStock ?? 0) - Number(item.quantity));
-        await db.products.update(item.productRef.id, {
-          currentStock: newStock,
-          lastStockUpdate: dateStr,
-          salesVolume: Number(item.productRef.salesVolume ?? 0) + Number(item.quantity),
-          lastSaleDate: dateStr
-        });
+        try {
+          // Consume inventory using FIFO (oldest lots first)
+          // This tracks the exact cost of goods sold
+          // Note: strict=false allows selling legacy products without lots
+          const { totalCost, avgUnitCost } = await consumeFIFO(
+            productIdStr,
+            item.quantity,
+            { saleId: saleUuid }
+          );
+          
+          // Create stock movement with FIFO cost
+          const movement: StockMovement = {
+            id: generateId(),
+            productId: productIdStr,
+            type: 'out',
+            quantity: item.quantity,
+            saleId: saleUuid,
+            date: dateStr,
+            notes: `${$locale === 'es' ? 'Venta' : 'Sale'} #${receiptNumber}`,
+            unitCost: avgUnitCost,
+            totalCost: totalCost
+          };
+          await db.stockMovements.add(movement);
+          
+          // Sync stock: use lot quantities if available, otherwise decrement currentStock
+          const remainingLots = await getActiveLots(productIdStr);
+          const lotStock = remainingLots.reduce((sum, lot) => sum + lot.remainingQuantity, 0);
+          const hasLots = remainingLots.length > 0;
+          const newStock = hasLots 
+            ? lotStock 
+            : Math.max(0, Number(item.productRef.currentStock ?? 0) - Number(item.quantity));
+          
+          // Use original product ID type (could be number or string depending on DB version)
+          await db.products.update(originalProductId, {
+            currentStock: newStock,
+            lastStockUpdate: dateStr,
+            salesVolume: Number(item.productRef.salesVolume ?? 0) + Number(item.quantity),
+            lastSaleDate: dateStr
+          });
+        } catch (stockError) {
+          console.error('Error processing stock for product:', originalProductId, stockError);
+          // Continue with other items - don't fail the entire sale
+        }
       }
     }
     
     // If paid immediately, record payment
     if (!isCredit) {
-      const payment: Payment = {
-        saleId: saleId as number,
-        customerId: selectedCustomer?.id,
-        amount: total,
-        currency: 'DOP',
-        paymentDate: dateStr,
-        paymentMethod,
-        notes: `${$locale === 'es' ? 'Pago venta' : 'Sale payment'} #${receiptNumber}`,
-        createdAt: now
-      };
-      await db.payments.add(payment);
+      try {
+        const payment: Payment = {
+          id: generateId(),
+          saleId: saleUuid,
+          customerId: selectedCustomer?.id ? String(selectedCustomer.id) : undefined,
+          amount: total,
+          currency: 'DOP',
+          paymentDate: dateStr,
+          paymentMethod,
+          notes: `${$locale === 'es' ? 'Pago venta' : 'Sale payment'} #${receiptNumber}`,
+          createdAt: now
+        };
+        await db.payments.add(payment);
+      } catch (paymentError) {
+        console.error('Error recording payment (non-critical):', paymentError);
+      }
     }
     
     // Update customer balance if credit
     if (isCredit && selectedCustomer?.id) {
-      const newBalance = (selectedCustomer.currentBalance ?? 0) + total;
-      await db.customers.update(selectedCustomer.id, {
-        currentBalance: newBalance
-      });
+      try {
+        const newBalance = (selectedCustomer.currentBalance ?? 0) + total;
+        await db.customers.update(selectedCustomer.id, {
+          currentBalance: newBalance
+        });
+      } catch (customerError) {
+        console.error('Error updating customer balance (non-critical):', customerError);
+      }
+    }
+    
+    // Record ITBIS by rate for tax reporting (DGII compliance)
+    // This tracks ITBIS collected at 18%, 16%, and 0% rates
+    try {
+      await recordSaleITBIS(lastSale as Sale);
+    } catch (itbisError) {
+      console.error('Error recording ITBIS (non-critical):', itbisError);
+      // Non-critical - don't fail the sale
     }
     
     // Refresh the shift manager
@@ -523,6 +872,13 @@
     }
     
     saleComplete = true;
+    } catch (e) {
+      console.error('Error confirming sale:', e);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      alert($locale === 'es'
+        ? `Error al confirmar la venta: ${errorMessage}`
+        : `Error confirming sale: ${errorMessage}`);
+    }
   }
   
   function showReceiptModal() {
@@ -681,7 +1037,9 @@
       }));
       
       // Create return record
+      const returnUuid = generateId();
       const returnRecord: Return = {
+        id: returnUuid,
         date: dateStr,
         originalSaleId: foundSale.id!,
         originalReceiptNumber: foundSale.receiptNumber,
@@ -701,33 +1059,59 @@
         createdAt: now
       };
       
-      const returnId = await db.returns.add(returnRecord);
-      lastReturn = { ...returnRecord, id: returnId as number };
+      await db.returns.add(returnRecord);
+      const returnId = returnUuid;
+      lastReturn = { ...returnRecord, id: String(returnId) };
+      
+      // Reverse ITBIS collected for the returned items
+      await reverseSaleITBIS({
+        ...(foundSale as Sale),
+        items,
+        subtotal: returnSubtotal,
+        itbisTotal: returnItbisTotal,
+        total: returnTotal,
+        date: dateStr
+      });
       
       // Restore stock for returned items
       for (const ri of selectedReturnItems) {
         if (ri.item.productId) {
-          const productId = parseInt(ri.item.productId);
-          const product = await db.products.get(productId);
+          const productId = String(ri.item.productId);
           
-          if (product) {
-            // Create stock movement (return = stock in)
+          const { restored, avgUnitCost, totalCost } = await restoreConsumptionForReturn(
+            String(foundSale.id),
+            productId,
+            ri.returnQty
+          );
+          
+          // Create stock movement (return = stock in) with restored cost
+          if (restored > 0) {
             const movement: StockMovement = {
+              id: generateId(),
               productId,
               type: 'return',
-              quantity: ri.returnQty,
-              returnId: returnId as number,
+              quantity: restored,
+              returnId: String(returnId),
               date: dateStr,
-              notes: `${$locale === 'es' ? 'Devolución' : 'Return'} - ${foundSale.receiptNumber}`
+              notes: `${$locale === 'es' ? 'Devolución' : 'Return'} - ${foundSale.receiptNumber}`,
+              unitCost: avgUnitCost,
+              totalCost
             };
             await db.stockMovements.add(movement);
-            
-            // Update product stock
-            await db.products.update(productId, {
-              currentStock: Number(product.currentStock ?? 0) + Number(ri.returnQty),
-              lastStockUpdate: dateStr
-            });
           }
+          
+          // Sync product stock: use lot quantities if available, otherwise add to current
+          const remainingLots = await getActiveLots(productId);
+          const lotStock = remainingLots.reduce((sum, lot) => sum + lot.remainingQuantity, 0);
+          const hasLots = remainingLots.length > 0;
+          const product = await db.products.get(productId);
+          const currentStock = Number(product?.currentStock ?? 0);
+          const newStock = hasLots ? lotStock : currentStock + ri.returnQty;
+          
+          await db.products.update(productId, {
+            currentStock: newStock,
+            lastStockUpdate: dateStr
+          });
         }
       }
       
@@ -739,8 +1123,9 @@
       
       // Record refund payment
       const payment: Payment = {
-        returnId: returnId as number,
-        customerId: foundSale.customerId,
+        id: generateId(),
+        returnId: String(returnId),
+        customerId: foundSale.customerId ? String(foundSale.customerId) : undefined,
         amount: returnTotal,
         currency: 'DOP',
         paymentDate: dateStr,
@@ -1068,7 +1453,7 @@
               </Button>
             </div>
           {:else}
-            <Select.Root onSelectedChange={(v) => { if (v?.value) { const cust = customers.find(c => c.id === Number(v.value)); if (cust) selectCustomer(cust); } }}>
+            <Select.Root onSelectedChange={(v) => { if (v?.value) { const cust = customers.find(c => String(c.id) === String(v.value)); if (cust) selectCustomer(cust); } }}>
               <Select.Trigger class="w-full h-9 text-sm">
                 <Select.Value placeholder={t('sales.customerOptional', $locale)} />
               </Select.Trigger>
@@ -1180,10 +1565,19 @@
           </div>
         </div>
         
-        <div class="grid grid-cols-2 gap-2">
+        <div class="grid grid-cols-3 gap-2">
           <Button variant="outline" class="h-12" on:click={clearCart} disabled={cart.length === 0}>
             <Trash2 size={16} class="mr-2" />
             {t('sales.clear', $locale)}
+          </Button>
+          <Button 
+            variant="outline" 
+            class="h-12 text-orange-500 border-orange-500 hover:bg-orange-500/10"
+            on:click={openDeliveryDialog}
+            disabled={cart.length === 0 || !$hasActiveShift}
+          >
+            <Truck size={16} class="mr-2" />
+            Delivery
           </Button>
           <Button 
             variant="default" 
@@ -1194,6 +1588,19 @@
             {t('sales.checkout', $locale)}
           </Button>
         </div>
+        
+        <!-- Pending Deliveries Badge -->
+        {#if pendingDeliveries.length > 0}
+          <Button 
+            variant="ghost" 
+            class="w-full mt-2 text-orange-500 hover:bg-orange-500/10"
+            on:click={() => showPendingDeliveries = !showPendingDeliveries}
+          >
+            <Truck size={16} class="mr-2" />
+            {pendingDeliveries.length} {$locale === 'es' ? 'deliveries pendientes' : 'pending deliveries'}
+            <CircleDot size={12} class="ml-2 animate-pulse" />
+          </Button>
+        {/if}
       </div>
     </div>
   </div>
@@ -1643,6 +2050,278 @@
     </div>
   </div>
 {/if}
+
+<!-- Delivery Dialog -->
+<Dialog.Root bind:open={deliveryDialogOpen}>
+  <Dialog.Content class="max-w-md">
+    <Dialog.Header>
+      <Dialog.Title class="flex items-center gap-2">
+        <Truck size={20} class="text-orange-500" />
+        {$locale === 'es' ? 'Crear Orden de Delivery' : 'Create Delivery Order'}
+      </Dialog.Title>
+      <Dialog.Description>
+        {$locale === 'es' 
+          ? 'La orden quedará pendiente hasta confirmar el pago al entregar.' 
+          : 'Order will remain pending until payment is confirmed on delivery.'}
+      </Dialog.Description>
+    </Dialog.Header>
+    
+    <div class="py-4 space-y-4">
+      <!-- Order Summary -->
+      <div class="bg-muted/50 rounded-lg p-3">
+        <div class="flex justify-between mb-2">
+          <span class="text-muted-foreground">{$locale === 'es' ? 'Artículos:' : 'Items:'}</span>
+          <span class="font-bold">{cart.length}</span>
+        </div>
+        <div class="flex justify-between text-lg">
+          <span class="font-bold">{$locale === 'es' ? 'Total:' : 'Total:'}</span>
+          <span class="font-bold text-primary">${total.toFixed(2)}</span>
+        </div>
+      </div>
+      
+      <!-- Delivery Info -->
+      <div class="space-y-3">
+        <div class="space-y-2">
+          <Label class="flex items-center gap-2">
+            <MapPin size={14} />
+            {$locale === 'es' ? 'Dirección de Entrega' : 'Delivery Address'}
+          </Label>
+          <Input 
+            bind:value={deliveryAddress}
+            placeholder={$locale === 'es' ? 'Calle, número, sector...' : 'Street, number, area...'}
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <Label class="flex items-center gap-2">
+            <Phone size={14} />
+            {$locale === 'es' ? 'Teléfono de Contacto' : 'Contact Phone'}
+          </Label>
+          <Input 
+            bind:value={deliveryPhone}
+            placeholder="809-000-0000"
+            type="tel"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <Label class="flex items-center gap-2">
+            <FileText size={14} />
+            {$locale === 'es' ? 'Notas de Entrega' : 'Delivery Notes'}
+          </Label>
+          <Input 
+            bind:value={deliveryNotes}
+            placeholder={$locale === 'es' ? 'Instrucciones especiales...' : 'Special instructions...'}
+          />
+        </div>
+      </div>
+      
+      {#if selectedCustomer}
+        <div class="text-sm text-muted-foreground flex items-center gap-2">
+          <User size={14} />
+          {$locale === 'es' ? 'Cliente:' : 'Customer:'} {selectedCustomer.name}
+        </div>
+      {/if}
+    </div>
+    
+    <Dialog.Footer>
+      <Button variant="outline" on:click={() => deliveryDialogOpen = false}>
+        {$locale === 'es' ? 'Cancelar' : 'Cancel'}
+      </Button>
+      <Button 
+        variant="default" 
+        class="bg-orange-500 hover:bg-orange-600"
+        on:click={createDeliveryOrder}
+      >
+        <Truck size={16} class="mr-2" />
+        {$locale === 'es' ? 'Crear Delivery' : 'Create Delivery'}
+      </Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
+
+<!-- Pending Deliveries Panel -->
+{#if showPendingDeliveries}
+  <div class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" on:click={() => showPendingDeliveries = false}>
+    <div 
+      class="fixed right-0 top-0 h-full w-full max-w-md bg-card border-l border-border shadow-2xl overflow-auto"
+      on:click|stopPropagation
+    >
+      <div class="sticky top-0 bg-card border-b border-border p-4 flex items-center justify-between">
+        <h2 class="font-bold text-lg flex items-center gap-2">
+          <Truck size={20} class="text-orange-500" />
+          {$locale === 'es' ? 'Deliveries Pendientes' : 'Pending Deliveries'}
+          <Badge variant="secondary">{pendingDeliveries.length}</Badge>
+        </h2>
+        <Button variant="ghost" size="icon" on:click={() => showPendingDeliveries = false}>
+          <X size={18} />
+        </Button>
+      </div>
+      
+      <div class="p-4 space-y-3">
+        {#if pendingDeliveries.length === 0}
+          <div class="text-center py-8 text-muted-foreground">
+            <Truck size={48} class="mx-auto mb-4 opacity-20" />
+            <p>{$locale === 'es' ? 'No hay deliveries pendientes' : 'No pending deliveries'}</p>
+          </div>
+        {:else}
+          {#each pendingDeliveries as delivery}
+            <Card.Root class="border-orange-500/30">
+              <Card.Content class="p-4">
+                <div class="flex justify-between items-start mb-2">
+                  <div>
+                    <div class="font-mono font-bold">#{delivery.receiptNumber}</div>
+                    <div class="text-sm text-muted-foreground">
+                      {new Date(delivery.createdAt).toLocaleTimeString($locale === 'es' ? 'es-DO' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-lg font-bold text-primary">${delivery.total.toFixed(2)}</div>
+                    <Badge variant="outline" class="text-orange-500 border-orange-500">
+                      {$locale === 'es' ? 'Pendiente' : 'Pending'}
+                    </Badge>
+                  </div>
+                </div>
+                
+                {#if delivery.customerName}
+                  <div class="text-sm flex items-center gap-1 mb-1">
+                    <User size={12} />
+                    {delivery.customerName}
+                  </div>
+                {/if}
+                
+                {#if delivery.deliveryAddress}
+                  <div class="text-sm flex items-center gap-1 mb-1 text-muted-foreground">
+                    <MapPin size={12} />
+                    {delivery.deliveryAddress}
+                  </div>
+                {/if}
+                
+                {#if delivery.deliveryPhone}
+                  <div class="text-sm flex items-center gap-1 mb-2 text-muted-foreground">
+                    <Phone size={12} />
+                    {delivery.deliveryPhone}
+                  </div>
+                {/if}
+                
+                <div class="text-xs text-muted-foreground mb-3">
+                  {delivery.items.length} {$locale === 'es' ? 'artículos' : 'items'}
+                </div>
+                
+                <div class="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    class="flex-1 text-red-500 border-red-500/50 hover:bg-red-500/10"
+                    on:click={() => cancelDelivery(delivery)}
+                  >
+                    <X size={14} class="mr-1" />
+                    {$locale === 'es' ? 'Cancelar' : 'Cancel'}
+                  </Button>
+                  <Button 
+                    variant="default" 
+                    size="sm" 
+                    class="flex-1 bg-green-500 hover:bg-green-600"
+                    on:click={() => openCompleteDeliveryDialog(delivery)}
+                  >
+                    <CheckCircle2 size={14} class="mr-1" />
+                    {$locale === 'es' ? 'Completar' : 'Complete'}
+                  </Button>
+                </div>
+              </Card.Content>
+            </Card.Root>
+          {/each}
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Complete Delivery Dialog -->
+<Dialog.Root bind:open={completeDeliveryDialogOpen}>
+  <Dialog.Content class="max-w-md">
+    <Dialog.Header>
+      <Dialog.Title class="flex items-center gap-2">
+        <CheckCircle2 size={20} class="text-green-500" />
+        {$locale === 'es' ? 'Completar Delivery' : 'Complete Delivery'}
+      </Dialog.Title>
+      <Dialog.Description>
+        {$locale === 'es' 
+          ? 'Confirme el método de pago utilizado por el cliente.' 
+          : 'Confirm the payment method used by the customer.'}
+      </Dialog.Description>
+    </Dialog.Header>
+    
+    {#if selectedDelivery}
+      <div class="py-4 space-y-4">
+        <!-- Order Info -->
+        <div class="bg-muted/50 rounded-lg p-4">
+          <div class="flex justify-between mb-2">
+            <span class="font-mono">#{selectedDelivery.receiptNumber}</span>
+            {#if selectedDelivery.customerName}
+              <span>{selectedDelivery.customerName}</span>
+            {/if}
+          </div>
+          <div class="text-2xl font-bold text-center text-primary">
+            ${selectedDelivery.total.toFixed(2)}
+          </div>
+        </div>
+        
+        <!-- Payment Method Selection -->
+        <div class="space-y-2">
+          <Label>{$locale === 'es' ? 'Método de Pago Real' : 'Actual Payment Method'}</Label>
+          <div class="grid grid-cols-3 gap-2">
+            <Button 
+              variant={deliveryPaymentMethod === 'cash' ? 'default' : 'outline'} 
+              class="h-14 flex-col gap-1 text-xs"
+              on:click={() => deliveryPaymentMethod = 'cash'}
+            >
+              <Banknote size={18} />
+              {$locale === 'es' ? 'Efectivo' : 'Cash'}
+            </Button>
+            <Button 
+              variant={deliveryPaymentMethod === 'credit_card' ? 'default' : 'outline'} 
+              class="h-14 flex-col gap-1 text-xs"
+              on:click={() => deliveryPaymentMethod = 'credit_card'}
+            >
+              <CreditCard size={18} />
+              {$locale === 'es' ? 'Tarjeta' : 'Card'}
+            </Button>
+            <Button 
+              variant={deliveryPaymentMethod === 'bank_transfer' ? 'default' : 'outline'} 
+              class="h-14 flex-col gap-1 text-xs"
+              on:click={() => deliveryPaymentMethod = 'bank_transfer'}
+            >
+              <Receipt size={18} />
+              {$locale === 'es' ? 'Transfer.' : 'Transfer'}
+            </Button>
+          </div>
+        </div>
+        
+        {#if selectedDelivery.deliveryAddress}
+          <div class="text-sm text-muted-foreground flex items-center gap-2">
+            <MapPin size={14} />
+            {selectedDelivery.deliveryAddress}
+          </div>
+        {/if}
+      </div>
+    {/if}
+    
+    <Dialog.Footer>
+      <Button variant="outline" on:click={() => completeDeliveryDialogOpen = false}>
+        {$locale === 'es' ? 'Cancelar' : 'Cancel'}
+      </Button>
+      <Button 
+        variant="default" 
+        class="bg-green-500 hover:bg-green-600"
+        on:click={completeDelivery}
+      >
+        <CheckCircle2 size={16} class="mr-2" />
+        {$locale === 'es' ? 'Confirmar Pago' : 'Confirm Payment'}
+      </Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
 
 <style>
   /* Custom scrollbar for cart */

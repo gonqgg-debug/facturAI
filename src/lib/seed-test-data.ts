@@ -9,7 +9,15 @@
  */
 
 import { db, dbReady, generateId } from './db';
-import type { Supplier, Product, Customer, Sale, Invoice, InvoiceItem, CashRegisterShift, Payment, StockMovement, PurchaseOrder, PurchaseOrderItem } from './types';
+import type { 
+    Supplier, Product, Customer, Sale, Invoice, InvoiceItem, CashRegisterShift, 
+    Payment, StockMovement, PurchaseOrder, PurchaseOrderItem,
+    InventoryLot, CostConsumption, JournalEntry, ITBISSummary, CardSettlement,
+    PaymentMethodType
+} from './types';
+import { addInventoryLot, consumeFIFO, getCOGSForShift } from './fifo';
+import { createShiftCOGSEntry, createCardSettlementEntry } from './journal';
+import { recordSaleITBIS, recordPurchaseITBIS, getOrCreateSummary } from './itbis';
 
 // ============ UUID GENERATOR ============
 // Generate a UUID for Dexie Cloud @id fields
@@ -99,6 +107,12 @@ interface BackupData {
         stockMovements: StockMovement[];
         purchaseOrders: PurchaseOrder[];
         receipts: any[];
+        // New accounting tables
+        inventoryLots: InventoryLot[];
+        costConsumptions: CostConsumption[];
+        journalEntries: JournalEntry[];
+        itbisSummaries: ITBISSummary[];
+        cardSettlements: CardSettlement[];
     };
 }
 
@@ -113,7 +127,7 @@ export async function backupRealData(download = true): Promise<BackupData> {
     
     const backup: BackupData = {
         backupDate: new Date().toISOString(),
-        version: '1.0',
+        version: '2.0',
         data: {
             suppliers: await db.suppliers.toArray(),
             products: await db.products.toArray(),
@@ -125,6 +139,12 @@ export async function backupRealData(download = true): Promise<BackupData> {
             stockMovements: await db.stockMovements.toArray(),
             purchaseOrders: await db.purchaseOrders.toArray(),
             receipts: await db.receipts.toArray(),
+            // New accounting tables
+            inventoryLots: await db.inventoryLots.toArray(),
+            costConsumptions: await db.costConsumptions.toArray(),
+            journalEntries: await db.journalEntries.toArray(),
+            itbisSummaries: await db.itbisSummaries.toArray(),
+            cardSettlements: await db.cardSettlements.toArray(),
         },
     };
     
@@ -201,6 +221,22 @@ export async function restoreRealData(): Promise<boolean> {
         if (backup.data.receipts?.length) {
             await db.receipts.bulkAdd(backup.data.receipts);
         }
+        // New accounting tables
+        if (backup.data.inventoryLots?.length) {
+            await db.inventoryLots.bulkAdd(backup.data.inventoryLots);
+        }
+        if (backup.data.costConsumptions?.length) {
+            await db.costConsumptions.bulkAdd(backup.data.costConsumptions);
+        }
+        if (backup.data.journalEntries?.length) {
+            await db.journalEntries.bulkAdd(backup.data.journalEntries);
+        }
+        if (backup.data.itbisSummaries?.length) {
+            await db.itbisSummaries.bulkAdd(backup.data.itbisSummaries);
+        }
+        if (backup.data.cardSettlements?.length) {
+            await db.cardSettlements.bulkAdd(backup.data.cardSettlements);
+        }
         
         // Clear test mode flag
         localStorage.removeItem(TEST_MODE_KEY);
@@ -251,6 +287,12 @@ async function clearAllData(): Promise<void> {
     await db.payments.clear();
     await db.purchaseOrders.clear();
     await db.receipts.clear();
+    // New accounting tables
+    await db.inventoryLots.clear();
+    await db.costConsumptions.clear();
+    await db.journalEntries.clear();
+    await db.itbisSummaries.clear();
+    await db.cardSettlements.clear();
     // Note: Keeping users, roles, bankAccounts, rules, globalContext
     
     console.log('✅ Data cleared');
@@ -451,8 +493,8 @@ async function seedCustomers(): Promise<Customer[]> {
     return customers;
 }
 
-async function seedSales(products: Product[], customers: Customer[], onProgress?: (progress: number) => void): Promise<number> {
-    console.log('🛒 Seeding sales (this may take a moment)...');
+async function seedSales(products: Product[], customers: Customer[], onProgress?: (progress: number) => void): Promise<{ salesCount: number; cardSales: Sale[] }> {
+    console.log('🛒 Seeding sales with FIFO consumption (this may take a moment)...');
     
     const startDate = CONFIG.startDate;
     const endDate = CONFIG.endDate;
@@ -462,6 +504,8 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
     let totalSales = 0;
     let currentShift: CashRegisterShift | null = null;
     let shiftSalesCount = 0;
+    let shiftCOGS = 0;
+    const cardSales: Sale[] = []; // Track for card settlement
     
     // Use <= to include the current day (endDate)
     for (let day = 0; day <= totalDays; day++) {
@@ -483,11 +527,25 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
         // Shifts use ++id (auto-increment) so we add without id and get it back
         if (!currentShift || shiftSalesCount > 50) {
             if (currentShift) {
+                // Close the shift and create COGS journal entry
+                const shiftCloseDate = new Date(currentDate.getTime() + randomInt(8, 12) * 60 * 60 * 1000);
                 await db.shifts.update(currentShift.id!, {
-                    closedAt: new Date(currentDate.getTime() + randomInt(8, 12) * 60 * 60 * 1000),
+                    closedAt: shiftCloseDate,
                     status: 'closed',
                     salesCount: shiftSalesCount,
                 });
+                
+                // Create COGS journal entry for the shift (use correct close date!)
+                if (shiftCOGS > 0) {
+                    try {
+                        await createShiftCOGSEntry(
+                            { ...currentShift, status: 'closed', closedAt: shiftCloseDate } as CashRegisterShift,
+                            shiftCOGS
+                        );
+                    } catch (e) {
+                        // Ignore errors, continue
+                    }
+                }
             }
             
             const shiftData: Omit<CashRegisterShift, 'id'> = {
@@ -499,6 +557,7 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
             const shiftId = await db.shifts.add(shiftData as CashRegisterShift) as number;
             currentShift = { ...shiftData, id: shiftId };
             shiftSalesCount = 0;
+            shiftCOGS = 0;
         }
         
         for (let s = 0; s < numSales; s++) {
@@ -506,8 +565,10 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
             const items: InvoiceItem[] = [];
             let subtotal = 0;
             let itbisTotal = 0;
+            let saleCOGS = 0;
             
             const usedProducts = new Set<string>(); // UUID set
+            const saleId = generateId();
             
             for (let i = 0; i < numItems; i++) {
                 let product: Product;
@@ -537,6 +598,18 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
                 
                 subtotal += value - itbis;
                 itbisTotal += itbis;
+                
+                // Consume from FIFO lots (only for products with ID)
+                if (product.id) {
+                    try {
+                        const consumption = await consumeFIFO(product.id, quantity, { saleId });
+                        saleCOGS += consumption.totalCost;
+                    } catch (e) {
+                        // If no lots available, estimate cost
+                        const costExTax = product.lastPrice / (1 + (product.costTaxRate || 0.18));
+                        saleCOGS += costExTax * quantity;
+                    }
+                }
             }
             
             const total = subtotal + itbisTotal;
@@ -544,10 +617,12 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
             
             const customer = Math.random() > 0.6 ? randomElement(customers) : undefined;
             const saleTime = new Date(currentDate.getTime() + randomInt(7, 21) * 60 * 60 * 1000);
+            const paymentMethods: PaymentMethodType[] = ['cash', 'cash', 'cash', 'credit_card', 'debit_card', 'bank_transfer'];
+            const paymentMethod = randomElement(paymentMethods);
             
             // Use generateId() from db.ts for Dexie Cloud @id fields
             const sale: Sale = {
-                id: generateId(),
+                id: saleId,
                 date: formatDate(saleTime),
                 customerId: customer?.id,
                 customerName: customer?.name || 'Cliente General',
@@ -556,7 +631,7 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
                 discount,
                 itbisTotal,
                 total: total - discount,
-                paymentMethod: randomElement(['cash', 'cash', 'cash', 'credit_card', 'debit_card', 'bank_transfer']),
+                paymentMethod,
                 paymentStatus: 'paid',
                 paidAmount: total - discount,
                 shiftId: currentShift.id,
@@ -565,6 +640,20 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
             };
             
             await db.sales.add(sale);
+            
+            // Record ITBIS collected
+            try {
+                await recordSaleITBIS(sale);
+            } catch (e) {
+                // Ignore errors
+            }
+            
+            // Track card sales for settlement
+            if (paymentMethod === 'credit_card' || paymentMethod === 'debit_card') {
+                cardSales.push(sale);
+            }
+            
+            shiftCOGS += saleCOGS;
             totalSales++;
             shiftSalesCount++;
         }
@@ -577,25 +666,40 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
     
     // Close final shift
     if (currentShift) {
+        // Use the end date for the final shift close (today's date in the simulation)
+        const finalShiftCloseDate = new Date(CONFIG.endDate.getTime() + randomInt(8, 12) * 60 * 60 * 1000);
         await db.shifts.update(currentShift.id!, {
-            closedAt: new Date(),
+            closedAt: finalShiftCloseDate,
             status: 'closed',
             salesCount: shiftSalesCount,
         });
+        
+        // Create COGS journal entry for final shift (use correct close date!)
+        if (shiftCOGS > 0) {
+            try {
+                await createShiftCOGSEntry(
+                    { ...currentShift, status: 'closed', closedAt: finalShiftCloseDate } as CashRegisterShift,
+                    shiftCOGS
+                );
+            } catch (e) {
+                // Ignore errors
+            }
+        }
     }
     
-    console.log(`✅ Created ${totalSales} sales over ${totalDays} days`);
-    return totalSales;
+    console.log(`✅ Created ${totalSales} sales over ${totalDays} days (${cardSales.length} card sales)`);
+    return { salesCount: totalSales, cardSales };
 }
 
 async function seedInvoices(suppliers: Supplier[], products: Product[]): Promise<number> {
-    console.log('📄 Seeding purchase invoices...');
+    console.log('📄 Seeding purchase invoices with FIFO lots...');
     
     const startDate = CONFIG.startDate;
     const endDate = CONFIG.endDate;
     const dayMs = 24 * 60 * 60 * 1000;
     const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / dayMs);
     let totalInvoices = 0;
+    let totalLots = 0;
     
     // Generate invoices roughly every 3-4 days (use <= to include current day)
     for (let day = 0; day <= totalDays; day += randomInt(3, 4)) {
@@ -616,19 +720,23 @@ async function seedInvoices(suppliers: Supplier[], products: Product[]): Promise
             let subtotal = 0;
             let itbisTotal = 0;
             
+            // Track items for FIFO lot creation
+            const itemsForLots: { productId: string; quantity: number; unitPrice: number; taxRate: number }[] = [];
+            
             for (let j = 0; j < numItems; j++) {
                 const product = randomElement(productsToOrder);
                 const quantity = randomInt(5, 50);
                 const unitPrice = product.lastPrice;
+                const taxRate = product.costTaxRate || 0.18;
                 const value = unitPrice * quantity;
-                const itbis = value * 0.18 / 1.18;
+                const itbis = value * taxRate / (1 + taxRate);
                 
                 items.push({
                     description: product.name,
                     productId: product.productId,
                     quantity,
                     unitPrice,
-                    taxRate: 0.18,
+                    taxRate,
                     priceIncludesTax: true,
                     value: value - itbis,
                     itbis,
@@ -637,11 +745,23 @@ async function seedInvoices(suppliers: Supplier[], products: Product[]): Promise
                 
                 subtotal += value - itbis;
                 itbisTotal += itbis;
+                
+                // Track for FIFO lot creation
+                if (product.id) {
+                    itemsForLots.push({
+                        productId: product.id,
+                        quantity,
+                        unitPrice,
+                        taxRate
+                    });
+                }
             }
+            
+            const invoiceId = generateId();
             
             // Use generateId() from db.ts for Dexie Cloud @id fields
             const invoice: Invoice = {
-                id: generateId(),
+                id: invoiceId,
                 providerName: supplier.name,
                 providerRnc: supplier.rnc,
                 issueDate: formatDate(invoiceDate),
@@ -660,11 +780,43 @@ async function seedInvoices(suppliers: Supplier[], products: Product[]): Promise
             };
             
             await db.invoices.add(invoice);
+            
+            // Create FIFO inventory lots for each item
+            for (const item of itemsForLots) {
+                const costExTax = item.unitPrice / (1 + item.taxRate);
+                
+                // Some products are perishables - add expiration dates
+                const isPerishable = Math.random() < 0.3;
+                const expirationDate = isPerishable 
+                    ? formatDate(new Date(invoiceDate.getTime() + randomInt(7, 60) * dayMs))
+                    : undefined;
+                
+                await addInventoryLot(
+                    item.productId,
+                    item.quantity,
+                    costExTax,
+                    item.taxRate,
+                    {
+                        invoiceId,
+                        purchaseDate: formatDate(invoiceDate),
+                        expirationDate
+                    }
+                );
+                totalLots++;
+            }
+            
+            // Record ITBIS paid on this invoice
+            try {
+                await recordPurchaseITBIS(invoice);
+            } catch (e) {
+                // Ignore errors, just continue
+            }
+            
             totalInvoices++;
         }
     }
     
-    console.log(`✅ Created ${totalInvoices} purchase invoices`);
+    console.log(`✅ Created ${totalInvoices} purchase invoices with ${totalLots} FIFO lots`);
     return totalInvoices;
 }
 
@@ -821,6 +973,97 @@ async function seedPurchaseOrders(suppliers: Supplier[], products: Product[]): P
     return totalPOs;
 }
 
+async function seedCardSettlements(cardSales: Sale[]): Promise<number> {
+    console.log('💳 Seeding card settlements...');
+    
+    if (cardSales.length === 0) {
+        console.log('  No card sales to settle');
+        return 0;
+    }
+    
+    // Group sales by week for settlements
+    const salesByWeek: Map<string, Sale[]> = new Map();
+    
+    for (const sale of cardSales) {
+        const saleDate = new Date(sale.date);
+        // Get week key (year-week)
+        const weekStart = new Date(saleDate);
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Start of week
+        const weekKey = formatDate(weekStart);
+        
+        if (!salesByWeek.has(weekKey)) {
+            salesByWeek.set(weekKey, []);
+        }
+        salesByWeek.get(weekKey)!.push(sale);
+    }
+    
+    let totalSettlements = 0;
+    const dayMs = 24 * 60 * 60 * 1000;
+    
+    for (const [weekKey, sales] of salesByWeek) {
+        // Settlement happens 2-3 days after week end
+        const settlementDate = new Date(new Date(weekKey).getTime() + randomInt(9, 11) * dayMs);
+        
+        // Calculate totals
+        const grossAmount = sales.reduce((sum, s) => sum + s.total, 0);
+        const commissionRate = randomFloat(0.025, 0.045); // 2.5% - 4.5%
+        const itbisRetentionRate = 0.02; // 2% ITBIS retention
+        
+        const commissionAmount = grossAmount * commissionRate;
+        const itbisRetentionAmount = grossAmount * itbisRetentionRate;
+        const netDeposit = grossAmount - commissionAmount - itbisRetentionAmount;
+        
+        const saleIds = sales.map(s => s.id!).filter(id => id);
+        const periodStart = sales.reduce((min, s) => s.date < min ? s.date : min, sales[0].date);
+        const periodEnd = sales.reduce((max, s) => s.date > max ? s.date : max, sales[0].date);
+        
+        const settlementId = generateId();
+        
+        const settlement: CardSettlement = {
+            id: settlementId,
+            settlementDate: formatDate(settlementDate),
+            periodStart,
+            periodEnd,
+            grossAmount,
+            commissionRate,
+            commissionAmount,
+            itbisRetentionRate,
+            itbisRetentionAmount,
+            netDeposit,
+            saleIds,
+            status: 'reconciled',
+            reconciledAt: settlementDate,
+            depositReference: `DEP-${formatDate(settlementDate).replace(/-/g, '')}-${String(totalSettlements + 1).padStart(3, '0')}`,
+            createdAt: settlementDate
+        };
+        
+        await db.cardSettlements.add(settlement);
+        
+        // Create journal entry for the settlement
+        try {
+            const journalEntry = await createCardSettlementEntry(
+                grossAmount,
+                commissionRate,
+                itbisRetentionRate,
+                formatDate(settlementDate),
+                settlement.depositReference
+            );
+            
+            // Update settlement with journal entry ID
+            await db.cardSettlements.update(settlementId, {
+                journalEntryId: journalEntry.id
+            });
+        } catch (e) {
+            // Ignore errors
+        }
+        
+        totalSettlements++;
+    }
+    
+    console.log(`✅ Created ${totalSettlements} card settlements`);
+    return totalSettlements;
+}
+
 // ============ MAIN FUNCTIONS ============
 
 export interface SeedProgress {
@@ -836,6 +1079,9 @@ export interface SeedResult {
     sales: number;
     invoices: number;
     purchaseOrders: number;
+    inventoryLots: number;
+    journalEntries: number;
+    cardSettlements: number;
     duration: number;
 }
 
@@ -873,18 +1119,26 @@ export async function activateTestData(onProgress?: (progress: SeedProgress) => 
         onProgress?.({ stage: 'Creating customers...', percent: 35 });
         const customers = await seedCustomers();
         
-        // Step 6: Seed sales (longest step)
-        const salesCount = await seedSales(products, customers, (p) => {
-            onProgress?.({ stage: `Creating sales... ${p}%`, percent: 35 + (p * 0.5) });
-        });
-        
-        // Step 7: Seed invoices
-        onProgress?.({ stage: 'Creating invoices...', percent: 85 });
+        // Step 6: Seed invoices FIRST (creates FIFO lots that sales can consume)
+        onProgress?.({ stage: 'Creating invoices with FIFO lots...', percent: 35 });
         const invoicesCount = await seedInvoices(suppliers, products);
         
+        // Step 7: Seed sales (longest step, consumes FIFO lots)
+        const { salesCount, cardSales } = await seedSales(products, customers, (p) => {
+            onProgress?.({ stage: `Creating sales with FIFO... ${p}%`, percent: 45 + (p * 0.35) });
+        });
+        
         // Step 8: Seed purchase orders
-        onProgress?.({ stage: 'Creating purchase orders...', percent: 92 });
+        onProgress?.({ stage: 'Creating purchase orders...', percent: 85 });
         const purchaseOrdersCount = await seedPurchaseOrders(suppliers, products);
+        
+        // Step 9: Seed card settlements
+        onProgress?.({ stage: 'Creating card settlements...', percent: 92 });
+        const cardSettlementsCount = await seedCardSettlements(cardSales);
+        
+        // Get counts of generated accounting records
+        const inventoryLotsCount = await db.inventoryLots.count();
+        const journalEntriesCount = await db.journalEntries.count();
         
         // Set test mode flag
         localStorage.setItem(TEST_MODE_KEY, 'true');
@@ -903,6 +1157,11 @@ export async function activateTestData(onProgress?: (progress: SeedProgress) => 
         console.log(`📄 Invoices: ${invoicesCount}`);
         console.log(`📋 Purchase Orders: ${purchaseOrdersCount}`);
         console.log('');
+        console.log('📊 Accounting Data:');
+        console.log(`📦 FIFO Inventory Lots: ${inventoryLotsCount}`);
+        console.log(`📒 Journal Entries: ${journalEntriesCount}`);
+        console.log(`💳 Card Settlements: ${cardSettlementsCount}`);
+        console.log('');
         console.log('💾 Your real data has been backed up and downloaded!');
         console.log('🔄 Refresh the page to see the test data.');
         
@@ -914,6 +1173,9 @@ export async function activateTestData(onProgress?: (progress: SeedProgress) => 
             sales: salesCount,
             invoices: invoicesCount,
             purchaseOrders: purchaseOrdersCount,
+            inventoryLots: inventoryLotsCount,
+            journalEntries: journalEntriesCount,
+            cardSettlements: cardSettlementsCount,
             duration,
         };
     } catch (error) {
@@ -926,6 +1188,9 @@ export async function activateTestData(onProgress?: (progress: SeedProgress) => 
             sales: 0,
             invoices: 0,
             purchaseOrders: 0,
+            inventoryLots: 0,
+            journalEntries: 0,
+            cardSettlements: 0,
             duration: (Date.now() - startTime) / 1000,
         };
     }
@@ -990,19 +1255,27 @@ export async function forceSeedTestData(): Promise<SeedResult> {
         console.log('👥 Creating customers...');
         const customers = await seedCustomers();
         
-        // Seed sales
-        console.log('🛒 Creating sales (this may take a moment)...');
-        const salesCount = await seedSales(products, customers, (p) => {
+        // Seed invoices FIRST (creates FIFO lots)
+        console.log('📄 Creating invoices with FIFO lots...');
+        const invoicesCount = await seedInvoices(suppliers, products);
+        
+        // Seed sales (consumes FIFO lots)
+        console.log('🛒 Creating sales with FIFO consumption (this may take a moment)...');
+        const { salesCount, cardSales } = await seedSales(products, customers, (p) => {
             if (p % 20 === 0) console.log(`  Sales progress: ${p}%`);
         });
-        
-        // Seed invoices
-        console.log('📄 Creating invoices...');
-        const invoicesCount = await seedInvoices(suppliers, products);
         
         // Seed purchase orders
         console.log('📋 Creating purchase orders...');
         const purchaseOrdersCount = await seedPurchaseOrders(suppliers, products);
+        
+        // Seed card settlements
+        console.log('💳 Creating card settlements...');
+        const cardSettlementsCount = await seedCardSettlements(cardSales);
+        
+        // Get counts of generated accounting records
+        const inventoryLotsCount = await db.inventoryLots.count();
+        const journalEntriesCount = await db.journalEntries.count();
         
         // Set test mode flag
         localStorage.setItem(TEST_MODE_KEY, 'true');
@@ -1019,6 +1292,11 @@ export async function forceSeedTestData(): Promise<SeedResult> {
         console.log(`📄 Invoices: ${invoicesCount}`);
         console.log(`📋 Purchase Orders: ${purchaseOrdersCount}`);
         console.log('');
+        console.log('📊 Accounting Data:');
+        console.log(`📦 FIFO Inventory Lots: ${inventoryLotsCount}`);
+        console.log(`📒 Journal Entries: ${journalEntriesCount}`);
+        console.log(`💳 Card Settlements: ${cardSettlementsCount}`);
+        console.log('');
         console.log('🔄 Refresh the page to see the test data!');
         
         return {
@@ -1029,6 +1307,9 @@ export async function forceSeedTestData(): Promise<SeedResult> {
             sales: salesCount,
             invoices: invoicesCount,
             purchaseOrders: purchaseOrdersCount,
+            inventoryLots: inventoryLotsCount,
+            journalEntries: journalEntriesCount,
+            cardSettlements: cardSettlementsCount,
             duration,
         };
     } catch (error) {
@@ -1041,6 +1322,9 @@ export async function forceSeedTestData(): Promise<SeedResult> {
             sales: 0,
             invoices: 0,
             purchaseOrders: 0,
+            inventoryLots: 0,
+            journalEntries: 0,
+            cardSettlements: 0,
             duration: (Date.now() - startTime) / 1000,
         };
     }

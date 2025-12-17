@@ -1,13 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { db } from '$lib/db';
+  import { db, generateId } from '$lib/db';
   import { Search, Plus, Upload, Edit2, Trash2, Package, AlertTriangle, Barcode, Download, ArrowUpDown, ArrowUp, ArrowDown, Columns3, Receipt, ShoppingCart, Sparkles, Brain, CheckCircle } from 'lucide-svelte';
   import type { Product, Supplier, Sale, Invoice, StockMovement } from '$lib/types';
   import * as XLSX from 'xlsx';
   import { checkLowStock, generateEnhancedStockAlerts, getInventoryInsights, type StockAlert, type EnhancedStockAlert } from '$lib/alerts';
 import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListItem, initializeBackgroundProcessing } from '$lib/inventory-ai';
-import { apiKey } from '$lib/stores';
   import { TAX_RATES, getPriceWithoutTax, getPriceWithTax, ITBIS_RATE } from '$lib/tax';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -128,10 +127,7 @@ import { apiKey } from '$lib/stores';
   }
 
   async function generateSmartShoppingListHandler() {
-    if (!$apiKey) {
-      alert('Se requiere API Key para generar la lista inteligente de compras. Configúrala en Ajustes.');
-      return;
-    }
+    // API key is now configured server-side via environment variable (XAI_API_KEY)
 
     // Trigger click animation
     buttonClickAnimation = true;
@@ -406,12 +402,14 @@ import { apiKey } from '$lib/stores';
         let supplier = suppliers.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
         
         if (!supplier && supplierName !== 'Unknown') {
-          const id = await db.suppliers.add({ name: supplierName, rnc: '000000000', examples: [] });
-          supplier = { id: id as number, name: supplierName, rnc: '000000000', examples: [] };
+          const newSupplierId = generateId();
+          await db.suppliers.add({ id: newSupplierId, name: supplierName, rnc: '000000000', examples: [] });
+          supplier = { id: newSupplierId, name: supplierName, rnc: '000000000', examples: [] };
           suppliers.push(supplier);
         }
 
         await db.products.add({
+          id: generateId(),
           name: name || `Product ${productId || barcode}`,
           supplierId: supplier?.id,
           lastPrice: lastPrice || 0,
@@ -489,6 +487,7 @@ import { apiKey } from '$lib/stores';
 
     if (isCreating) {
         await db.products.add({
+            id: generateId(),
             ...data,
             lastDate: new Date().toISOString().split('T')[0],
             lastStockUpdate: new Date().toISOString().split('T')[0]
@@ -1178,7 +1177,7 @@ import { apiKey } from '$lib/stores';
               <div class="flex flex-col items-center space-y-4">
                 <Button
                   on:click={generateSmartShoppingListHandler}
-                  disabled={isGeneratingShoppingList || !$apiKey}
+                  disabled={isGeneratingShoppingList}
                   size="lg"
                   class="transition-all duration-300 ease-out {buttonClickAnimation ? 'scale-95 shadow-lg ring-2 ring-primary/50' : 'hover:scale-105'}"
                 >
@@ -1206,11 +1205,6 @@ import { apiKey } from '$lib/stores';
                   </div>
                 {/if}
               </div>
-              {#if !$apiKey}
-                <p class="text-xs text-muted-foreground">
-                  {$locale === 'es' ? 'Requiere API Key configurada en Ajustes' : 'Requires API Key configured in Settings'}
-                </p>
-              {/if}
             </div>
           </Card.Content>
         </Card.Root>

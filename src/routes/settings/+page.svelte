@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import { locale, storeLocation } from '$lib/stores';
-  import { db } from '$lib/db';
+  import { db, generateId } from '$lib/db';
   import { Save, Download, Upload, Trash2, AlertTriangle, Plus, Building2, CreditCard, X, Check, Edit2, Star, Languages, CloudRain, MapPin, RefreshCw, FlaskConical, Database, RotateCcw, Lock, Unlock, FileCheck, Clock, HardDrive, ShieldCheck, FileWarning } from 'lucide-svelte';
   import { isTestMode, hasBackup, getBackupInfo, activateTestData, deactivateTestData, type SeedProgress, type SeedResult } from '$lib/seed-test-data';
   import type { BankAccount } from '$lib/types';
@@ -124,6 +124,7 @@
 
   async function loadBankAccounts() {
     bankAccounts = await db.bankAccounts.toArray();
+    console.log('[Settings] Loaded bank accounts:', bankAccounts);
   }
 
   function openAddBankModal() {
@@ -174,6 +175,7 @@
       if (editingBank?.id) {
         await db.bankAccounts.update(editingBank.id, accountData);
       } else {
+        accountData.id = generateId();
         await db.bankAccounts.add(accountData);
       }
 
@@ -276,7 +278,19 @@
       }
     } catch (error) {
       console.error('Failed to activate test data:', error);
-      seedResult = { success: false, suppliers: 0, products: 0, customers: 0, sales: 0, invoices: 0, duration: 0 };
+      seedResult = { 
+        success: false, 
+        suppliers: 0, 
+        products: 0, 
+        customers: 0, 
+        sales: 0, 
+        invoices: 0, 
+        purchaseOrders: 0,
+        inventoryLots: 0,
+        journalEntries: 0,
+        cardSettlements: 0,
+        duration: 0 
+      };
     } finally {
       isSeedingData = false;
     }

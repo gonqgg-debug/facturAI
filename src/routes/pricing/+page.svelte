@@ -18,7 +18,6 @@
         Columns3,
     } from "lucide-svelte";
     import type { Product, Supplier } from "$lib/types";
-    import { apiKey } from "$lib/stores";
     import { calculateMarginExTax, getProductCostExTax, getProductPriceExTax, ITBIS_RATE } from '$lib/tax';
     import { getCsrfHeader } from '$lib/csrf';
     import * as XLSX from 'xlsx';
@@ -186,10 +185,8 @@
     }
 
     async function analyzeWithAI() {
-        if (!$apiKey) {
-            alert("Please set your API Key in Settings first.");
-            return;
-        }
+        // API key is now configured server-side via environment variable (XAI_API_KEY)
+        // No client-side key check needed
 
         isAnalyzing = true;
         const productsToAnalyze = selectedProducts.length > 0

@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
-  import { db } from '$lib/db';
+  import { db, generateId } from '$lib/db';
   import { Search, Package, ArrowUp, ArrowDown, ClipboardList, AlertTriangle, CheckCircle2, History } from 'lucide-svelte';
   import type { Product, StockMovement } from '$lib/types';
+  import { getFIFOCost, consumeFIFO, addInventoryLot } from '$lib/fifo';
+  import { createShrinkageEntry } from '$lib/journal';
+  import { getProductCostExTax } from '$lib/tax';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Select from '$lib/components/ui/select';
   import * as Table from '$lib/components/ui/table';
@@ -111,16 +114,68 @@
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
     
-    // Create stock movement
+    // Get the FIFO cost for this product (for journal entry)
+    const unitCost = await getFIFOCost(selectedProduct.id);
+    const totalCost = Math.abs(difference) * unitCost;
+    
+    // Create stock movement with cost tracking
+    const movementUuid = generateId();
     const movement: StockMovement = {
+      id: movementUuid,
       productId: selectedProduct.id,
       type: 'adjustment',
       quantity: difference, // Positive for additions, negative for reductions
       date: dateStr,
-      notes: `${adjustmentReasons.find(r => r.value === adjustmentReason)?.label}: ${adjustmentNotes || 'Sin notas'}`
+      notes: `${adjustmentReasons.find(r => r.value === adjustmentReason)?.label}: ${adjustmentNotes || 'Sin notas'}`,
+      unitCost: unitCost,
+      totalCost: totalCost
     };
     
     await db.stockMovements.add(movement);
+    const movementId = movementUuid;
+    
+    // Handle FIFO inventory
+    if (difference < 0) {
+      // Stock reduction - consume from FIFO lots and create expense journal entry
+      // Note: strict=false allows adjusting legacy products without lots
+      await consumeFIFO(
+        selectedProduct.id,
+        Math.abs(difference),
+        { adjustmentId: String(movementId) }
+      );
+      
+      // Create shrinkage expense journal entry
+      // Debit: Expense account (based on reason)
+      // Credit: Inventory
+      await createShrinkageEntry(
+        adjustmentReason,
+        selectedProduct.name,
+        Math.abs(difference),
+        totalCost,
+        String(movementId),
+        adjustmentNotes
+      );
+    } else {
+      // Stock addition (found goods) - create a new lot
+      const taxRate = selectedProduct.costTaxRate ?? 0.18;
+      await addInventoryLot(
+        selectedProduct.id,
+        difference,
+        unitCost,
+        taxRate,
+        { purchaseDate: dateStr, lotNumber: 'ADJ-FOUND' }
+      );
+      
+      // Create journal entry for found goods
+      await createShrinkageEntry(
+        'found',
+        selectedProduct.name,
+        difference,
+        totalCost,
+        String(movementId),
+        adjustmentNotes
+      );
+    }
     
     // Update product stock
     await db.products.update(selectedProduct.id, {

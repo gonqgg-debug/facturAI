@@ -1,19 +1,35 @@
 <script lang="ts">
-  import type { Sale, CashRegisterShift } from '$lib/types';
+  import { onMount } from 'svelte';
+  import type { Sale, CashRegisterShift, ReceiptSettings } from '$lib/types';
+  import { DEFAULT_RECEIPT_SETTINGS } from '$lib/types';
+  import { db } from '$lib/db';
   import { locale } from '$lib/stores';
   import { t } from '$lib/i18n';
   import { Printer, Mail, X } from 'lucide-svelte';
   import { Button } from '$lib/components/ui/button';
+  import { browser } from '$app/environment';
 
   export let sale: Sale;
   export let shift: CashRegisterShift | null = null;
-  export let businessName = 'Mini Market';
-  export let businessRnc = '';
-  export let businessAddress = '';
-  export let businessPhone = '';
+  export let cashierName = '';
   export let cashReceived = 0;
   export let change = 0;
   export let onClose: () => void = () => {};
+
+  // Settings loaded from DB
+  let settings: ReceiptSettings = { ...DEFAULT_RECEIPT_SETTINGS };
+
+  onMount(async () => {
+    if (!browser) return;
+    try {
+      const stored = await db.receiptSettings.toArray();
+      if (stored.length > 0) {
+        settings = stored[0];
+      }
+    } catch (e) {
+      console.error('Error loading receipt settings', e);
+    }
+  });
 
   // Format date and time
   $: saleDate = sale.createdAt ? new Date(sale.createdAt) : new Date();
@@ -43,6 +59,9 @@
     const printWindow = window.open('', '_blank', 'width=300,height=600');
     if (!printWindow) return;
 
+    const fontSize = settings.fontSize === 'small' ? '10px' : settings.fontSize === 'large' ? '14px' : '12px';
+    const paperWidth = settings.paperWidth === '58mm' ? '58mm' : '80mm';
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -50,15 +69,15 @@
         <title>Receipt #${sale.receiptNumber || sale.id}</title>
         <style>
           @page { 
-            size: 80mm auto; 
+            size: ${paperWidth} auto; 
             margin: 0; 
           }
           body { 
             font-family: 'Courier New', monospace;
-            font-size: 12px;
+            font-size: ${fontSize};
             line-height: 1.4;
             padding: 10px;
-            max-width: 80mm;
+            max-width: ${paperWidth};
             margin: 0 auto;
           }
           .header { text-align: center; margin-bottom: 10px; }
@@ -106,18 +125,24 @@
 
     <!-- Receipt Content -->
     <div class="flex-1 overflow-y-auto p-4" id="receipt-content">
-      <div class="font-mono text-sm text-foreground">
+      <div class="font-mono text-sm text-foreground" style="font-size: {settings.fontSize === 'small' ? '10px' : settings.fontSize === 'large' ? '14px' : '12px'};">
         <!-- Header -->
         <div class="header text-center mb-4">
-          <h1 class="text-lg font-bold">{businessName}</h1>
-          {#if businessRnc}
-            <p class="text-xs text-muted-foreground">RNC: {businessRnc}</p>
+          <h1 class="text-lg font-bold">{settings.businessName}</h1>
+          {#if settings.showRnc && settings.rnc}
+            <p class="text-xs text-muted-foreground">RNC: {settings.rnc}</p>
           {/if}
-          {#if businessAddress}
-            <p class="text-xs text-muted-foreground">{businessAddress}</p>
+          {#if settings.showAddress && settings.address}
+            <p class="text-xs text-muted-foreground">{settings.address}</p>
           {/if}
-          {#if businessPhone}
-            <p class="text-xs text-muted-foreground">Tel: {businessPhone}</p>
+          {#if settings.showPhone && settings.phone}
+            <p class="text-xs text-muted-foreground">Tel: {settings.phone}</p>
+          {/if}
+          {#if settings.showEmail && settings.email}
+            <p class="text-xs text-muted-foreground">{settings.email}</p>
+          {/if}
+          {#if settings.showWebsite && settings.website}
+            <p class="text-xs text-muted-foreground">{settings.website}</p>
           {/if}
         </div>
 
@@ -134,6 +159,12 @@
             <span>{t('sales.receiptNumber', $locale)}</span>
             <span class="font-bold">{sale.receiptNumber || String(sale.id).padStart(6, '0')}</span>
           </div>
+          {#if settings.showNcf && sale.ncf}
+            <div class="flex justify-between">
+              <span>NCF:</span>
+              <span class="font-bold font-mono">{sale.ncf}</span>
+            </div>
+          {/if}
           <div class="flex justify-between">
             <span>{t('receipt.date', $locale)}:</span>
             <span>{formattedDate}</span>
@@ -142,10 +173,16 @@
             <span>{t('receipt.time', $locale)}:</span>
             <span>{formattedTime}</span>
           </div>
-          {#if shift}
+          {#if settings.showShiftNumber && shift}
             <div class="flex justify-between">
               <span>{t('shifts.shiftNumber', $locale)}</span>
               <span>{shift.shiftNumber}</span>
+            </div>
+          {/if}
+          {#if settings.showCashierName && cashierName}
+            <div class="flex justify-between">
+              <span>{t('receipt.cashier', $locale)}:</span>
+              <span>{cashierName}</span>
             </div>
           {/if}
           {#if sale.customerName}
@@ -176,6 +213,9 @@
           {#each sale.items as item}
             <div class="text-xs">
               <div class="font-medium truncate">{item.description}</div>
+              {#if settings.showItemSku && item.sku}
+                <div class="text-muted-foreground text-[10px]">SKU: {item.sku}</div>
+              {/if}
               <div class="flex pl-2 text-muted-foreground">
                 <span class="flex-1"></span>
                 <span class="w-12 text-center">{item.quantity}</span>
@@ -194,10 +234,12 @@
             <span>{t('receipt.subtotal', $locale)}:</span>
             <span>${sale.subtotal.toFixed(2)}</span>
           </div>
-          <div class="flex justify-between">
-            <span>{t('receipt.tax', $locale)}:</span>
-            <span>${sale.itbisTotal.toFixed(2)}</span>
-          </div>
+          {#if settings.showTaxBreakdown}
+            <div class="flex justify-between">
+              <span>{t('receipt.tax', $locale)}:</span>
+              <span>${sale.itbisTotal.toFixed(2)}</span>
+            </div>
+          {/if}
           {#if sale.discount > 0}
             <div class="flex justify-between text-green-600">
               <span>Descuento:</span>
@@ -211,37 +253,48 @@
           </div>
         </div>
 
-        <div class="border-t border-dashed border-border my-3"></div>
+        {#if settings.showPaymentDetails}
+          <div class="border-t border-dashed border-border my-3"></div>
 
-        <!-- Payment Info -->
-        <div class="space-y-1 text-xs">
-          <div class="flex justify-between">
-            <span>{t('receipt.paymentMethod', $locale)}:</span>
-            <span class="font-medium">
-              {getPaymentMethodLabel(sale.paymentMethod, sale.paymentStatus === 'pending')}
-            </span>
-          </div>
-          {#if sale.paymentMethod === 'cash' && sale.paymentStatus === 'paid'}
-            {#if cashReceived > 0}
-              <div class="flex justify-between">
-                <span>{t('receipt.cashReceived', $locale)}:</span>
-                <span>${cashReceived.toFixed(2)}</span>
-              </div>
-              <div class="flex justify-between font-bold text-green-600">
-                <span>{t('receipt.change', $locale)}:</span>
-                <span>${change.toFixed(2)}</span>
-              </div>
+          <!-- Payment Info -->
+          <div class="space-y-1 text-xs">
+            <div class="flex justify-between">
+              <span>{t('receipt.paymentMethod', $locale)}:</span>
+              <span class="font-medium">
+                {getPaymentMethodLabel(sale.paymentMethod, sale.paymentStatus === 'pending')}
+              </span>
+            </div>
+            {#if sale.paymentMethod === 'cash' && sale.paymentStatus === 'paid'}
+              {#if cashReceived > 0}
+                <div class="flex justify-between">
+                  <span>{t('receipt.cashReceived', $locale)}:</span>
+                  <span>${cashReceived.toFixed(2)}</span>
+                </div>
+                <div class="flex justify-between font-bold text-green-600">
+                  <span>{t('receipt.change', $locale)}:</span>
+                  <span>${change.toFixed(2)}</span>
+                </div>
+              {/if}
             {/if}
-          {/if}
-        </div>
+          </div>
+        {/if}
 
         <div class="border-t border-dashed border-border my-3"></div>
 
         <!-- Footer -->
         <div class="text-center text-xs space-y-1">
-          <p class="font-bold">{t('receipt.thankYou', $locale)}</p>
-          <p class="text-muted-foreground">{t('receipt.comeBack', $locale)}</p>
-          <p class="text-muted-foreground text-[10px] mt-2">{t('receipt.noReturns', $locale)}</p>
+          {#if settings.footerLine1}
+            <p class="font-bold">{settings.footerLine1}</p>
+          {/if}
+          {#if settings.footerLine2}
+            <p class="text-muted-foreground">{settings.footerLine2}</p>
+          {/if}
+          {#if settings.footerLine3}
+            <p class="text-muted-foreground">{settings.footerLine3}</p>
+          {/if}
+          {#if settings.showNoReturnsPolicy && settings.noReturnsPolicyText}
+            <p class="text-muted-foreground text-[10px] mt-2">{settings.noReturnsPolicyText}</p>
+          {/if}
         </div>
       </div>
     </div>
@@ -272,4 +325,3 @@
     }
   }
 </style>
-

@@ -1,11 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { db } from '$lib/db';
+  import { db, generateId } from '$lib/db';
   import { FileText, Download, Trash2, Search, RefreshCw, Eye, X, Check, Clock, AlertTriangle, DollarSign, Calendar, CreditCard, Building2, Banknote, Smartphone, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-svelte';
   import * as XLSX from 'xlsx';
   import type { Invoice, BankAccount, PaymentMethodType, Payment } from '$lib/types';
   import { parseInvoiceWithGrok } from '$lib/grok';
-  import { apiKey } from '$lib/stores';
   import { checkInvoiceDueDates, calculatePendingPayments, type InvoiceAlert } from '$lib/alerts';
   import * as Table from '$lib/components/ui/table';
   import * as Tooltip from '$lib/components/ui/tooltip';
@@ -214,10 +213,7 @@
   }
 
   async function syncInvoice(invoice: Invoice) {
-    if (!$apiKey) {
-      alert('Please set your API Key first');
-      return;
-    }
+    // API key is now configured server-side via environment variable (XAI_API_KEY)
     if (!invoice.rawText) {
       alert('No OCR text found for this invoice');
       return;
@@ -271,6 +267,7 @@
     
     // Create payment record
     const payment: Payment = {
+      id: generateId(),
       invoiceId: paymentInvoice.id,
       amount: amountToPay,
       currency: paymentInvoice.currency || 'DOP',
@@ -304,6 +301,7 @@
     
     // Create a quick cash payment record
     const payment: Payment = {
+      id: generateId(),
       invoiceId: invoice.id,
       amount: invoice.total - (invoice.paidAmount ?? 0),
       currency: invoice.currency || 'DOP',
@@ -438,7 +436,7 @@
 
 <div class="p-4 max-w-5xl mx-auto pb-24">
   <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-    <h1 class="text-2xl font-bold">{t('nav.invoices', $locale)}</h1>
+    <h1 class="text-2xl font-bold">{t('nav.purchaseInvoices', $locale)}</h1>
     
     <div class="flex flex-wrap gap-2 w-full md:w-auto">
       <div class="relative flex-1 md:w-64">

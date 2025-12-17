@@ -1,7 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { page } from '$app/stores';
-  import { Home, Camera, CheckSquare, FileText, BookOpen, Settings, Tag, Package, Search, Sun, Moon, ChevronDown, ChevronRight, Users, X, ShoppingCart, ClipboardList, BarChart3, Receipt, Brain, FileCheck, Zap, RefreshCw, User, UsersRound } from 'lucide-svelte';
+  import { Home, Camera, CheckSquare, FileText, BookOpen, Settings, Tag, Package, Search, Sun, Moon, ChevronDown, ChevronRight, Users, X, ShoppingCart, ClipboardList, BarChart3, Receipt, Brain, FileCheck, Zap, RefreshCw, User, UsersRound, CreditCard, Landmark, History } from 'lucide-svelte';
 
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
@@ -38,7 +38,8 @@
         { href: '/purchases/orders', labelKey: 'nav.purchaseOrders', icon: FileCheck },
         { href: '/purchases/receiving', labelKey: 'nav.receiving', icon: Package },
         { href: '/capture', labelKey: 'nav.quickCapture', icon: Zap },
-        { href: '/purchases/history', labelKey: 'nav.purchaseHistory', icon: BarChart3 }
+        { href: '/purchases/history', labelKey: 'nav.purchaseHistory', icon: BarChart3 },
+        { href: '/suppliers', labelKey: 'nav.suppliers', icon: Users }
       ]
     },
     {
@@ -54,9 +55,20 @@
       key: 'finance',
       title: t('nav.finance', $locale as Locale),
       items: [
-        { href: '/invoices', labelKey: 'nav.invoices', icon: FileText },
-        { href: '/suppliers', labelKey: 'nav.suppliers', icon: Users },
-        { href: '/reports', labelKey: 'nav.reports', icon: BarChart3 }
+        { href: '/reports', labelKey: 'nav.businessAnalytics', icon: BarChart3 },
+        { href: '/reports/financial', labelKey: 'nav.financialReports', icon: Landmark },
+        { href: '/card-settlements', labelKey: 'nav.bankReconciliation', icon: CreditCard },
+        { href: '/reports/journal', labelKey: 'nav.accountingJournal', icon: BookOpen },
+        { href: '/reports/audit', labelKey: 'nav.auditLog', icon: History }
+      ]
+    },
+    {
+      key: 'taxes',
+      title: t('nav.taxes', $locale as Locale),
+      items: [
+        { href: '/reports/dgii', labelKey: 'nav.dgiiReports', icon: FileCheck },
+        { href: '/invoices', labelKey: 'nav.purchaseInvoices', icon: FileText },
+        { href: '/settings/ncf', labelKey: 'nav.ncf', icon: FileCheck }
       ]
     },
     {
@@ -72,6 +84,8 @@
       title: t('nav.system', $locale as Locale),
       items: [
         { href: '/team', labelKey: 'nav.team', icon: UsersRound },
+        { href: '/import-history', labelKey: 'nav.importHistory', icon: History },
+        { href: '/settings/receipt', labelKey: 'nav.receiptSettings', icon: Receipt },
         { href: '/settings', labelKey: 'nav.settings', icon: Settings },
         { href: '/account', labelKey: 'nav.account', icon: User }
       ]

@@ -93,10 +93,27 @@ export const es = {
     quickCapture: 'Captura Rápida',
     importInvoices: 'Importar Facturas',
     purchaseHistory: 'Historial de Compras',
+    importHistory: 'Importar Historial',
     inventory: 'Inventario',
     finance: 'Finanzas',
     resources: 'Recursos',
-    system: 'Sistema'
+    system: 'Sistema',
+    taxes: 'Impuestos',
+    // Finance section - clearer names
+    businessAnalytics: 'Análisis del Negocio',
+    bankReconciliation: 'Bancos y Tarjetas',
+    accountingJournal: 'Libro Contable',
+    // Taxes section
+    dgiiReports: 'Reportes DGII',
+    purchaseInvoices: 'Facturas de Compra',
+    ncf: 'NCF',
+    financialReports: 'Estados Financieros',
+    auditLog: 'Auditoría',
+    receiptSettings: 'Configurar Ticket',
+    // Legacy keys for backwards compatibility
+    cardSettlements: 'Bancos y Tarjetas',
+    journalLedger: 'Libro Contable',
+    reports: 'Análisis del Negocio'
   },
   // Search
   search: {
