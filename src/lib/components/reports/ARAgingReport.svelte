@@ -106,7 +106,7 @@
               <tr class="hover:bg-slate-50 transition-colors">
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2">
-                    <div class="w-2 h-2 rounded-full bg-{health}-500"></div>
+                    <div class="w-2 h-2 rounded-full" class:bg-emerald-500={health === 'emerald'} class:bg-amber-500={health === 'amber'} class:bg-orange-500={health === 'orange'} class:bg-rose-500={health === 'rose'}></div>
                     <span class="font-medium">{customer.name}</span>
                   </div>
                 </td>
