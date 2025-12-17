@@ -60,49 +60,33 @@
     if (!printWindow) return;
 
     const fontSize = settings.fontSize === 'small' ? '10px' : settings.fontSize === 'large' ? '14px' : '12px';
-    const paperWidth = settings.paperWidth === '58mm' ? '58mm' : '80mm';
+    const pw = settings.paperWidth === '58mm' ? '58mm' : '80mm';
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Receipt #${sale.receiptNumber || sale.id}</title>
-        <style>
-          @page { 
-            size: ${paperWidth} auto; 
-            margin: 0; 
-          }
-          body { 
-            font-family: 'Courier New', monospace;
-            font-size: ${fontSize};
-            line-height: 1.4;
-            padding: 10px;
-            max-width: ${paperWidth};
-            margin: 0 auto;
-          }
-          .header { text-align: center; margin-bottom: 10px; }
-          .header h1 { font-size: 16px; margin: 0; font-weight: bold; }
-          .header p { margin: 2px 0; font-size: 11px; }
-          .divider { border-top: 1px dashed #000; margin: 8px 0; }
-          .info-row { display: flex; justify-content: space-between; }
-          .items { margin: 10px 0; }
-          .item { margin-bottom: 4px; }
-          .item-name { font-weight: bold; }
-          .item-details { display: flex; justify-content: space-between; padding-left: 10px; font-size: 11px; }
-          .totals { margin-top: 10px; }
-          .total-row { display: flex; justify-content: space-between; }
-          .total-row.grand { font-weight: bold; font-size: 14px; margin-top: 5px; }
-          .payment { margin-top: 10px; }
-          .footer { text-align: center; margin-top: 15px; font-size: 11px; }
-          .footer p { margin: 2px 0; }
-        </style>
-      </head>
-      <body>
-        ${printContent.innerHTML}
-      </body>
-      </html>
-    `);
+    // Build print HTML - avoiding template literal CSS that confuses PostCSS
+    const printStyles = [
+      '@page { size: ' + pw + ' auto; margin: 0; }',
+      'body { font-family: "Courier New", monospace; font-size: ' + fontSize + '; line-height: 1.4; padding: 10px; max-width: ' + pw + '; margin: 0 auto; }',
+      '.header { text-align: center; margin-bottom: 10px; }',
+      '.header h1 { font-size: 16px; margin: 0; font-weight: bold; }',
+      '.header p { margin: 2px 0; font-size: 11px; }',
+      '.divider { border-top: 1px dashed #000; margin: 8px 0; }',
+      '.info-row { display: flex; justify-content: space-between; }',
+      '.items { margin: 10px 0; }',
+      '.item { margin-bottom: 4px; }',
+      '.item-name { font-weight: bold; }',
+      '.item-details { display: flex; justify-content: space-between; padding-left: 10px; font-size: 11px; }',
+      '.totals { margin-top: 10px; }',
+      '.total-row { display: flex; justify-content: space-between; }',
+      '.total-row.grand { font-weight: bold; font-size: 14px; margin-top: 5px; }',
+      '.payment { margin-top: 10px; }',
+      '.footer { text-align: center; margin-top: 15px; font-size: 11px; }',
+      '.footer p { margin: 2px 0; }'
+    ].join(' ');
 
+    const receiptTitle = 'Receipt #' + (sale.receiptNumber || sale.id);
+    const htmlContent = '<!DOCTYPE html><html><head><title>' + receiptTitle + '</title><style>' + printStyles + '</style></head><body>' + printContent.innerHTML + '</body></html>';
+
+    printWindow.document.write(htmlContent);
     printWindow.document.close();
     printWindow.focus();
     
