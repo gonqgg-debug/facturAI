@@ -197,21 +197,25 @@
     pinError = '';
     
     try {
-      // Verify PIN matches the selected user's PIN
-      if (selectedUser.pin === pinValue) {
+      // ✅ SECURE: Use loginWithPin with rate limiting and failed attempt tracking
+      const user = await loginWithPin(pinValue);
+      
+      if (user && user.id === selectedUser.id) {
+        // PIN valid and matches selected user
         authenticatedUser = selectedUser;
         cashierName = selectedUser.displayName;
         pinError = '';
-        
-        // Update last login
-        if (selectedUser.id) {
-          await db.users.update(selectedUser.id, { lastLogin: new Date() });
-        }
+      } else if (user) {
+        // PIN valid but belongs to different user
+        pinError = $locale === 'es' ? 'PIN no corresponde al usuario seleccionado' : 'PIN does not match selected user';
+        authenticatedUser = null;
       } else {
+        // PIN invalid or rate limited
         pinError = t('users.wrongPin', $locale);
         authenticatedUser = null;
       }
     } catch (e: any) {
+      // Handle rate limiting and other errors
       pinError = e.message || t('users.wrongPin', $locale);
       authenticatedUser = null;
     } finally {
