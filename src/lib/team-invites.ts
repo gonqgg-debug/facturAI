@@ -220,6 +220,8 @@ export async function validateInvite(token: string, enforceStoreId: boolean = tr
 
 /**
  * Accept an invite and link the Firebase account
+ * Handles both cases: user on same device (has storeId) or new device (no storeId yet)
+ * 
  * @param token - The invite token
  * @param firebaseUid - The Firebase UID to link
  * @returns The updated user
@@ -227,20 +229,29 @@ export async function validateInvite(token: string, enforceStoreId: boolean = tr
 export async function acceptInvite(token: string, firebaseUid: string): Promise<User> {
     if (!browser) throw new Error('Cannot accept invite on server');
     
-    // MULTI-TENANT: Validate invite with store ID enforcement
-    const invite = await validateInvite(token, true);
+    // Validate invite WITHOUT store ID enforcement
+    // Team members on new devices won't have a storeId yet
+    const invite = await validateInvite(token, false);
     if (!invite) {
         throw new Error('Invalid or expired invite');
     }
     
-    // Double-check store ID (defensive programming)
+    // Check if device already has a store registered
     const currentStoreId = getStoreId();
-    if (!currentStoreId || invite.storeId !== currentStoreId) {
+    
+    if (currentStoreId && invite.storeId !== currentStoreId) {
+        // User is already registered to a different store
         console.error('[TeamInvites] Store mismatch in acceptInvite:', {
             inviteStoreId: invite.storeId,
             currentStoreId
         });
-        throw new Error('This invite is not valid for this store');
+        throw new Error('You are already registered to a different store. Please sign out and try again.');
+    }
+    
+    // If no store registered yet, this is a team member on a new device
+    // The storeId from the invite will be used when ensureStoreExists() is called after login
+    if (!currentStoreId) {
+        console.log('[TeamInvites] Team member on new device, invite storeId:', invite.storeId);
     }
     
     // Get the user
@@ -270,6 +281,8 @@ export async function acceptInvite(token: string, firebaseUid: string): Promise<
         status: 'accepted' as InviteStatus,
         acceptedAt: new Date()
     });
+    
+    console.log('[TeamInvites] ✅ Invite accepted for user:', user.id, 'to store:', invite.storeId);
     
     // Return updated user
     const updatedUser = await db.users.get(user.id!);

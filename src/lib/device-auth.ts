@@ -217,14 +217,57 @@ async function verifyDeviceRegistration(deviceId: string, token: string): Promis
 // ============================================================
 
 /**
+ * Find the store ID for a team member through their accepted invite
+ * @param firebaseUid - The Firebase UID of the team member
+ * @returns The store ID if found, null otherwise
+ */
+async function findTeamMemberStore(firebaseUid: string): Promise<string | null> {
+    try {
+        // Dynamically import db to avoid circular dependencies
+        const { db } = await import('./db');
+        
+        // Find user by Firebase UID
+        const user = await db.users
+            .filter(u => u.firebaseUid === firebaseUid)
+            .first();
+        
+        if (!user?.id) {
+            console.log('[DeviceAuth] No local user found for Firebase UID:', firebaseUid);
+            return null;
+        }
+        
+        console.log('[DeviceAuth] Found local user:', user.id, user.displayName);
+        
+        // Find accepted invite for this user
+        const invite = await db.teamInvites
+            .where('userId')
+            .equals(user.id)
+            .filter(inv => inv.status === 'accepted')
+            .first();
+        
+        if (invite?.storeId) {
+            console.log('[DeviceAuth] Found team membership - store:', invite.storeId);
+            return invite.storeId;
+        }
+        
+        console.log('[DeviceAuth] No accepted team invite found for user');
+        return null;
+    } catch (err) {
+        console.error('[DeviceAuth] Error finding team member store:', err);
+        return null;
+    }
+}
+
+/**
  * Ensure a store exists for the current Firebase user
- * This is the primary way to set up sync - Firebase user = Store owner
+ * This handles both store owners and team members
  * 
  * Flow:
  * 1. Get current Firebase user
- * 2. Check if a store exists with this Firebase UID
- * 3. If not, create one
- * 4. Register this device to the store
+ * 2. Check if a store exists with this Firebase UID (store owner)
+ * 3. If not, check if user is a team member with an accepted invite
+ * 4. If neither, create a new store (new user becoming store owner)
+ * 5. Register this device to the store
  */
 export async function ensureStoreExists(): Promise<string | null> {
     console.log('[DeviceAuth] ensureStoreExists called');
@@ -249,26 +292,37 @@ export async function ensureStoreExists(): Promise<string | null> {
     deviceAuthStore.update(s => ({ ...s, state: 'registering', error: null }));
     
     try {
-        // Check if store exists for this Firebase user
-        console.log('[DeviceAuth] Checking for existing store with firebase_uid:', firebaseUid);
-        const { data: existingStore, error: fetchError } = await supabase
+        let storeId: string | null = null;
+        let isTeamMember = false;
+        
+        // STEP 1: Check if user owns a store
+        console.log('[DeviceAuth] Checking for owned store with firebase_uid:', firebaseUid);
+        const { data: ownedStore, error: fetchError } = await supabase
             .from('stores')
             .select('id, name')
             .eq('firebase_uid', firebaseUid)
             .single();
         
-        console.log('[DeviceAuth] Store lookup result:', { existingStore, fetchError });
+        console.log('[DeviceAuth] Owned store lookup result:', { ownedStore, fetchError });
         
-        let storeId: string;
-        
-        if (existingStore && !fetchError) {
-            // Store exists, use it
-            console.log('[DeviceAuth] Found existing store:', existingStore.name, 'ID:', existingStore.id);
-            storeId = existingStore.id;
+        if (ownedStore && !fetchError) {
+            // User owns a store
+            console.log('[DeviceAuth] Found owned store:', ownedStore.name, 'ID:', ownedStore.id);
+            storeId = ownedStore.id;
         } else {
-            // Create new store for this Firebase user
+            // STEP 2: Check if user is a team member
+            console.log('[DeviceAuth] No owned store found, checking team membership...');
+            storeId = await findTeamMemberStore(firebaseUid);
+            
+            if (storeId) {
+                isTeamMember = true;
+                console.log('[DeviceAuth] User is a team member of store:', storeId);
+            }
+        }
+        
+        // STEP 3: If neither owner nor team member, create a new store
+        if (!storeId) {
             console.log('[DeviceAuth] No existing store found, creating new one for:', email);
-            console.log('[DeviceAuth] Fetch error was:', fetchError?.message || 'none (just no data)');
             
             const storeName = email?.split('@')[0] || 'Mi Tienda';
             
@@ -298,11 +352,11 @@ export async function ensureStoreExists(): Promise<string | null> {
             console.log('[DeviceAuth] Created new store with ID:', storeId);
         }
         
-        // Register this device to the store
+        // STEP 4: Register this device to the store
         const deviceToken = crypto.randomUUID();
         const deviceName = getDeviceName();
         
-        console.log('[DeviceAuth] Registering device to store:', storeId);
+        console.log('[DeviceAuth] Registering device to store:', storeId, isTeamMember ? '(as team member)' : '(as owner)');
         const { data: deviceData, error: deviceError } = await supabase
             .from('devices')
             .insert({
@@ -346,7 +400,7 @@ export async function ensureStoreExists(): Promise<string | null> {
             error: null
         });
         
-        console.log('[DeviceAuth] ✅ Device registered successfully to store:', storeId);
+        console.log('[DeviceAuth] ✅ Device registered successfully to store:', storeId, isTeamMember ? '(team member)' : '(owner)');
         return storeId;
         
     } catch (err) {

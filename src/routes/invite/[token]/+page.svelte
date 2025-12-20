@@ -74,7 +74,15 @@
     error = '';
     
     try {
-      invite = await validateInvite(token);
+      if (!token) {
+        error = 'Token de invitación inválido.';
+        loading = false;
+        return;
+      }
+      
+      // Don't enforce storeId when loading invite for display
+      // Team members on new devices won't have a storeId yet
+      invite = await validateInvite(token, false);
       
       if (!invite) {
         error = 'Esta invitación no es válida o ha expirado.';
@@ -143,7 +151,7 @@
   }
 
   async function handleEmailSignUp() {
-    if (!invite) return;
+    if (!invite || !token) return;
     
     // Validate form
     if (!password || password.length < 6) {
@@ -188,7 +196,7 @@
   }
 
   async function handleGoogleSignUp() {
-    if (!invite) return;
+    if (!invite || !token) return;
     
     submitting = true;
     error = '';

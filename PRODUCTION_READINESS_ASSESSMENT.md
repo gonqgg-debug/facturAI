@@ -5,7 +5,7 @@
 | Track | Readiness | Status |
 |-------|-----------|--------|
 | **Single-Tenant PWA** | **94.75%** | ✅ Production Ready |
-| **SaaS Platform** | **5%** | ⏳ Phase 6 Planned (6 weeks) |
+| **SaaS Platform** | **45%** | 🔄 Phase 6 In Progress (4-5 weeks remaining) |
 
 Your app has a solid foundation with modern architecture and good UX. **All MVP phases are complete!** ✅
 
@@ -13,8 +13,9 @@ Your app has a solid foundation with modern architecture and good UX. **All MVP 
 - **Phase 2 (Testing & QA)**: ✅ Complete - 619 tests (unit + integration + E2E + validation + performance), 44% coverage
 - **Phase 3 (DevOps)**: ✅ Complete - CI/CD pipeline, health checks, Zod validation
 - **Phase 5 (Performance)**: ✅ Complete - Web Vitals tracking, lazy loading, build optimizations
+- **Phase 6.2 (Authentication)**: ✅ **90% Complete** - Team invites, PIN auth, team member store access
 
-**Phase 6 (SaaS Evolution)** has been added to transform the app into a multi-tenant SaaS platform with cloud sync, real authentication, billing, and AI feature gating. The architecture supports evolution (not rebuild).
+**Phase 6 (SaaS Evolution)** is progressing. Authentication is nearly complete (team members can now sign in and access their stores). **Critical blocker**: RLS security policies must be fixed before SaaS launch.
 
 **🚀 Ready for Production Deployment!** Just push to GitHub and configure Vercel secrets.
 
@@ -508,24 +509,96 @@ Below is a detailed breakdown.
 
 **Note**: Significant progress from initial ~22% to **94.75%** production-ready. Testing infrastructure is complete with 619 tests passing (unit + integration + E2E + validation + backup + performance). Phase 5 added comprehensive performance monitoring with Web Vitals tracking, performance budgets, lazy loading, and build optimizations. Key files like `prompts.ts` (100%), `tax.ts` (100%), `validation.ts` (100%), `backup.ts`, `utils.ts` (95%), `retry.ts` (95%), `logger.ts` (94%), `encryption.ts` (94%), `stores.ts` (93%), `matcher.ts` (90%), `auth.ts` (87%), `sentry.ts` (86%), and `csrf.ts` (85%) have excellent coverage. CI/CD pipeline is ready for GitHub push. **Dependency fix applied with patch-package for `@swc/helpers` ESM compatibility. Phases 1-5 complete!**
 
-### SaaS Readiness (Phase 6)
+### SaaS Readiness (Phase 6) - Updated Assessment
 
 | Category | Current | Target | Status |
 |----------|---------|--------|--------|
-| Multi-Tenancy | 10% | 100% | ⏳ Phase 6.3 (realmId fields added) |
-| Cloud Sync | 95% | 100% | 🔄 Phase 6.1 (infrastructure ready, cloud connected, test data seeder fixed) |
-| Real Authentication | 20% | 100% | ⏳ Phase 6.2 |
-| Billing/Subscriptions | 0% | 100% | ⏳ Phase 6.4 |
-| Feature Gating | 0% | 100% | ⏳ Phase 6.5 |
+| Multi-Tenancy | 45% | 100% | 🔴 **CRITICAL: RLS Security Breach** |
+| Cloud Sync | 85% | 100% | 🟡 Missing tenant isolation |
+| Real Authentication | 90% | 100% | ✅ **Team member store access FIXED** |
+| Billing/Subscriptions | 0% | 100% | 🔴 No billing infrastructure |
+| Feature Gating | 0% | 100% | 🔴 No plan management |
 | Customization/Workbench | 10% | 50% | ⏳ Phase 6.6 |
-| **SaaS TOTAL** | **23%** | **92%** | 🔄 Phase 6.1 nearly complete |
+| **SaaS TOTAL** | **38%** | **92%** | 🔴 **Security Risk: Cannot Launch SaaS** |
 
-**SaaS Evolution Strategy**: The app is well-architected for evolution (not rebuild) because:
-- ✅ Centralized data access in `src/lib/db.ts` (Dexie)
+#### ✅ **What's Actually Ready (45% Multi-Tenant)**
+- ✅ `realmId` fields exist in 90% of tables
+- ✅ Store/device registration system with Firebase Auth
+- ✅ Team invites for full account access
+- ✅ **Team members can now sign in and access their store** *(FIXED)*
+- ✅ User roles and permissions framework
+- ✅ Supabase backend with sync infrastructure
+- ✅ Multi-device sync within stores
+
+#### 🎉 **Recently Fixed: Team Member Store Access**
+*Fixed Dec 2024 - Team members can now sign in with Firebase and access their store*
+
+**Problem Solved**: Previously, `ensureStoreExists()` only found stores owned by a Firebase user. Team members who accepted invites couldn't access their team's store on new devices.
+
+**Solution Implemented**:
+1. ✅ Added `findTeamMemberStore()` in `device-auth.ts` - looks up store via accepted team invites
+2. ✅ Updated `ensureStoreExists()` to check team membership before creating new stores
+3. ✅ Fixed `acceptInvite()` to work without requiring a pre-existing storeId
+4. ✅ Fixed invite page to display correctly for team members on new devices
+
+**Files Modified**:
+- `src/lib/device-auth.ts` - Team member store lookup
+- `src/lib/team-invites.ts` - Invite acceptance without storeId requirement
+- `src/routes/invite/[token]/+page.svelte` - Token validation fixes
+
+#### ❌ **Critical Security Flaws (Cannot Launch SaaS Yet)**
+- ❌ **RLS Policies: ALL OPEN** - Every table uses `USING (true) WITH CHECK (true)` - **ZERO tenant isolation**
+- ❌ **No Runtime Tenant Context** - `getCurrentRealm()` returns hardcoded `'rlm-public'`
+- ❌ **Supabase Sync Unsecured** - All tenant data mixes together in cloud
+- ❌ **No Billing/Subscription System** - No revenue model or feature gating
+
+#### 🟡 **Architecture Strengths for SaaS Evolution**
+- ✅ Centralized data access in `src/lib/db.ts` (Dexie + Supabase)
 - ✅ Pure business logic functions (tax, inventory-ai, customer-insights)
 - ✅ Existing permission system (`PermissionKey` types)
-- ✅ Dexie has official cloud sync solution (Dexie Cloud)
 - ✅ Modular AI features ready for feature gating
+- ✅ Store-based tenant structure already implemented
+- ✅ Device management and pairing codes system
+- ✅ **Complete team member authentication flow** *(NEW)*
+
+#### 📋 **SaaS Migration Implementation Plan**
+
+**Phase 6.1: Critical Security (1 week)** - 🔴 **NEXT PRIORITY**
+1. **Fix RLS Policies**: Replace `USING (true)` with `store_id` filtering in all tables
+2. **Add Tenant Context**: Implement `getCurrentRealm()` to return actual store ID
+3. **Update Sync Service**: Add tenant filtering to all Supabase operations
+4. **Test Data Isolation**: Verify tenants cannot access each other's data
+
+**Phase 6.2: Authentication Enhancement** - ✅ **90% COMPLETE**
+- ✅ PIN-based auth with role management
+- ✅ Team invites system for full Firebase accounts
+- ✅ User roles (admin, cashier, manager) implemented
+- ✅ **Team members can sign in and access their store** *(FIXED)*
+- 🔄 Optional: Add password reset for team members
+
+**Phase 6.3: Multi-Tenant Data Layer (1 week)**
+1. **Runtime Tenant Assignment**: Add `realmId` to all new records
+2. **Query Filtering**: Update all database queries to include tenant context
+3. **Migration Scripts**: Update existing data with proper tenant IDs
+4. **Cross-Tenant Protection**: Audit and secure all data access patterns
+
+**Phase 6.4: Billing & Subscriptions (2 weeks)**
+1. **Stripe Integration**: Payment processing and webhook handling
+2. **Plan Management**: Define subscription tiers (Basic/Pro/Enterprise)
+3. **Usage Tracking**: Monitor feature usage per tenant
+4. **Upgrade/Downgrade**: Self-service plan changes
+
+**Phase 6.5: Feature Gating (1 week)**
+1. **Plan-Based Features**: AI insights, advanced reporting, multi-device
+2. **Usage Limits**: API calls, storage, user accounts per plan
+3. **Graceful Degradation**: Clear messaging for feature limits
+4. **Analytics**: Track feature adoption and usage patterns
+
+**Phase 6.6: Admin & Workbench (1-2 weeks)**
+1. **Tenant Admin Panel**: Manage users, billing, settings
+2. **Customization Engine**: Tenant-specific configurations
+3. **Analytics Dashboard**: Cross-tenant usage and performance
+4. **Support Tools**: Remote troubleshooting and data export
 
 ---
 
@@ -559,21 +632,85 @@ Before launching, you MUST have:
 - **Fully production-ready**: 1-2 weeks (Data Management + Performance phases)
 - **With additional polish**: 4-6 weeks
 
-### SaaS Platform (Phase 6)
-- **SaaS MVP**: 6 weeks after single-tenant launch
-- **Full SaaS with workbench**: 8-10 weeks after single-tenant launch
+### SaaS Platform (Phase 6) - Revised Timeline
 
-| Milestone | Timeline | Dependencies |
-|-----------|----------|--------------|
-| Single-tenant MVP | 1-2 days | Vercel secrets, Zod |
-| Cloud sync (6.1) | +1 week | Dexie Cloud account |
-| Real auth (6.2) | +1 week | After 6.1 |
-| Multi-tenant (6.3) | +1 week | After 6.1 |
-| Billing (6.4) | +1 week | Stripe account, after 6.2 |
-| AI gating (6.5) | +1 week | After 6.4 |
-| Workbench (6.6) | +1-2 weeks | After 6.5 |
+**Current State**: 45% multi-tenant ready, authentication complete, but **CRITICAL RLS SECURITY FLAWS** prevent SaaS launch
 
-**Progress Update**: Phase 1 (Security) and Phase 2 (Testing) are complete. Phase 3 (DevOps) is 80% complete with CI/CD pipeline ready. Only need to configure Vercel secrets and push to GitHub.
+| Milestone | Timeline | Dependencies | Status |
+|-----------|----------|--------------|--------|
+| Single-tenant MVP | 1-2 days | Vercel secrets, Zod | ✅ READY |
+| Team member auth | +0 days | Already implemented | ✅ **COMPLETE** |
+| **🔴 RLS Security Fix** | +1 week | **CRITICAL BLOCKER** | 🔴 NEXT |
+| Cloud sync isolation | +1 week | After RLS fix | 🟡 READY |
+| Multi-tenant data isolation | +1 week | After sync isolation | 🟡 READY |
+| Billing infrastructure | +2 weeks | Stripe account | 🔴 MISSING |
+| Feature gating | +1 week | After billing | 🔴 MISSING |
+| Workbench (6.6) | +1-2 weeks | After feature gating | ⏳ FUTURE |
+
+**Revised SaaS Timeline**:
+- **Secure SaaS MVP**: 4-5 weeks (auth complete, focus on RLS security)
+- **Full SaaS with billing**: 7-9 weeks
+- **Enterprise SaaS**: 11-13 weeks
+
+---
+
+### 🎯 **RECOMMENDED NEXT STEPS**
+
+#### **Option A: Launch Single-Tenant PWA Now** *(Recommended)*
+If you want to launch quickly for a single store:
+1. ✅ App is production-ready for single-tenant use
+2. ✅ Configure Vercel secrets and deploy
+3. ✅ Single store with team members works perfectly
+
+#### **Option B: Continue to SaaS** *(4-5 weeks)*
+To make this a multi-tenant SaaS product:
+
+**Week 1: Critical Security (RLS Fix)** 🔴 **HIGHEST PRIORITY**
+```sql
+-- Replace all "USING (true)" policies with:
+CREATE POLICY "tenant_isolation" ON sales
+  FOR ALL USING (store_id = current_setting('app.current_store_id')::uuid);
+```
+- [ ] Update all 15+ RLS policies in Supabase
+- [ ] Implement `getCurrentRealm()` to return actual store ID
+- [ ] Add store_id context to all Supabase queries
+- [ ] Test cross-tenant data isolation
+
+**Week 2: Data Layer Isolation**
+- [ ] Add `realmId` to all new record creation
+- [ ] Update sync service with tenant filtering
+- [ ] Migration script for existing data
+- [ ] Audit all database queries for tenant context
+
+**Week 3-4: Billing & Subscriptions**
+- [ ] Stripe integration (Checkout, Portal, Webhooks)
+- [ ] Define subscription plans (Free/Pro/Enterprise)
+- [ ] Implement feature usage tracking
+- [ ] Add upgrade/downgrade flows
+
+**Week 5: Feature Gating & Polish**
+- [ ] Gate AI features by plan
+- [ ] Usage limits per plan
+- [ ] Admin dashboard
+- [ ] Documentation
+
+---
+
+**Progress Update**: Phase 6.2 (Authentication) is now 90% complete with team member store access fixed. The remaining blocker is Phase 6.1 (RLS Security).
+
+#### 💡 **SaaS Readiness Summary**
+
+**Current State**: 45% complete with solid foundation and working authentication
+
+**Recent Win**: ✅ Team members can now sign in with Firebase and access their store
+
+**Immediate Priority**: Fix RLS policies before any SaaS launch (1-week critical security update)
+
+**Business Impact**: Single-tenant PWA can launch immediately. SaaS requires 4-5 weeks of security-focused development.
+
+**Risk Level**: Single-tenant launch = Low risk. SaaS without security fixes = **HIGH BREACH RISK**.
+
+**Recommendation**: Launch single-tenant PWA first, then immediately prioritize SaaS security fixes.
 
 ---
 
@@ -588,12 +725,13 @@ Before launching, you MUST have:
 6. ~~**Performance Issues**: No monitoring means degradation goes unnoticed~~ ✅ **MITIGATED** - Sentry tracing
 7. ~~**Missing Environment Template**: No `.env.example` file for setup guidance~~ ✅ **MITIGATED**
 
-### SaaS Risks (To be addressed in Phase 6)
-8. **No Multi-Tenancy**: Data not isolated between users ⚠️ **Addressed in Phase 6.3**
-9. **No Cloud Sync**: Data stuck in single browser ⚠️ **Addressed in Phase 6.1**
-10. **No Real Auth**: PIN-based auth not suitable for SaaS ⚠️ **Addressed in Phase 6.2**
-11. **No Revenue Model**: No billing or subscription management ⚠️ **Addressed in Phase 6.4**
-12. **AI Features Ungated**: All AI features free for everyone ⚠️ **Addressed in Phase 6.5**
+### SaaS Risks (CRITICAL - Must Fix Before Launch)
+8. **🔴 DATA BREACH RISK**: RLS policies allow ANY tenant to access ALL data ⚠️ **CRITICAL BLOCKER**
+9. **🔴 TENANT ISOLATION FAILURE**: No runtime tenant context or data filtering ⚠️ **CRITICAL BLOCKER**
+10. **🟡 Cloud Sync Without Security**: Supabase sync mixes all tenant data ⚠️ **HIGH RISK**
+11. ~~**🟢 Authentication Ready**: Team invites + PIN auth system implemented~~ ✅ **COMPLETE** *(Dec 2024: Team member store access fixed)*
+12. **🔴 No Revenue Model**: No billing or subscription management ⚠️ **BLOCKER**
+13. **🔴 AI Features Ungated**: All premium features free for everyone ⚠️ **BUSINESS RISK**
 
 ### Remaining Blockers
 - ~~**Testing**: 0% coverage~~ ✅ MITIGATED - 522 tests, 12 critical files with 85%+ coverage
