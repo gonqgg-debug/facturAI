@@ -242,7 +242,7 @@ export async function validateInvite(token: string, enforceStoreId: boolean = tr
                     .rpc('validate_team_invite', { p_token: token });
                 
                 if (rpcError) {
-                    console.error('[TeamInvites] RPC validation error:', rpcError);
+                    console.error('[TeamInvites] RPC validation error:', JSON.stringify(rpcError, null, 2));
                 }
                 
                 if (!rpcError && rpcData && rpcData.length > 0) {
@@ -304,7 +304,7 @@ export async function validateInvite(token: string, enforceStoreId: boolean = tr
                         .maybeSingle(); // maybeSingle is safer than single
                     
                     if (error) {
-                        console.error('[TeamInvites] Supabase direct query error:', error);
+                        console.error('[TeamInvites] Supabase direct query error:', JSON.stringify(error, null, 2));
                     } else if (data) {
                         console.log('[TeamInvites] ✅ Found invite in Supabase via direct query:', data.id);
                         
@@ -523,17 +523,35 @@ async function fetchUserFromSupabase(localUserId: number, storeId: string): Prom
     if (!supabase) return;
     
     try {
-        // Query by local_id (the Dexie auto-increment ID) and store_id
-        const { data, error } = await supabase
-            .from('users')
-            .select('*')
-            .eq('local_id', localUserId)
-            .eq('store_id', storeId)
-            .single();
+        // First try RPC function that bypasses RLS (for new devices)
+        console.log('[TeamInvites] Fetching user via RPC for local_id:', localUserId, 'store_id:', storeId);
+        const { data: rpcData, error: rpcError } = await supabase
+            .rpc('get_user_for_invite', { 
+                p_local_id: localUserId, 
+                p_store_id: storeId 
+            });
         
-        if (error) {
-            console.error('[TeamInvites] Could not fetch user from Supabase:', error);
-            return;
+        let data = rpcData?.[0];
+        
+        if (rpcError || !data) {
+            if (rpcError) {
+                console.warn('[TeamInvites] RPC get_user_for_invite failed:', JSON.stringify(rpcError, null, 2));
+            }
+            
+            // Fallback to direct query (works if store_id is set or RLS allows)
+            console.log('[TeamInvites] Trying direct user query...');
+            const { data: directData, error: directError } = await supabase
+                .from('users')
+                .select('*')
+                .eq('local_id', localUserId)
+                .eq('store_id', storeId)
+                .single();
+            
+            if (directError) {
+                console.error('[TeamInvites] Could not fetch user from Supabase:', JSON.stringify(directError, null, 2));
+                return;
+            }
+            data = directData;
         }
         
         if (data) {
@@ -578,17 +596,35 @@ async function fetchRoleFromSupabase(localRoleId: number, storeId: string): Prom
     if (!supabase) return;
     
     try {
-        // Query by local_id (the Dexie auto-increment ID) and store_id
-        const { data, error } = await supabase
-            .from('roles')
-            .select('*')
-            .eq('local_id', localRoleId)
-            .eq('store_id', storeId)
-            .single();
+        // First try RPC function that bypasses RLS (for new devices)
+        console.log('[TeamInvites] Fetching role via RPC for local_id:', localRoleId, 'store_id:', storeId);
+        const { data: rpcData, error: rpcError } = await supabase
+            .rpc('get_role_for_invite', { 
+                p_local_id: localRoleId, 
+                p_store_id: storeId 
+            });
         
-        if (error) {
-            console.error('[TeamInvites] Could not fetch role from Supabase:', error);
-            return;
+        let data = rpcData?.[0];
+        
+        if (rpcError || !data) {
+            if (rpcError) {
+                console.warn('[TeamInvites] RPC get_role_for_invite failed:', JSON.stringify(rpcError, null, 2));
+            }
+            
+            // Fallback to direct query
+            console.log('[TeamInvites] Trying direct role query...');
+            const { data: directData, error: directError } = await supabase
+                .from('roles')
+                .select('*')
+                .eq('local_id', localRoleId)
+                .eq('store_id', storeId)
+                .single();
+            
+            if (directError) {
+                console.error('[TeamInvites] Could not fetch role from Supabase:', JSON.stringify(directError, null, 2));
+                return;
+            }
+            data = directData;
         }
         
         if (data) {
