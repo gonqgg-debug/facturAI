@@ -153,8 +153,20 @@
                   isActive: rpcData[0].is_active !== false
                 };
                 
-                // Cache locally
-                await db.users.put(user);
+                // Cache locally - handle potential PIN conflicts by clearing first
+                try {
+                  // Clear any existing users with same PIN to avoid constraint error
+                  const existingWithPin = await db.users.where('pin').equals(user.pin).first();
+                  if (existingWithPin && existingWithPin.id !== user.id) {
+                    await db.users.delete(existingWithPin.id!);
+                    console.log('[Invite] Removed conflicting user with same PIN');
+                  }
+                  await db.users.put(user);
+                  console.log('[Invite] Cached user locally');
+                } catch (cacheErr) {
+                  console.warn('[Invite] Could not cache user locally:', cacheErr);
+                  // Continue without caching - we still have the user object
+                }
                 
                 // Try to get role
                 if (rpcData[0].role_id) {
@@ -171,8 +183,12 @@
                       permissions: roleData[0].permissions || [],
                       isSystem: roleData[0].is_system
                     };
-                    await db.localRoles.put(role);
-                    console.log('[Invite] Fetched and cached role:', role.name);
+                    try {
+                      await db.localRoles.put(role);
+                      console.log('[Invite] Fetched and cached role:', role.name);
+                    } catch (roleErr) {
+                      console.warn('[Invite] Could not cache role locally:', roleErr);
+                    }
                   }
                 }
               } else {

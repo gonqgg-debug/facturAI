@@ -574,6 +574,17 @@ async function fetchUserFromSupabase(localUserId: number, storeId: string): Prom
                 realmId: data.store_id  // Use realmId for multi-tenant sync
             };
             
+            // Handle potential PIN conflicts by removing conflicting users first
+            try {
+                const existingWithPin = await db.users.where('pin').equals(localUser.pin).first();
+                if (existingWithPin && existingWithPin.id !== localUser.id) {
+                    await db.users.delete(existingWithPin.id!);
+                    console.log('[TeamInvites] Removed conflicting user with same PIN');
+                }
+            } catch (pinErr) {
+                console.warn('[TeamInvites] Could not check for PIN conflicts:', pinErr);
+            }
+            
             await db.users.put(localUser);
             console.log('[TeamInvites] ✅ Cached user locally:', localUserId);
             
@@ -675,6 +686,15 @@ export async function acceptInvite(token: string, firebaseUid: string): Promise<
             oldStoreId: currentStoreId,
             newStoreId: invite.storeId
         });
+        
+        // Clear local user/role data to avoid conflicts (different stores may have same PINs)
+        try {
+            await db.users.clear();
+            await db.localRoles.clear();
+            console.log('[TeamInvites] ✅ Cleared local users/roles for store switch');
+        } catch (clearErr) {
+            console.warn('[TeamInvites] Could not clear local data:', clearErr);
+        }
         
         // Update the store ID to match the invite
         if (typeof localStorage !== 'undefined') {
