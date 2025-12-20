@@ -712,10 +712,30 @@ export async function acceptInvite(token: string, firebaseUid: string): Promise<
         }
     }
     
-    // Get the user
-    const user = await db.users.get(invite.userId);
+    // Get the user - first try local, then fetch from Supabase if not found
+    let user = await db.users.get(invite.userId);
+    
     if (!user) {
-        throw new Error('User account no longer exists');
+        // User not in local DB - fetch from Supabase (common after store switch or on new device)
+        console.log('[TeamInvites] User not in local DB, fetching from Supabase...');
+        await fetchUserFromSupabase(invite.userId, invite.storeId);
+        user = await db.users.get(invite.userId);
+        
+        if (!user) {
+            // Still not found - create minimal user from invite data
+            console.log('[TeamInvites] Creating minimal user from invite data');
+            user = {
+                id: invite.userId,
+                username: invite.email.split('@')[0],
+                displayName: invite.email.split('@')[0],
+                pin: Math.floor(1000 + Math.random() * 9000).toString(), // Random 4-digit PIN
+                roleId: 1,
+                isActive: true,
+                email: invite.email
+            };
+            await db.users.put(user);
+            console.log('[TeamInvites] Created minimal user:', user.id);
+        }
     }
     
     // Check if Firebase UID is already linked to another user
