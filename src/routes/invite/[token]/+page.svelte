@@ -471,10 +471,6 @@
 </script>
 
 <svelte:head>
-  <title>Aceptar Invitación | Cuadra</title>
-</svelte:head>
-
-<svelte:head>
   <title>Únete al Equipo | Cuadra</title>
 </svelte:head>
 
