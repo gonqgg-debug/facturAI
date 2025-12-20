@@ -649,6 +649,27 @@ export async function loginWithFirebase(firebaseUserOverride?: { email: string |
     }
     
     console.log('[Auth] Firebase user logged in as:', user.displayName);
+    
+    // If user has users.manage permission (admin), sync all team users from Supabase
+    // This ensures admins see all team members even on new devices
+    if (role && role.permissions.includes('users.manage')) {
+        console.log('[Auth] User has users.manage permission, syncing team users...');
+        try {
+            const { syncTeamUsersFromSupabase } = await import('./team-invites');
+            const { getStoreId } = await import('./device-auth');
+            const storeId = getStoreId();
+            if (storeId) {
+                await syncTeamUsersFromSupabase(storeId);
+                console.log('[Auth] ✅ Team users synced');
+            } else {
+                console.warn('[Auth] No store ID found, cannot sync team users');
+            }
+        } catch (syncError) {
+            // Don't block login if sync fails - it's non-critical
+            console.error('[Auth] Failed to sync team users (non-critical):', syncError);
+        }
+    }
+    
     return user;
 }
 

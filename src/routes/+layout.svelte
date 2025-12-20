@@ -11,91 +11,137 @@
   import { initializeSyncService, triggerSync } from '$lib/sync-service';
   import { initializeDeviceAuth, ensureStoreExists } from '$lib/device-auth';
   import { isSyncing, syncMessage, hasPendingChanges } from '$lib/sync-store';
+  import { currentRole, userPermissions, hasPermission } from '$lib/auth';
+  import type { PermissionKey } from '$lib/types';
   import Fuse from 'fuse.js';
   import type { Product, Invoice } from '$lib/types';
   import { Input } from '$lib/components/ui/input';
   import { locale, isPosMode } from '$lib/stores';
   import { t, type Locale } from '$lib/i18n';
   import { Toaster } from 'svelte-sonner';
+  import { toast } from 'svelte-sonner';
+
+  // Route to permission mapping
+  const routePermissions: Record<string, PermissionKey> = {
+    '/sales': 'pos.access',
+    '/sales/orders': 'pos.access',
+    '/customers': 'customers.view',
+    '/purchases': 'invoices.view',
+    '/purchases/orders': 'invoices.view',
+    '/purchases/receiving': 'inventory.adjust',
+    '/capture': 'invoices.capture',
+    '/purchases/history': 'invoices.view',
+    '/suppliers': 'invoices.view',
+    '/catalog': 'catalog.view',
+    '/pricing': 'catalog.edit',
+    '/inventory-adjustments': 'inventory.adjust',
+    '/reports': 'reports.view',
+    '/reports/financial': 'reports.view',
+    '/card-settlements': 'reports.view',
+    '/reports/journal': 'reports.view',
+    '/reports/audit': 'reports.view',
+    '/reports/dgii': 'reports.view',
+    '/invoices': 'invoices.view',
+    '/settings/ncf': 'settings.view',
+    '/team': 'users.manage',
+    '/settings': 'settings.view',
+    '/settings/receipt': 'settings.view',
+    '/import-history': 'catalog.import',
+    '/account': 'settings.view' // Everyone can access their own account
+  };
 
   // Grouped Navigation for Sidebar - labels will be reactive
   // Using stable keys for group identification
   // Reference $locale to make this reactive to locale changes
-  $: sidebarGroups = [
+  $: allSidebarGroups = [
     {
       key: 'sales',
       title: t('nav.sales', $locale as Locale),
       items: [
-        { href: '/sales', labelKey: 'nav.pos', icon: ShoppingCart },
-        { href: '/sales/orders', labelKey: 'nav.orders', icon: Receipt },
-        { href: '/customers', labelKey: 'nav.customers', icon: Users }
+        { href: '/sales', labelKey: 'nav.pos', icon: ShoppingCart, permission: 'pos.access' as PermissionKey },
+        { href: '/sales/orders', labelKey: 'nav.orders', icon: Receipt, permission: 'pos.access' as PermissionKey },
+        { href: '/customers', labelKey: 'nav.customers', icon: Users, permission: 'customers.view' as PermissionKey }
       ]
     },
     {
       key: 'purchases',
       title: t('nav.purchases', $locale as Locale),
       items: [
-        { href: '/purchases', labelKey: 'nav.purchasingHub', icon: ClipboardList },
-        { href: '/purchases/orders', labelKey: 'nav.purchaseOrders', icon: FileCheck },
-        { href: '/purchases/receiving', labelKey: 'nav.receiving', icon: Package },
-        { href: '/capture', labelKey: 'nav.quickCapture', icon: Zap },
-        { href: '/purchases/history', labelKey: 'nav.purchaseHistory', icon: BarChart3 },
-        { href: '/suppliers', labelKey: 'nav.suppliers', icon: Users }
+        { href: '/purchases', labelKey: 'nav.purchasingHub', icon: ClipboardList, permission: 'invoices.view' as PermissionKey },
+        { href: '/purchases/orders', labelKey: 'nav.purchaseOrders', icon: FileCheck, permission: 'invoices.view' as PermissionKey },
+        { href: '/purchases/receiving', labelKey: 'nav.receiving', icon: Package, permission: 'inventory.adjust' as PermissionKey },
+        { href: '/capture', labelKey: 'nav.quickCapture', icon: Zap, permission: 'invoices.capture' as PermissionKey },
+        { href: '/purchases/history', labelKey: 'nav.purchaseHistory', icon: BarChart3, permission: 'invoices.view' as PermissionKey },
+        { href: '/suppliers', labelKey: 'nav.suppliers', icon: Users, permission: 'invoices.view' as PermissionKey }
       ]
     },
     {
       key: 'inventory',
       title: t('nav.inventory', $locale as Locale),
       items: [
-        { href: '/catalog', labelKey: 'nav.catalog', icon: Package },
-        { href: '/pricing', labelKey: 'nav.pricing', icon: Tag },
-        { href: '/inventory-adjustments', labelKey: 'nav.adjustments', icon: ClipboardList }
+        { href: '/catalog', labelKey: 'nav.catalog', icon: Package, permission: 'catalog.view' as PermissionKey },
+        { href: '/pricing', labelKey: 'nav.pricing', icon: Tag, permission: 'catalog.edit' as PermissionKey },
+        { href: '/inventory-adjustments', labelKey: 'nav.adjustments', icon: ClipboardList, permission: 'inventory.adjust' as PermissionKey }
       ]
     },
     {
       key: 'finance',
       title: t('nav.finance', $locale as Locale),
       items: [
-        { href: '/reports', labelKey: 'nav.businessAnalytics', icon: BarChart3 },
-        { href: '/reports/financial', labelKey: 'nav.financialReports', icon: Landmark },
-        { href: '/card-settlements', labelKey: 'nav.bankReconciliation', icon: CreditCard },
-        { href: '/reports/journal', labelKey: 'nav.accountingJournal', icon: BookOpen },
-        { href: '/reports/audit', labelKey: 'nav.auditLog', icon: History }
+        { href: '/reports', labelKey: 'nav.businessAnalytics', icon: BarChart3, permission: 'reports.view' as PermissionKey },
+        { href: '/reports/financial', labelKey: 'nav.financialReports', icon: Landmark, permission: 'reports.view' as PermissionKey },
+        { href: '/card-settlements', labelKey: 'nav.bankReconciliation', icon: CreditCard, permission: 'reports.view' as PermissionKey },
+        { href: '/reports/journal', labelKey: 'nav.accountingJournal', icon: BookOpen, permission: 'reports.view' as PermissionKey },
+        { href: '/reports/audit', labelKey: 'nav.auditLog', icon: History, permission: 'reports.view' as PermissionKey }
       ]
     },
     {
       key: 'taxes',
       title: t('nav.taxes', $locale as Locale),
       items: [
-        { href: '/reports/dgii', labelKey: 'nav.dgiiReports', icon: FileCheck },
-        { href: '/invoices', labelKey: 'nav.purchaseInvoices', icon: FileText },
-        { href: '/settings/ncf', labelKey: 'nav.ncf', icon: FileCheck }
+        { href: '/reports/dgii', labelKey: 'nav.dgiiReports', icon: FileCheck, permission: 'reports.view' as PermissionKey },
+        { href: '/invoices', labelKey: 'nav.purchaseInvoices', icon: FileText, permission: 'invoices.view' as PermissionKey },
+        { href: '/settings/ncf', labelKey: 'nav.ncf', icon: FileCheck, permission: 'settings.view' as PermissionKey }
       ]
     },
     {
       key: 'resources',
       title: t('nav.resources', $locale as Locale),
       items: [
-        { href: '/kb', labelKey: 'nav.kb', icon: BookOpen },
-        { href: '/insights', labelKey: 'nav.insights', icon: Brain }
+        { href: '/kb', labelKey: 'nav.kb', icon: BookOpen, permission: undefined }, // No permission required
+        { href: '/insights', labelKey: 'nav.insights', icon: Brain, permission: undefined } // No permission required
       ]
     },
     {
       key: 'system',
       title: t('nav.system', $locale as Locale),
       items: [
-        { href: '/team', labelKey: 'nav.team', icon: UsersRound },
-        { href: '/import-history', labelKey: 'nav.importHistory', icon: History },
-        { href: '/settings/receipt', labelKey: 'nav.receiptSettings', icon: Receipt },
-        { href: '/settings', labelKey: 'nav.settings', icon: Settings },
-        { href: '/account', labelKey: 'nav.account', icon: User }
+        { href: '/team', labelKey: 'nav.team', icon: UsersRound, permission: 'users.manage' as PermissionKey },
+        { href: '/import-history', labelKey: 'nav.importHistory', icon: History, permission: 'catalog.import' as PermissionKey },
+        { href: '/settings/receipt', labelKey: 'nav.receiptSettings', icon: Receipt, permission: 'settings.view' as PermissionKey },
+        { href: '/settings', labelKey: 'nav.settings', icon: Settings, permission: 'settings.view' as PermissionKey },
+        { href: '/account', labelKey: 'nav.account', icon: User, permission: undefined } // Everyone can access
       ]
     }
   ];
 
+  // Filter sidebar groups based on permissions
+  $: sidebarGroups = allSidebarGroups.map(group => ({
+    ...group,
+    items: group.items.filter(item => {
+      // If no permission required, show it
+      if (!item.permission) return true;
+      // Check if user has the required permission
+      return hasPermission(item.permission);
+    })
+  })).filter(group => group.items.length > 0); // Remove empty groups
+
+  // Check if user is cashier (Cajero role)
+  $: isCashierMode = $currentRole?.name === 'Cajero';
+
   $: homeTab = { href: '/dashboard', labelKey: 'nav.home', icon: Home };
   
-  // Flattened tabs for Mobile Nav
+  // Flattened tabs for Mobile Nav (filtered by permissions)
   $: tabs = [
     { href: homeTab.href, labelKey: homeTab.labelKey, icon: homeTab.icon },
     ...sidebarGroups.flatMap(g => g.items)
@@ -133,6 +179,46 @@
       );
       if (hasActiveItem) {
         expandedGroups[group.key] = true;
+      }
+    }
+  }
+
+  // Track if we've already checked permissions for this route to prevent loops
+  let lastCheckedPath = '';
+  
+  // Cashier mode: redirect to POS and check route permissions
+  $: if (browser && $currentRole && !isPublicRoute && $isFirebaseAuthenticated) {
+    const currentPath = $page.url.pathname;
+    
+    // Only check once per route change
+    if (lastCheckedPath !== currentPath) {
+      lastCheckedPath = currentPath;
+      
+      // Cashier mode: only allow /sales route
+      if (isCashierMode) {
+        if (currentPath !== '/sales' && !currentPath.startsWith('/sales/')) {
+          console.log('[Layout] Cashier attempting to access', currentPath, '- redirecting to /sales');
+          goto('/sales');
+        }
+      } else {
+        // Check route permissions for non-cashiers
+        // Find the best matching route (exact match first, then prefix match)
+        let requiredPermission: PermissionKey | undefined = routePermissions[currentPath];
+        if (!requiredPermission) {
+          // Try prefix matching - find the longest matching route
+          const matchingRoute = Object.keys(routePermissions)
+            .filter(route => currentPath.startsWith(route))
+            .sort((a, b) => b.length - a.length)[0];
+          if (matchingRoute) {
+            requiredPermission = routePermissions[matchingRoute];
+          }
+        }
+        
+        if (requiredPermission && !hasPermission(requiredPermission)) {
+          console.log('[Layout] User lacks permission', requiredPermission, 'for route', currentPath);
+          toast.error($locale === 'es' ? 'No tienes permiso para acceder a esta página' : 'You do not have permission to access this page');
+          goto('/dashboard');
+        }
       }
     }
   }
@@ -394,6 +480,10 @@
 {:else if $isFirebaseAuthenticated}
 <div class="flex flex-col h-screen w-full overflow-hidden bg-background text-foreground transition-colors duration-300">
   
+  <!-- Cashier mode: No sidebar, just content -->
+  {#if isCashierMode}
+    <slot />
+  {:else}
   <!-- Top Bar (Desktop/Tablet) - Hidden in POS mode -->
   {#if !$isPosMode}
   <header class="hidden md:flex fixed top-0 right-0 left-64 h-16 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border z-40 items-center px-6">
@@ -585,6 +675,7 @@
         </div>
     </div>
   </aside>
+  {/if}
   {/if}
 </div>
 {:else}

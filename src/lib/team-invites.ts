@@ -659,6 +659,115 @@ async function fetchRoleFromSupabase(localRoleId: number, storeId: string): Prom
 }
 
 /**
+ * Sync all users and roles from Supabase for the current store
+ * This allows team members on new devices to see all team members
+ * Only admins should call this (they have users.manage permission)
+ * 
+ * @param storeId - The store ID to sync users/roles for
+ */
+export async function syncTeamUsersFromSupabase(storeId: string): Promise<void> {
+    if (!browser) return;
+    
+    const supabase = getSupabase();
+    if (!supabase) {
+        console.warn('[TeamInvites] Supabase not available for team sync');
+        return;
+    }
+    
+    try {
+        console.log('[TeamInvites] Syncing all team users and roles from Supabase for store:', storeId);
+        
+        // Fetch all users for the store
+        const { data: usersData, error: usersError } = await supabase
+            .rpc('get_store_users', { p_store_id: storeId });
+        
+        if (usersError) {
+            console.error('[TeamInvites] Error fetching store users:', JSON.stringify(usersError, null, 2));
+            return;
+        }
+        
+        // Fetch all roles for the store
+        const { data: rolesData, error: rolesError } = await supabase
+            .rpc('get_store_roles', { p_store_id: storeId });
+        
+        if (rolesError) {
+            console.error('[TeamInvites] Error fetching store roles:', JSON.stringify(rolesError, null, 2));
+            // Continue with users even if roles fail
+        }
+        
+        // Cache all roles first (users need roles to exist)
+        if (rolesData && rolesData.length > 0) {
+            console.log('[TeamInvites] Syncing', rolesData.length, 'roles...');
+            for (const roleData of rolesData) {
+                try {
+                    const localRole: Role = {
+                        id: roleData.local_id,
+                        name: roleData.name,
+                        description: roleData.description || undefined,
+                        permissions: roleData.permissions || [],
+                        isSystem: roleData.is_system || false,
+                        createdAt: new Date(),
+                        realmId: roleData.store_id
+                    };
+                    await db.localRoles.put(localRole);
+                } catch (roleErr) {
+                    console.warn('[TeamInvites] Error caching role:', roleData.local_id, roleErr);
+                }
+            }
+            console.log('[TeamInvites] ✅ Synced', rolesData.length, 'roles');
+        }
+        
+        // Cache all users
+        if (usersData && usersData.length > 0) {
+            console.log('[TeamInvites] Syncing', usersData.length, 'users...');
+            for (const userData of usersData) {
+                try {
+                    const localUser: User = {
+                        id: userData.local_id,
+                        username: userData.username || userData.display_name?.toLowerCase().replace(/\s+/g, '_') || `user_${userData.local_id}`,
+                        displayName: userData.display_name || 'Usuario',
+                        pin: userData.pin,
+                        roleId: userData.role_id,
+                        roleName: userData.role_name,
+                        isActive: userData.is_active !== false,
+                        firebaseUid: userData.firebase_uid || undefined,
+                        email: userData.email || undefined,
+                        phone: userData.phone || undefined,
+                        hasFullAccess: userData.has_full_access || false,
+                        lastLogin: userData.last_login ? new Date(userData.last_login) : undefined,
+                        createdAt: new Date(),
+                        createdBy: userData.created_by || undefined,
+                        realmId: userData.store_id
+                    };
+                    
+                    // Handle potential PIN conflicts by checking if user already exists
+                    const existingUser = await db.users.get(localUser.id!);
+                    if (existingUser && existingUser.pin !== localUser.pin) {
+                        // If PIN changed, check for conflicts
+                        const conflictingUser = await db.users.where('pin').equals(localUser.pin).first();
+                        if (conflictingUser && conflictingUser.id !== localUser.id) {
+                            console.warn('[TeamInvites] PIN conflict detected, removing conflicting user:', conflictingUser.id);
+                            await db.users.delete(conflictingUser.id!);
+                        }
+                    }
+                    
+                    await db.users.put(localUser);
+                } catch (userErr) {
+                    console.warn('[TeamInvites] Error caching user:', userData.local_id, userErr);
+                }
+            }
+            console.log('[TeamInvites] ✅ Synced', usersData.length, 'users');
+        } else {
+            console.log('[TeamInvites] No users found for store:', storeId);
+        }
+        
+        console.log('[TeamInvites] ✅ Team sync complete');
+    } catch (err) {
+        console.error('[TeamInvites] Error syncing team users:', err);
+    }
+}
+
+/**
  * Accept an invite and link the Firebase account
  * Handles both cases: user on same device (has storeId) or new device (no storeId yet)
  * 
