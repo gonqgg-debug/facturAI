@@ -220,3 +220,25 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 GRANT EXECUTE ON FUNCTION get_role_for_invite(INTEGER, UUID) TO anon;
 GRANT EXECUTE ON FUNCTION get_role_for_invite(INTEGER, UUID) TO authenticated;
+
+-- Function to find team member's store by email (bypasses RLS)
+DROP FUNCTION IF EXISTS find_team_member_store(TEXT);
+
+CREATE OR REPLACE FUNCTION find_team_member_store(p_email TEXT)
+RETURNS TABLE (
+    store_id UUID
+) AS $$
+BEGIN
+    SET LOCAL row_security = off;
+    
+    RETURN QUERY
+    SELECT ti.store_id
+    FROM team_invites ti
+    WHERE ti.email = LOWER(p_email)
+      AND ti.status = 'accepted'
+    LIMIT 1;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION find_team_member_store(TEXT) TO anon;
+GRANT EXECUTE ON FUNCTION find_team_member_store(TEXT) TO authenticated;

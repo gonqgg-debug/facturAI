@@ -237,28 +237,43 @@ async function findTeamMemberStore(email: string | null): Promise<string | null>
     }
     
     try {
-        // Query Supabase for accepted team invites by email
-        // This works on new devices because it queries the cloud, not local IndexedDB
-        console.log('[DeviceAuth] Checking Supabase for team membership:', email);
+        // Use RPC function to bypass RLS when looking up team membership
+        // This works on new devices because the RPC uses SECURITY DEFINER
+        console.log('[DeviceAuth] Checking Supabase for team membership via RPC:', email);
         
-        const { data: invite, error } = await supabase
-            .from('team_invites')
-            .select('store_id, status')
-            .eq('email', email.toLowerCase())
-            .eq('status', 'accepted')
-            .single();
+        const { data: rpcResult, error: rpcError } = await supabase
+            .rpc('find_team_member_store', { p_email: email.toLowerCase() });
         
-        if (error) {
-            // PGRST116 = no rows found - this is normal for non-team-members
-            if (error.code !== 'PGRST116') {
-                console.log('[DeviceAuth] Team invite lookup error:', error.message);
+        if (rpcError) {
+            console.log('[DeviceAuth] RPC team lookup error:', rpcError.message);
+            
+            // Fallback to direct query (might work if RLS allows)
+            console.log('[DeviceAuth] Trying direct query fallback...');
+            const { data: invite, error } = await supabase
+                .from('team_invites')
+                .select('store_id, status')
+                .eq('email', email.toLowerCase())
+                .eq('status', 'accepted')
+                .single();
+            
+            if (error) {
+                if (error.code !== 'PGRST116') {
+                    console.log('[DeviceAuth] Direct query also failed:', error.message);
+                }
+                return null;
+            }
+            
+            if (invite?.store_id) {
+                console.log('[DeviceAuth] Found team membership via direct query:', invite.store_id);
+                return invite.store_id;
             }
             return null;
         }
         
-        if (invite?.store_id) {
-            console.log('[DeviceAuth] Found team membership in Supabase - store:', invite.store_id);
-            return invite.store_id;
+        // RPC returns array of results
+        if (rpcResult && rpcResult.length > 0 && rpcResult[0].store_id) {
+            console.log('[DeviceAuth] Found team membership via RPC - store:', rpcResult[0].store_id);
+            return rpcResult[0].store_id;
         }
         
         console.log('[DeviceAuth] No accepted team invite found for email');
