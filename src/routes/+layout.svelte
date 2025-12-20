@@ -7,7 +7,8 @@
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { db } from '$lib/db';
-  import { initializeFirebase, trackScreenView, trackLogin, isFirebaseAuthenticated, isFirebaseLoading, firebaseUserEmail } from '$lib/firebase';
+  import { initializeFirebase, trackScreenView, trackLogin, isFirebaseAuthenticated, isFirebaseLoading, firebaseUserEmail, getCurrentUser } from '$lib/firebase';
+  import { loginWithFirebase } from '$lib/auth';
   import { initializeSyncService, triggerSync } from '$lib/sync-service';
   import { initializeDeviceAuth, ensureStoreExists } from '$lib/device-auth';
   import { isSyncing, syncMessage, hasPendingChanges } from '$lib/sync-store';
@@ -270,6 +271,18 @@
           // Then initialize device auth state
           await initializeDeviceAuth();
           console.log('[Layout] Device auth initialized');
+          
+          // Login with Firebase to set up local user and role with permissions
+          const firebaseUser = getCurrentUser();
+          if (firebaseUser) {
+            console.log('[Layout] Setting up local user for Firebase user:', firebaseUser.email);
+            await loginWithFirebase({
+              email: firebaseUser.email,
+              displayName: firebaseUser.displayName,
+              uid: firebaseUser.uid
+            });
+            console.log('[Layout] Local user and role set up');
+          }
           
           // Then start sync service
           initializeSyncService();
