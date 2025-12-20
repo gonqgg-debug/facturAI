@@ -125,19 +125,24 @@
     }
   ];
 
+  // Check if role has permissions loaded (fallback: treat as admin if not)
+  $: hasRolePermissions = $currentRole?.permissions && $currentRole.permissions.length > 0;
+
   // Filter sidebar groups based on permissions
   $: sidebarGroups = allSidebarGroups.map(group => ({
     ...group,
     items: group.items.filter(item => {
       // If no permission required, show it
       if (!item.permission) return true;
+      // If role not loaded or has no permissions, show all (treat as admin)
+      if (!hasRolePermissions) return true;
       // Check if user has the required permission
       return hasPermission(item.permission);
     })
   })).filter(group => group.items.length > 0); // Remove empty groups
 
-  // Check if user is cashier (Cajero role)
-  $: isCashierMode = $currentRole?.name === 'Cajero';
+  // Check if user is cashier (Cajero role) - only if role is properly loaded
+  $: isCashierMode = hasRolePermissions && $currentRole?.name === 'Cajero';
 
   $: homeTab = { href: '/dashboard', labelKey: 'nav.home', icon: Home };
   
@@ -187,7 +192,8 @@
   let lastCheckedPath = '';
   
   // Cashier mode: redirect to POS and check route permissions
-  $: if (browser && $currentRole && !isPublicRoute && $isFirebaseAuthenticated) {
+  // Only enforce permissions if role is properly loaded with permissions
+  $: if (browser && $currentRole && hasRolePermissions && !isPublicRoute && $isFirebaseAuthenticated) {
     const currentPath = $page.url.pathname;
     
     // Only check once per route change

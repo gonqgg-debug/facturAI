@@ -38,7 +38,8 @@
     revokeInvite, 
     resendInvite
   } from '$lib/team-invites';
-  import { currentUser, hasPermission } from '$lib/auth';
+  import { currentUser, hasPermission, currentRole } from '$lib/auth';
+  import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
 
@@ -76,7 +77,11 @@
 
   onMount(async () => {
     // Permission guard: Only admins can access team management
-    if (!hasPermission('users.manage')) {
+    // If role has no permissions loaded, allow access (treat as admin - fallback)
+    const role = get(currentRole);
+    const hasRolePermissions = role?.permissions && role.permissions.length > 0;
+    
+    if (hasRolePermissions && !hasPermission('users.manage')) {
       toast.error($locale === 'es' ? 'No tienes permiso para acceder a esta página' : 'You do not have permission to access this page');
       goto('/dashboard');
       return;
