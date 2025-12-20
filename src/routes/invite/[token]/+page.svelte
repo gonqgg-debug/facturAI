@@ -14,9 +14,9 @@
     signUpWithEmail, 
     signInWithGoogle,
     initializeFirebase,
-    firebaseUser
+    firebaseUser,
+    firebaseSignOut
   } from '$lib/firebase';
-  import { loginWithFirebase } from '$lib/auth';
   import { db } from '$lib/db';
   import type { TeamInvite, User, Role } from '$lib/types';
   import { Input } from '$lib/components/ui/input';
@@ -242,18 +242,20 @@
     error = '';
     
     try {
+      console.log('[Invite] Creating Firebase account...');
       // Create Firebase account
       const firebaseUserResult = await signUpWithEmail(email, password);
+      console.log('[Invite] Firebase account created:', firebaseUserResult.uid);
       
       // Accept invite and link accounts
+      console.log('[Invite] Accepting invite...');
       await acceptInvite(token, firebaseUserResult.uid);
+      console.log('[Invite] Invite accepted');
       
-      // Log in with the new account
-      await loginWithFirebase({
-        email: firebaseUserResult.email,
-        displayName: firebaseUserResult.displayName || user?.displayName || null,
-        uid: firebaseUserResult.uid
-      });
+      // Sign out so user has to log in fresh (avoids race condition with layout)
+      console.log('[Invite] Signing out...');
+      await firebaseSignOut();
+      console.log('[Invite] Signed out');
       
       success = true;
       
@@ -262,7 +264,7 @@
         goto('/login');
       }, 2000);
     } catch (e: any) {
-      console.error('Sign up failed:', e);
+      console.error('[Invite] Sign up failed:', e);
       error = e.message || 'Error al crear la cuenta. Por favor intenta de nuevo.';
     } finally {
       submitting = false;
@@ -276,6 +278,7 @@
     error = '';
     
     try {
+      console.log('[Invite] Signing in with Google...');
       // Sign in with Google
       const firebaseUserResult = await signInWithGoogle();
       
@@ -286,15 +289,17 @@
         return;
       }
       
-      // Accept invite and link accounts
-      await acceptInvite(token, firebaseUserResult.uid);
+      console.log('[Invite] Google sign-in successful:', firebaseUserResult.uid);
       
-      // Log in with the new account
-      await loginWithFirebase({
-        email: firebaseUserResult.email,
-        displayName: firebaseUserResult.displayName,
-        uid: firebaseUserResult.uid
-      });
+      // Accept invite and link accounts
+      console.log('[Invite] Accepting invite...');
+      await acceptInvite(token, firebaseUserResult.uid);
+      console.log('[Invite] Invite accepted');
+      
+      // Sign out so user has to log in fresh (avoids race condition with layout)
+      console.log('[Invite] Signing out...');
+      await firebaseSignOut();
+      console.log('[Invite] Signed out');
       
       success = true;
       
@@ -303,7 +308,7 @@
         goto('/login');
       }, 2000);
     } catch (e: any) {
-      console.error('Google sign up failed:', e);
+      console.error('[Invite] Google sign up failed:', e);
       if (e.message?.includes('cancelado') || e.message?.includes('cancelled')) {
         error = '';
       } else {
