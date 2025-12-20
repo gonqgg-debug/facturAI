@@ -34,11 +34,9 @@
   } from 'lucide-svelte';
   import type { User, Role, TeamInvite } from '$lib/types';
   import { 
-    createAndSendInvite, 
     getPendingInvite, 
     revokeInvite, 
-    resendInvite,
-    getInviteUrl
+    resendInvite
   } from '$lib/team-invites';
   import { currentUser } from '$lib/auth';
 
@@ -235,7 +233,7 @@
     inviteLink = '';
   }
 
-  async function sendInvite() {
+  async function sendInvite(sendEmail: boolean = true) {
     if (!inviteUser?.id || !inviteEmail) return;
     
     // Validate email
@@ -249,14 +247,17 @@
     inviteError = '';
     
     try {
-      const invite = await createAndSendInvite(
+      // Import the separate functions
+      const { createInvite, sendInviteEmail, getInviteUrl: getUrl } = await import('$lib/team-invites');
+      
+      // First create the invite (this syncs to Supabase)
+      const invite = await createInvite(
         inviteUser.id,
         inviteEmail,
         $currentUser?.id || 0
       );
       
-      inviteLink = getInviteUrl(invite.token);
-      inviteSuccess = true;
+      inviteLink = getUrl(invite.token);
       
       // Update local state
       userInvites.set(inviteUser.id, invite);
@@ -267,9 +268,33 @@
         await db.users.update(inviteUser.id, { email: inviteEmail });
         await loadUsersAndRoles();
       }
+      
+      // Try to send email if requested
+      if (sendEmail) {
+        try {
+          await sendInviteEmail(invite);
+          inviteSuccess = true;
+        } catch (emailError: any) {
+          console.error('Failed to send invite email:', emailError);
+          // Still show success but with email warning
+          inviteSuccess = true;
+          if (emailError.message?.includes('quota')) {
+            inviteError = $locale === 'es' 
+              ? 'Cuota de emails excedida. Comparte el enlace manualmente.'
+              : 'Email quota exceeded. Share the link manually.';
+          } else {
+            inviteError = $locale === 'es' 
+              ? 'No se pudo enviar el email. Comparte el enlace manualmente.'
+              : 'Could not send email. Share the link manually.';
+          }
+        }
+      } else {
+        // Just creating link without email
+        inviteSuccess = true;
+      }
     } catch (e: any) {
-      console.error('Failed to send invite:', e);
-      inviteError = e.message || ($locale === 'es' ? 'Error al enviar invitación' : 'Failed to send invite');
+      console.error('Failed to create invite:', e);
+      inviteError = e.message || ($locale === 'es' ? 'Error al crear invitación' : 'Failed to create invite');
     } finally {
       inviteSending = false;
     }
@@ -748,21 +773,28 @@
         </div>
         <div>
           <h3 class="font-semibold text-lg">
-            {$locale === 'es' ? '¡Invitación Enviada!' : 'Invite Sent!'}
+            {$locale === 'es' ? '¡Invitación Creada!' : 'Invite Created!'}
           </h3>
-          <p class="text-sm text-muted-foreground mt-1">
-            {$locale === 'es' 
-              ? `Se envió un email a ${inviteEmail} con instrucciones para crear su cuenta.`
-              : `An email was sent to ${inviteEmail} with instructions to create their account.`}
-          </p>
+          {#if inviteError}
+            <!-- Email failed but invite created -->
+            <p class="text-sm text-amber-500 mt-1">
+              {inviteError}
+            </p>
+          {:else}
+            <p class="text-sm text-muted-foreground mt-1">
+              {$locale === 'es' 
+                ? `Se envió un email a ${inviteEmail} con instrucciones para crear su cuenta.`
+                : `An email was sent to ${inviteEmail} with instructions to create their account.`}
+            </p>
+          {/if}
         </div>
         
         <!-- Copy Link Section -->
         <div class="bg-muted/50 rounded-lg p-3 space-y-2">
           <p class="text-xs text-muted-foreground">
             {$locale === 'es' 
-              ? 'También puedes compartir este enlace directamente:'
-              : 'You can also share this link directly:'}
+              ? 'Comparte este enlace para que el usuario cree su cuenta:'
+              : 'Share this link for the user to create their account:'}
           </p>
           <div class="flex gap-2">
             <input 
@@ -846,12 +878,24 @@
         </div>
       </div>
       
-      <Dialog.Footer>
+      <Dialog.Footer class="flex-col sm:flex-row gap-2">
         <Button variant="outline" on:click={closeInviteModal} disabled={inviteSending}>
           {$locale === 'es' ? 'Cancelar' : 'Cancel'}
         </Button>
         <Button 
-          on:click={sendInvite} 
+          variant="secondary"
+          on:click={() => sendInvite(false)} 
+          disabled={inviteSending || !inviteEmail}
+        >
+          {#if inviteSending}
+            <Loader2 size={16} class="mr-2 animate-spin" />
+          {:else}
+            <Link size={16} class="mr-2" />
+          {/if}
+          {$locale === 'es' ? 'Solo Crear Enlace' : 'Create Link Only'}
+        </Button>
+        <Button 
+          on:click={() => sendInvite(true)} 
           disabled={inviteSending || !inviteEmail}
         >
           {#if inviteSending}

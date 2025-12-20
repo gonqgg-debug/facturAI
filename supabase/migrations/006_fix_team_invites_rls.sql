@@ -73,13 +73,35 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 GRANT EXECUTE ON FUNCTION validate_team_invite(TEXT) TO anon;
 GRANT EXECUTE ON FUNCTION validate_team_invite(TEXT) TO authenticated;
 
--- Fix users table policy if it exists
+-- Fix ALL users table policies
 DO $$
 BEGIN
     IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'users') THEN
         DROP POLICY IF EXISTS "users_select_policy" ON users;
+        DROP POLICY IF EXISTS "users_insert_policy" ON users;
+        DROP POLICY IF EXISTS "users_update_policy" ON users;
+        DROP POLICY IF EXISTS "users_delete_policy" ON users;
+        
         CREATE POLICY "users_select_policy" ON users
             FOR SELECT
+            USING (
+                store_id::text = current_setting('app.store_id', true)
+                OR NULLIF(current_setting('app.store_id', true), '') IS NULL
+            );
+        CREATE POLICY "users_insert_policy" ON users
+            FOR INSERT
+            WITH CHECK (
+                store_id::text = current_setting('app.store_id', true)
+                OR NULLIF(current_setting('app.store_id', true), '') IS NULL
+            );
+        CREATE POLICY "users_update_policy" ON users
+            FOR UPDATE
+            USING (
+                store_id::text = current_setting('app.store_id', true)
+                OR NULLIF(current_setting('app.store_id', true), '') IS NULL
+            );
+        CREATE POLICY "users_delete_policy" ON users
+            FOR DELETE
             USING (
                 store_id::text = current_setting('app.store_id', true)
                 OR NULLIF(current_setting('app.store_id', true), '') IS NULL
@@ -87,13 +109,35 @@ BEGIN
     END IF;
 END $$;
 
--- Fix roles table policy if it exists
+-- Fix ALL roles table policies
 DO $$
 BEGIN
     IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'roles') THEN
         DROP POLICY IF EXISTS "roles_select_policy" ON roles;
+        DROP POLICY IF EXISTS "roles_insert_policy" ON roles;
+        DROP POLICY IF EXISTS "roles_update_policy" ON roles;
+        DROP POLICY IF EXISTS "roles_delete_policy" ON roles;
+        
         CREATE POLICY "roles_select_policy" ON roles
             FOR SELECT
+            USING (
+                store_id::text = current_setting('app.store_id', true)
+                OR NULLIF(current_setting('app.store_id', true), '') IS NULL
+            );
+        CREATE POLICY "roles_insert_policy" ON roles
+            FOR INSERT
+            WITH CHECK (
+                store_id::text = current_setting('app.store_id', true)
+                OR NULLIF(current_setting('app.store_id', true), '') IS NULL
+            );
+        CREATE POLICY "roles_update_policy" ON roles
+            FOR UPDATE
+            USING (
+                store_id::text = current_setting('app.store_id', true)
+                OR NULLIF(current_setting('app.store_id', true), '') IS NULL
+            );
+        CREATE POLICY "roles_delete_policy" ON roles
+            FOR DELETE
             USING (
                 store_id::text = current_setting('app.store_id', true)
                 OR NULLIF(current_setting('app.store_id', true), '') IS NULL
