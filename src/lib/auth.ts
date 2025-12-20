@@ -12,19 +12,29 @@ import { encryptedStorage, clearEncryptionKey as clearEncKey } from './encryptio
 function ensureRolePermissions(role: Role | null | undefined): Role | null {
     if (!role) return null;
     
+    console.log('[Auth] ensureRolePermissions - role:', role.name, 'id:', role.id);
+    console.log('[Auth] ensureRolePermissions - permissions:', JSON.stringify(role.permissions));
+    console.log('[Auth] ensureRolePermissions - permissions length:', role.permissions?.length);
+    
     // If role already has permissions, return as-is
-    if (role.permissions && role.permissions.length > 0) {
+    if (role.permissions && Array.isArray(role.permissions) && role.permissions.length > 0) {
+        console.log('[Auth] Role already has permissions, returning as-is');
         return role;
     }
     
-    // Find matching default role by name
-    const defaultRole = DEFAULT_ROLES.find(r => r.name === role.name);
+    // Find matching default role by name (case-insensitive and trimmed)
+    const roleName = role.name?.trim();
+    const defaultRole = DEFAULT_ROLES.find(r => r.name.toLowerCase() === roleName?.toLowerCase());
+    
+    console.log('[Auth] Looking for default role:', roleName);
+    console.log('[Auth] Available default roles:', DEFAULT_ROLES.map(r => r.name));
+    console.log('[Auth] Found default:', defaultRole?.name);
     
     if (defaultRole) {
-        console.log('[Auth] Role', role.name, 'missing permissions, using defaults');
+        console.log('[Auth] Role', role.name, 'missing permissions, using defaults:', defaultRole.permissions.length, 'permissions');
         return {
             ...role,
-            permissions: defaultRole.permissions
+            permissions: [...defaultRole.permissions] // Clone the array
         };
     }
     
