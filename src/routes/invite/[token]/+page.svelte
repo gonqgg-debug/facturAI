@@ -46,6 +46,7 @@
   
   // Form data
   let email = '';
+  let manualEmail = ''; // For when email link is detected but email is unknown
   let password = '';
   let confirmPassword = '';
   
@@ -60,12 +61,16 @@
     
     // Check if this is a Firebase email link sign-in callback
     const currentUrl = window.location.href;
+    console.log('[Invite] Current URL:', currentUrl);
+    
     if (isFirebaseSignInLink(currentUrl)) {
+      console.log('[Invite] Firebase sign-in link detected');
       await handleEmailLinkSignIn(currentUrl);
       return;
     }
     
     // Validate the invite token
+    console.log('[Invite] Standard invite link detected');
     await loadInvite();
   });
 
@@ -80,24 +85,40 @@
         return;
       }
       
+      console.log('[Invite] Loading invite for token:', token.slice(0, 8) + '...');
       // Don't enforce storeId when loading invite for display
       // Team members on new devices won't have a storeId yet
       invite = await validateInvite(token, false);
       
       if (!invite) {
+        console.warn('[Invite] validateInvite returned null');
         error = 'Esta invitación no es válida o ha expirado.';
         loading = false;
         return;
       }
       
-      // Load user and role info
+      console.log('[Invite] Invite loaded successfully:', invite.id);
+      
+      // Load user and role info (might have been cached by validateInvite)
       user = await db.users.get(invite.userId) ?? null;
       if (user) {
+        console.log('[Invite] User loaded from cache:', user.id);
         role = await db.localRoles.get(user.roleId) ?? null;
         email = invite.email;
+      } else {
+        console.warn('[Invite] User not found in local cache after validation');
+        // Try one more time after a short delay in case Dexie is slow
+        await new Promise(r => setTimeout(r, 500));
+        user = await db.users.get(invite.userId) ?? null;
+        if (user) {
+          role = await db.localRoles.get(user.roleId) ?? null;
+          email = invite.email;
+        } else {
+          error = 'Error al cargar los datos del usuario. Por favor intenta recargar la página.';
+        }
       }
     } catch (e) {
-      console.error('Failed to load invite:', e);
+      console.error('[Invite] Failed to load invite:', e);
       error = 'Error al cargar la invitación.';
     } finally {
       loading = false;
@@ -106,32 +127,45 @@
 
   async function handleEmailLinkSignIn(url: string) {
     try {
+      loading = true;
+      error = '';
+      
       // Get stored email from localStorage
       let storedEmail = getStoredEmailForSignIn();
+      console.log('[Invite] Stored email in localStorage:', storedEmail);
       
       // If email not in localStorage, try to get it from the invite using the token
       if (!storedEmail && token) {
-        console.log('[Invite] Email not in localStorage, fetching from invite...');
+        console.log('[Invite] Email not in localStorage, fetching from invite via token...');
         const inviteData = await validateInvite(token, false);
         if (inviteData) {
           storedEmail = inviteData.email;
-          console.log('[Invite] Found email from invite:', storedEmail);
+          console.log('[Invite] Found email from invite database:', storedEmail);
         }
       }
       
       if (!storedEmail) {
-        // Still no email, show form to enter it
-        error = 'Por favor, ingresa tu email para completar el registro.';
+        console.log('[Invite] Email still unknown, checking invite status...');
+        // Still no email, we need the user to enter it to complete sign-in
         loading = false;
-        // Load the invite anyway to show the form
+        
+        // Load the invite to see if it's even valid
         await loadInvite();
+        
+        // If loadInvite already set a critical error (e.g. expired or missing user), 
+        // don't overwrite it with the email prompt.
+        if (!error) {
+          error = 'Por favor, ingresa tu email para completar el registro.';
+        }
         return;
       }
       
       // Complete sign-in
+      console.log('[Invite] Completing sign-in for email:', storedEmail);
       const firebaseUser = await completeEmailSignIn(storedEmail, url);
+      console.log('[Invite] Firebase sign-in complete, uid:', firebaseUser.uid);
       
-      // Load invite by email or token
+      // Load invite to accept it
       let inviteToAccept = await db.teamInvites
         .where('email')
         .equals(storedEmail.toLowerCase())
@@ -144,26 +178,49 @@
       }
       
       if (inviteToAccept) {
+        console.log('[Invite] Accepting invite:', inviteToAccept.id);
         await acceptInvite(inviteToAccept.token, firebaseUser.uid);
+        
+        console.log('[Invite] Logging in with Firebase user...');
         await loginWithFirebase({ 
           email: firebaseUser.email, 
           displayName: firebaseUser.displayName,
           uid: firebaseUser.uid
         });
+        
         success = true;
+        loading = false;
         
         // Redirect to home after short delay
         setTimeout(() => {
           goto('/');
         }, 2000);
       } else {
+        console.warn('[Invite] No pending invite found for email:', storedEmail);
         error = 'No se encontró una invitación válida para este email.';
+        loading = false;
       }
-    } catch (e) {
-      console.error('Email link sign-in failed:', e);
-      error = 'Error al completar el registro. Por favor intenta de nuevo.';
-    } finally {
+    } catch (e: any) {
+      console.error('[Invite] Email link sign-in failed:', e);
+      error = e.message || 'Error al completar el registro. Por favor intenta de nuevo.';
       loading = false;
+    }
+  }
+
+  /**
+   * Handle manual email entry for Firebase link sign-in
+   */
+  async function handleManualEmailSignIn() {
+    if (!manualEmail || !manualEmail.includes('@')) {
+      error = 'Por favor ingresa un email válido.';
+      return;
+    }
+    
+    // Store it and retry the link sign-in flow
+    if (browser) {
+      localStorage.setItem('emailForSignIn', manualEmail.trim());
+      const currentUrl = window.location.href;
+      await handleEmailLinkSignIn(currentUrl);
     }
   }
 
@@ -282,20 +339,52 @@
         </p>
         <Loader2 size={24} class="mx-auto text-primary animate-spin" />
       </div>
-    {:else if error && !invite}
-      <!-- Error State (invalid invite) -->
-      <div class="bg-card border border-border rounded-2xl p-8 text-center">
-        <div class="w-16 h-16 rounded-full bg-destructive/20 mx-auto mb-4 flex items-center justify-center">
-          <XCircle size={32} class="text-destructive" />
-        </div>
-        <h1 class="text-2xl font-bold mb-2">Invitación Inválida</h1>
-        <p class="text-muted-foreground mb-6">{error}</p>
-        <a 
-          href="/account" 
-          class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-        >
-          Ir a Iniciar Sesión
-        </a>
+    {:else if error}
+      <!-- Error State (invalid invite or missing email) -->
+      <div class="bg-card border border-border rounded-2xl p-8 text-center shadow-xl">
+        {#if error.includes('email')}
+          <!-- Manual Email Entry for Link Sign-in -->
+          <div class="w-16 h-16 rounded-full bg-primary/20 mx-auto mb-4 flex items-center justify-center">
+            <Mail size={32} class="text-primary" />
+          </div>
+          <h1 class="text-2xl font-bold mb-2">Completar Registro</h1>
+          <p class="text-muted-foreground mb-6">
+            Por seguridad, necesitamos que ingreses tu email para confirmar que eres tú.
+          </p>
+          
+          <div class="space-y-4 text-left">
+            <div class="space-y-1.5">
+              <Label for="manual-email">Tu Email</Label>
+              <Input 
+                id="manual-email"
+                type="email"
+                bind:value={manualEmail}
+                placeholder="ejemplo@email.com"
+                class="bg-input/50"
+              />
+            </div>
+            <button 
+              on:click={handleManualEmailSignIn}
+              disabled={!manualEmail || !manualEmail.includes('@')}
+              class="w-full bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-3 rounded-xl font-bold transition-colors"
+            >
+              Confirmar y Continuar
+            </button>
+          </div>
+        {:else}
+          <!-- Real Error -->
+          <div class="w-16 h-16 rounded-full bg-destructive/20 mx-auto mb-4 flex items-center justify-center">
+            <XCircle size={32} class="text-destructive" />
+          </div>
+          <h1 class="text-2xl font-bold mb-2">Invitación Inválida</h1>
+          <p class="text-muted-foreground mb-6">{error}</p>
+          <a 
+            href="/login" 
+            class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            Ir a Iniciar Sesión
+          </a>
+        {/if}
       </div>
     {:else if invite && user}
       <!-- Invite Form -->

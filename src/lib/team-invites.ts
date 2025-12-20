@@ -230,15 +230,20 @@ export async function validateInvite(token: string, enforceStoreId: boolean = tr
     // If not found locally, try to fetch from Supabase
     // This is crucial for team members on new devices who don't have local data
     if (!invite) {
-        console.log('[TeamInvites] Invite not found locally, checking Supabase...');
+        console.log('[TeamInvites] Invite not found locally for token:', token.slice(0, 8) + '...');
         const supabase = getSupabase();
         
         if (supabase) {
             try {
                 // First try using the SECURITY DEFINER RPC function to bypass RLS
                 // This is more reliable for new devices without store_id set
+                console.log('[TeamInvites] Attempting validation via RPC...');
                 const { data: rpcData, error: rpcError } = await supabase
                     .rpc('validate_team_invite', { p_token: token });
+                
+                if (rpcError) {
+                    console.error('[TeamInvites] RPC validation error:', rpcError);
+                }
                 
                 if (!rpcError && rpcData && rpcData.length > 0) {
                     const validatedInvite = rpcData[0];
@@ -266,8 +271,12 @@ export async function validateInvite(token: string, enforceStoreId: boolean = tr
                         };
                         
                         // Fetch the associated user using full invite data for consistency
+                        console.log('[TeamInvites] Fetching user associated with invite...');
                         await fetchUserFromSupabase(fullInviteData.user_id, fullInviteData.store_id);
                     } else {
+                        if (fullError) {
+                            console.warn('[TeamInvites] Full invite fetch failed (likely RLS), using RPC data:', fullError.message);
+                        }
                         // Fallback to RPC data if full fetch fails
                         invite = {
                             id: validatedInvite.id,
@@ -285,19 +294,19 @@ export async function validateInvite(token: string, enforceStoreId: boolean = tr
                         await fetchUserFromSupabase(validatedInvite.user_id, validatedInvite.store_id);
                     }
                 } else {
-                    // Fallback to direct query if RPC fails
-                    console.log('[TeamInvites] RPC failed, trying direct query...');
+                    // Fallback to direct query if RPC fails or returns no data
+                    console.log('[TeamInvites] RPC returned no data, trying direct query...');
                     
                     const { data, error } = await supabase
                         .from('team_invites')
                         .select('*')
                         .eq('token', token)
-                        .single();
+                        .maybeSingle(); // maybeSingle is safer than single
                     
                     if (error) {
-                        console.error('[TeamInvites] Supabase query error:', error);
+                        console.error('[TeamInvites] Supabase direct query error:', error);
                     } else if (data) {
-                        console.log('[TeamInvites] ✅ Found invite in Supabase:', data.id);
+                        console.log('[TeamInvites] ✅ Found invite in Supabase via direct query:', data.id);
                         
                         // Convert Supabase format to local format
                         invite = {
@@ -326,11 +335,17 @@ export async function validateInvite(token: string, enforceStoreId: boolean = tr
                     } catch (cacheError) {
                         console.warn('[TeamInvites] Could not cache invite locally:', cacheError);
                     }
+                } else {
+                    console.log('[TeamInvites] No invite found in Supabase for token');
                 }
             } catch (supabaseError) {
-                console.error('[TeamInvites] Error fetching invite from Supabase:', supabaseError);
+                console.error('[TeamInvites] Unexpected error fetching from Supabase:', supabaseError);
             }
+        } else {
+            console.warn('[TeamInvites] Supabase client not available for validation');
         }
+    } else {
+        console.log('[TeamInvites] Found invite locally for token:', token.slice(0, 8) + '...');
     }
     
     if (!invite) {
