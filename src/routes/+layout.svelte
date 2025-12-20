@@ -16,6 +16,7 @@
   import { Input } from '$lib/components/ui/input';
   import { locale, isPosMode } from '$lib/stores';
   import { t, type Locale } from '$lib/i18n';
+  import { Toaster } from 'svelte-sonner';
 
   // Grouped Navigation for Sidebar - labels will be reactive
   // Using stable keys for group identification
@@ -589,6 +590,9 @@
 {:else}
   <slot />
 {/if}
+
+<!-- Global Toast Notifications -->
+<Toaster richColors position="top-center" />
 
 <style>
   .pb-safe {

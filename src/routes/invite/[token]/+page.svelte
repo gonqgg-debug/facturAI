@@ -31,8 +31,16 @@
     Shield,
     Store,
     AlertTriangle,
-    KeyRound
+    KeyRound,
+    Eye,
+    EyeOff,
+    Sparkles
   } from 'lucide-svelte';
+  import { toast } from 'svelte-sonner';
+  
+  // Password visibility
+  let showPassword = false;
+  let showConfirmPassword = false;
 
   // State
   let loading = true;
@@ -449,68 +457,88 @@
   <title>Aceptar Invitación | Cuadra</title>
 </svelte:head>
 
-<div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
-  <div class="w-full max-w-md">
+<div class="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950/50 to-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+  <!-- Animated background elements -->
+  <div class="absolute inset-0 overflow-hidden pointer-events-none">
+    <div class="absolute -top-40 -right-40 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl animate-pulse"></div>
+    <div class="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse" style="animation-delay: 1s;"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl"></div>
+  </div>
+  
+  <div class="w-full max-w-md relative z-10">
     {#if loading}
       <!-- Loading State -->
-      <div class="bg-card border border-border rounded-2xl p-8 text-center">
-        <Loader2 size={48} class="mx-auto mb-4 text-primary animate-spin" />
-        <p class="text-muted-foreground">Verificando invitación...</p>
+      <div class="bg-card/95 backdrop-blur-xl border border-white/10 rounded-3xl p-10 text-center shadow-2xl shadow-black/20">
+        <div class="relative">
+          <div class="w-20 h-20 mx-auto mb-6 relative">
+            <div class="absolute inset-0 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full animate-spin" style="animation-duration: 2s;"></div>
+            <div class="absolute inset-1 bg-card rounded-full flex items-center justify-center">
+              <Loader2 size={32} class="text-indigo-400 animate-spin" />
+            </div>
+          </div>
+        </div>
+        <p class="text-muted-foreground text-lg">Verificando invitación...</p>
       </div>
     {:else if success}
       <!-- Success State -->
-      <div class="bg-card border border-border rounded-2xl p-8 text-center">
-        <div class="w-16 h-16 rounded-full bg-emerald-500/20 mx-auto mb-4 flex items-center justify-center">
-          <CheckCircle2 size={32} class="text-emerald-500" />
+      <div class="bg-card/95 backdrop-blur-xl border border-white/10 rounded-3xl p-10 text-center shadow-2xl shadow-black/20">
+        <div class="w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-green-500 mx-auto mb-6 flex items-center justify-center shadow-lg shadow-emerald-500/30 animate-bounce" style="animation-duration: 2s;">
+          <CheckCircle2 size={48} class="text-white" />
         </div>
-        <h1 class="text-2xl font-bold mb-2">¡Cuenta Creada!</h1>
-        <p class="text-muted-foreground mb-4">
-          Tu cuenta ha sido creada exitosamente. Serás redirigido al inicio de sesión...
+        <h1 class="text-3xl font-bold mb-3 bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text text-transparent">¡Cuenta Creada!</h1>
+        <p class="text-muted-foreground mb-6 text-lg">
+          Tu cuenta ha sido vinculada exitosamente.
         </p>
-        <Loader2 size={24} class="mx-auto text-primary animate-spin" />
+        <div class="flex items-center justify-center gap-2 text-emerald-400">
+          <Loader2 size={20} class="animate-spin" />
+          <span>Redirigiendo al inicio de sesión...</span>
+        </div>
       </div>
     {:else if error}
       <!-- Error State (invalid invite or missing email) -->
-      <div class="bg-card border border-border rounded-2xl p-8 text-center shadow-xl">
+      <div class="bg-card/95 backdrop-blur-xl border border-white/10 rounded-3xl p-10 text-center shadow-2xl shadow-black/20">
         {#if error.includes('email')}
           <!-- Manual Email Entry for Link Sign-in -->
-          <div class="w-16 h-16 rounded-full bg-primary/20 mx-auto mb-4 flex items-center justify-center">
-            <Mail size={32} class="text-primary" />
+          <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-6 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+            <Mail size={36} class="text-white" />
           </div>
-          <h1 class="text-2xl font-bold mb-2">Completar Registro</h1>
-          <p class="text-muted-foreground mb-6">
+          <h1 class="text-2xl font-bold mb-3">Completar Registro</h1>
+          <p class="text-muted-foreground mb-8">
             Por seguridad, necesitamos que ingreses tu email para confirmar que eres tú.
           </p>
           
-          <div class="space-y-4 text-left">
-            <div class="space-y-1.5">
-              <Label for="manual-email">Tu Email</Label>
-              <Input 
-                id="manual-email"
-                type="email"
-                bind:value={manualEmail}
-                placeholder="ejemplo@email.com"
-                class="bg-input/50"
-              />
+          <div class="space-y-5 text-left">
+            <div class="space-y-2">
+              <Label for="manual-email" class="text-sm font-medium">Tu Email</Label>
+              <div class="relative">
+                <Mail class="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                <Input 
+                  id="manual-email"
+                  type="email"
+                  bind:value={manualEmail}
+                  placeholder="ejemplo@email.com"
+                  class="pl-11 h-12 bg-white/5 border-white/10 rounded-xl focus:border-indigo-500 focus:ring-indigo-500/20"
+                />
+              </div>
             </div>
             <button 
               on:click={handleManualEmailSignIn}
               disabled={!manualEmail || !manualEmail.includes('@')}
-              class="w-full bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-3 rounded-xl font-bold transition-colors"
+              class="w-full bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white px-6 py-3.5 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-indigo-500/25"
             >
               Confirmar y Continuar
             </button>
           </div>
         {:else}
           <!-- Real Error -->
-          <div class="w-16 h-16 rounded-full bg-destructive/20 mx-auto mb-4 flex items-center justify-center">
-            <XCircle size={32} class="text-destructive" />
+          <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-red-500 to-rose-500 mx-auto mb-6 flex items-center justify-center shadow-lg shadow-red-500/30">
+            <XCircle size={40} class="text-white" />
           </div>
-          <h1 class="text-2xl font-bold mb-2">Invitación Inválida</h1>
-          <p class="text-muted-foreground mb-6">{error}</p>
+          <h1 class="text-2xl font-bold mb-3">Invitación Inválida</h1>
+          <p class="text-muted-foreground mb-8 max-w-sm mx-auto">{error}</p>
           <a 
             href="/login" 
-            class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+            class="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl hover:from-indigo-600 hover:to-purple-600 transition-all duration-200 font-semibold shadow-lg shadow-indigo-500/25"
           >
             Ir a Iniciar Sesión
           </a>
@@ -518,115 +546,149 @@
       </div>
     {:else if invite && user}
       <!-- Invite Form -->
-      <div class="bg-card border border-border rounded-2xl overflow-hidden">
+      <div class="bg-card/95 backdrop-blur-xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl shadow-black/20">
         <!-- Header -->
-        <div class="bg-primary/10 border-b border-border p-6 text-center">
-          <div class="w-16 h-16 rounded-full bg-primary/20 mx-auto mb-4 flex items-center justify-center">
-            <UserPlus size={32} class="text-primary" />
+        <div class="relative bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent p-8 text-center border-b border-white/5">
+          <div class="absolute top-4 right-4">
+            <Sparkles size={20} class="text-indigo-400/50" />
           </div>
-          <h1 class="text-2xl font-bold mb-1">Únete al Equipo</h1>
-          <p class="text-muted-foreground">
+          <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-5 flex items-center justify-center shadow-lg shadow-indigo-500/30 rotate-3 hover:rotate-0 transition-transform duration-300">
+            <UserPlus size={36} class="text-white" />
+          </div>
+          <h1 class="text-3xl font-bold mb-2 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Únete al Equipo</h1>
+          <p class="text-muted-foreground text-lg">
             Has sido invitado a unirte como miembro del equipo
           </p>
         </div>
 
         <!-- Invite Info -->
-        <div class="p-6 border-b border-border bg-muted/30">
-          <div class="grid gap-3">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Store size={20} class="text-primary" />
+        <div class="p-6 border-b border-white/5 bg-white/[0.02]">
+          <div class="grid gap-4">
+            <div class="flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/5">
+              <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center">
+                <Store size={22} class="text-blue-400" />
               </div>
               <div>
-                <p class="text-xs text-muted-foreground">Tienda</p>
-                <p class="font-medium">Mini Market</p>
+                <p class="text-xs text-muted-foreground uppercase tracking-wider">Tienda</p>
+                <p class="font-semibold text-lg">Mini Market</p>
               </div>
             </div>
             
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Shield size={20} class="text-primary" />
+            <div class="flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/5">
+              <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center">
+                <Shield size={22} class="text-amber-400" />
               </div>
               <div>
-                <p class="text-xs text-muted-foreground">Tu Rol</p>
-                <p class="font-medium">{role?.name || 'Usuario'}</p>
+                <p class="text-xs text-muted-foreground uppercase tracking-wider">Tu Rol</p>
+                <p class="font-semibold text-lg">{role?.name || 'Usuario'}</p>
               </div>
             </div>
             
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Mail size={20} class="text-primary" />
+            <div class="flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/5">
+              <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500/20 to-green-500/20 flex items-center justify-center">
+                <Mail size={22} class="text-emerald-400" />
               </div>
               <div>
-                <p class="text-xs text-muted-foreground">Email</p>
-                <p class="font-medium">{invite.email}</p>
+                <p class="text-xs text-muted-foreground uppercase tracking-wider">Email</p>
+                <p class="font-semibold text-lg truncate max-w-[200px]">{invite.email}</p>
               </div>
             </div>
           </div>
         </div>
 
         <!-- Sign Up / Sign In Form -->
-        <form on:submit|preventDefault={emailAlreadyExists ? handleExistingLogin : handleEmailSignUp} class="p-6 space-y-4">
+        <form on:submit|preventDefault={emailAlreadyExists ? handleExistingLogin : handleEmailSignUp} class="p-6 space-y-5">
           {#if error}
-            <div class="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm flex items-center gap-2">
-              <AlertTriangle size={16} />
-              {error}
+            <div class="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-center gap-3">
+              <AlertTriangle size={18} class="flex-shrink-0" />
+              <span>{error}</span>
             </div>
           {/if}
 
-          <div class="space-y-1.5">
-            <Label for="email">Email</Label>
-            <Input 
-              id="email"
-              type="email"
-              value={email}
-              disabled
-              class="bg-muted/50"
-            />
-            <p class="text-xs text-muted-foreground">
+          <div class="space-y-2">
+            <Label for="email" class="text-sm font-medium text-muted-foreground">Email</Label>
+            <div class="relative">
+              <Mail class="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+              <Input 
+                id="email"
+                type="email"
+                value={email}
+                disabled
+                class="pl-11 h-12 bg-white/5 border-white/10 rounded-xl text-muted-foreground cursor-not-allowed"
+              />
+            </div>
+            <p class="text-xs text-muted-foreground/70 pl-1">
               El email está predefinido por la invitación
             </p>
           </div>
 
-          <div class="space-y-1.5">
-            <Label for="password">{emailAlreadyExists ? 'Tu Contraseña' : 'Contraseña'}</Label>
-            <Input 
-              id="password"
-              type="password"
-              bind:value={password}
-              placeholder={emailAlreadyExists ? 'Ingresa tu contraseña' : 'Mínimo 6 caracteres'}
-              disabled={submitting}
-              class="bg-input/50"
-            />
+          <div class="space-y-2">
+            <Label for="password" class="text-sm font-medium">{emailAlreadyExists ? 'Tu Contraseña' : 'Crear Contraseña'}</Label>
+            <div class="relative">
+              <Lock class="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+              <Input 
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                bind:value={password}
+                placeholder={emailAlreadyExists ? 'Ingresa tu contraseña' : 'Mínimo 6 caracteres'}
+                disabled={submitting}
+                class="pl-11 pr-11 h-12 bg-white/5 border-white/10 rounded-xl focus:border-indigo-500 focus:ring-indigo-500/20"
+              />
+              <button
+                type="button"
+                on:click={() => showPassword = !showPassword}
+                class="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {#if showPassword}
+                  <EyeOff size={18} />
+                {:else}
+                  <Eye size={18} />
+                {/if}
+              </button>
+            </div>
           </div>
 
           {#if !emailAlreadyExists}
-            <div class="space-y-1.5">
-              <Label for="confirmPassword">Confirmar Contraseña</Label>
-              <Input 
-                id="confirmPassword"
-                type="password"
-                bind:value={confirmPassword}
-                placeholder="Repite la contraseña"
-                disabled={submitting}
-                class="bg-input/50"
-              />
+            <div class="space-y-2">
+              <Label for="confirmPassword" class="text-sm font-medium">Confirmar Contraseña</Label>
+              <div class="relative">
+                <Lock class="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                <Input 
+                  id="confirmPassword"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  bind:value={confirmPassword}
+                  placeholder="Repite la contraseña"
+                  disabled={submitting}
+                  class="pl-11 pr-11 h-12 bg-white/5 border-white/10 rounded-xl focus:border-indigo-500 focus:ring-indigo-500/20"
+                />
+                <button
+                  type="button"
+                  on:click={() => showConfirmPassword = !showConfirmPassword}
+                  class="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {#if showConfirmPassword}
+                    <EyeOff size={18} />
+                  {:else}
+                    <Eye size={18} />
+                  {/if}
+                </button>
+              </div>
             </div>
           {/if}
 
           <button
             type="submit"
             disabled={submitting || !password || (!emailAlreadyExists && !confirmPassword)}
-            class="w-full bg-primary hover:bg-primary/90 disabled:bg-muted disabled:cursor-not-allowed text-primary-foreground px-4 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors"
+            class="w-full bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white px-6 py-4 rounded-xl font-semibold flex items-center justify-center gap-3 transition-all duration-200 shadow-lg shadow-indigo-500/25 disabled:shadow-none mt-2"
           >
             {#if submitting}
-              <Loader2 size={18} class="animate-spin" />
+              <Loader2 size={20} class="animate-spin" />
               {emailAlreadyExists ? 'Vinculando cuenta...' : 'Creando cuenta...'}
             {:else if emailAlreadyExists}
-              <KeyRound size={18} />
+              <KeyRound size={20} />
               Iniciar Sesión y Vincular
             {:else}
-              <UserPlus size={18} />
+              <UserPlus size={20} />
               Crear Cuenta
             {/if}
           </button>
@@ -635,19 +697,19 @@
             <button
               type="button"
               on:click={() => { emailAlreadyExists = false; error = ''; password = ''; }}
-              class="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+              class="w-full text-sm text-muted-foreground hover:text-indigo-400 transition-colors py-2"
             >
               ← Volver a crear cuenta nueva
             </button>
           {/if}
 
           {#if !emailAlreadyExists}
-            <div class="relative">
+            <div class="relative py-2">
               <div class="absolute inset-0 flex items-center">
-                <span class="w-full border-t border-border" />
+                <span class="w-full border-t border-white/10" />
               </div>
               <div class="relative flex justify-center text-xs uppercase">
-                <span class="bg-card px-2 text-muted-foreground">O continúa con</span>
+                <span class="bg-card px-4 text-muted-foreground/70">O continúa con</span>
               </div>
             </div>
 
@@ -655,22 +717,22 @@
               type="button"
               on:click={handleGoogleSignUp}
               disabled={submitting}
-              class="w-full bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed text-gray-900 px-4 py-3 rounded-xl font-medium flex items-center justify-center gap-3 transition-colors border border-gray-200"
+              class="w-full bg-white hover:bg-gray-100 disabled:bg-gray-200 disabled:cursor-not-allowed text-gray-900 px-6 py-3.5 rounded-xl font-medium flex items-center justify-center gap-3 transition-all duration-200 shadow-md"
             >
-            <svg class="w-5 h-5" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            Google
-          </button>
+              <svg class="w-5 h-5" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Continuar con Google
+            </button>
           {/if}
         </form>
 
         <!-- Footer -->
-        <div class="p-4 border-t border-border bg-muted/30 text-center">
-          <p class="text-xs text-muted-foreground">
+        <div class="p-5 border-t border-white/5 bg-white/[0.02] text-center">
+          <p class="text-xs text-muted-foreground/60">
             Al crear tu cuenta, aceptas nuestros términos y condiciones.
           </p>
         </div>

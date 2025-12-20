@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
-  import { Mail, Lock, Eye, EyeOff } from 'lucide-svelte';
+  import { Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-svelte';
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
   import { locale } from '$lib/stores';
@@ -17,6 +17,7 @@
   } from '$lib/firebase';
   import { ensureStoreExists } from '$lib/device-auth';
   import { initializeSyncService } from '$lib/sync-service';
+  import { toast } from 'svelte-sonner';
 
   // Auth mode: 'signin' | 'signup' | 'reset'
   type AuthMode = 'signin' | 'signup' | 'reset';
@@ -92,7 +93,8 @@
   // Sign in with email/password
   async function handleEmailSignIn() {
     if (!email || !password) {
-      error = $locale === 'es' ? 'Ingresa tu email y contraseña' : 'Enter your email and password';
+      const msg = $locale === 'es' ? 'Ingresa tu email y contraseña' : 'Enter your email and password';
+      toast.error(msg);
       return;
     }
     
@@ -105,7 +107,22 @@
       // Reactive statement will handle redirect
     } catch (err) {
       console.error('[Login] Sign in failed:', err);
-      error = (err as Error).message;
+      const errorMsg = (err as Error).message;
+      
+      // Show user-friendly error messages
+      let friendlyMsg = errorMsg;
+      if (errorMsg.includes('wrong-password') || errorMsg.includes('invalid-credential')) {
+        friendlyMsg = $locale === 'es' ? 'Contraseña incorrecta. Por favor verifica e intenta de nuevo.' : 'Incorrect password. Please check and try again.';
+      } else if (errorMsg.includes('user-not-found')) {
+        friendlyMsg = $locale === 'es' ? 'No existe una cuenta con este email.' : 'No account exists with this email.';
+      } else if (errorMsg.includes('too-many-requests')) {
+        friendlyMsg = $locale === 'es' ? 'Demasiados intentos. Por favor espera unos minutos.' : 'Too many attempts. Please wait a few minutes.';
+      } else if (errorMsg.includes('invalid-email')) {
+        friendlyMsg = $locale === 'es' ? 'El formato del email no es válido.' : 'Invalid email format.';
+      }
+      
+      toast.error(friendlyMsg);
+      error = friendlyMsg;
       isLoading = false;
     }
   }
@@ -113,17 +130,20 @@
   // Sign up with email/password
   async function handleEmailSignUp() {
     if (!email || !password) {
-      error = $locale === 'es' ? 'Ingresa tu email y contraseña' : 'Enter your email and password';
+      const msg = $locale === 'es' ? 'Ingresa tu email y contraseña' : 'Enter your email and password';
+      toast.error(msg);
       return;
     }
     
     if (password !== confirmPassword) {
-      error = $locale === 'es' ? 'Las contraseñas no coinciden' : 'Passwords do not match';
+      const msg = $locale === 'es' ? 'Las contraseñas no coinciden' : 'Passwords do not match';
+      toast.error(msg);
       return;
     }
     
     if (password.length < 6) {
-      error = $locale === 'es' ? 'La contraseña debe tener al menos 6 caracteres' : 'Password must be at least 6 characters';
+      const msg = $locale === 'es' ? 'La contraseña debe tener al menos 6 caracteres' : 'Password must be at least 6 characters';
+      toast.error(msg);
       return;
     }
     
@@ -133,10 +153,21 @@
     try {
       console.log('[Login] Signing up with email...');
       await signUpWithEmail(email, password);
+      toast.success($locale === 'es' ? '¡Cuenta creada!' : 'Account created!');
       // Reactive statement will handle redirect
     } catch (err) {
       console.error('[Login] Sign up failed:', err);
-      error = (err as Error).message;
+      const errorMsg = (err as Error).message;
+      
+      let friendlyMsg = errorMsg;
+      if (errorMsg.includes('email-already-in-use')) {
+        friendlyMsg = $locale === 'es' ? 'Este email ya está registrado. Intenta iniciar sesión.' : 'This email is already registered. Try signing in.';
+      } else if (errorMsg.includes('weak-password')) {
+        friendlyMsg = $locale === 'es' ? 'La contraseña es muy débil. Usa al menos 6 caracteres.' : 'Password is too weak. Use at least 6 characters.';
+      }
+      
+      toast.error(friendlyMsg);
+      error = friendlyMsg;
       isLoading = false;
     }
   }
@@ -152,7 +183,17 @@
       // Reactive statement will handle redirect
     } catch (err) {
       console.error('[Login] Google sign in failed:', err);
-      error = (err as Error).message;
+      const errorMsg = (err as Error).message;
+      
+      let friendlyMsg = errorMsg;
+      if (errorMsg.includes('popup-closed-by-user')) {
+        friendlyMsg = $locale === 'es' ? 'Inicio de sesión cancelado.' : 'Sign in cancelled.';
+      } else if (errorMsg.includes('popup-blocked')) {
+        friendlyMsg = $locale === 'es' ? 'Popup bloqueado. Permite popups para continuar.' : 'Popup blocked. Allow popups to continue.';
+      }
+      
+      toast.error(friendlyMsg);
+      error = friendlyMsg;
       isLoading = false;
     }
   }
@@ -160,7 +201,8 @@
   // Password reset
   async function handlePasswordReset() {
     if (!email) {
-      error = $locale === 'es' ? 'Ingresa tu email' : 'Enter your email';
+      const msg = $locale === 'es' ? 'Ingresa tu email' : 'Enter your email';
+      toast.error(msg);
       return;
     }
     
@@ -169,12 +211,16 @@
     
     try {
       await resetPassword(email);
-      successMessage = $locale === 'es' 
+      const successMsg = $locale === 'es' 
         ? 'Se envió un email para restablecer tu contraseña' 
         : 'Password reset email sent';
+      toast.success(successMsg);
+      successMessage = successMsg;
       authMode = 'signin';
     } catch (err) {
-      error = (err as Error).message;
+      const errorMsg = (err as Error).message;
+      toast.error(errorMsg);
+      error = errorMsg;
     } finally {
       isLoading = false;
     }
