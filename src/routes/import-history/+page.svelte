@@ -211,6 +211,14 @@
         const mappedFields = Object.values(columnMappings).filter(v => v && v !== 'skip');
         const missing = requiredFields.filter(f => !mappedFields.includes(f));
         
+        console.log('[Import] getMappingStatus:', {
+            selectedType,
+            requiredFields,
+            mappedFields,
+            columnMappings,
+            missing
+        });
+        
         return {
             valid: missing.length === 0,
             missing
@@ -563,10 +571,15 @@
                                         </p>
                                         <p class="text-sm text-muted-foreground">
                                             {$locale === 'es' ? 'Por favor mapea:' : 'Please map:'} 
-                                            {mappingStatus.missing.map(f => {
-                                                const field = getFieldDefinitions(selectedType).find(fd => fd.field === f);
-                                                return field ? ($locale === 'es' ? field.labelEs : field.label) : f;
-                                            }).join(', ')}
+                                            {#if selectedType && mappingStatus.missing.length > 0}
+                                                {mappingStatus.missing.map(f => {
+                                                    const fields = getFieldDefinitions(selectedType);
+                                                    const field = fields.find(fd => fd.field === f);
+                                                    return field ? ($locale === 'es' ? field.labelEs : field.label) : f;
+                                                }).join(', ')}
+                                            {:else}
+                                                {mappingStatus.missing.join(', ')}
+                                            {/if}
                                         </p>
                                     </div>
                                 {/if}
