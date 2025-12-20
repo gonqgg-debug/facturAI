@@ -36,8 +36,11 @@
   import { 
     getPendingInvite, 
     revokeInvite, 
-    resendInvite
+    resendInvite,
+    deleteUserFromSupabase,
+    syncUserToSupabase
   } from '$lib/team-invites';
+  import { getStoreId } from '$lib/device-auth';
   import { currentUser, hasPermission, currentRole } from '$lib/auth';
   import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
@@ -162,6 +165,7 @@
     
     try {
       const role = roles.find(r => r.id === userForm.roleId);
+      const storeId = getStoreId();
       
       const userData: User = {
         username: userForm.username!.trim(),
@@ -176,14 +180,26 @@
         createdBy: editingUser?.createdBy || undefined
       };
       
+      let savedUserId: number;
       if (editingUser?.id) {
         await db.users.update(editingUser.id, userData);
+        savedUserId = editingUser.id;
       } else {
-        await db.users.add(userData);
+        savedUserId = await db.users.add(userData) as number;
+      }
+      
+      // Sync to Supabase so other devices can see the user
+      if (storeId) {
+        const savedUser = await db.users.get(savedUserId);
+        if (savedUser) {
+          await syncUserToSupabase(savedUser, storeId);
+        }
       }
       
       await loadUsersAndRoles();
       closeUserModal();
+      
+      toast.success($locale === 'es' ? 'Usuario guardado' : 'User saved');
     } catch (e) {
       console.error('Error saving user:', e);
       userFormError = $locale === 'es' ? 'Error al guardar usuario' : 'Error saving user';
@@ -204,14 +220,26 @@
     if (!userToDelete?.id) return;
     
     try {
-      await db.users.delete(userToDelete.id);
+      const userId = userToDelete.id;
+      const storeId = getStoreId();
+      
+      // Delete from local database
+      await db.users.delete(userId);
+      
+      // Also delete from Supabase to keep databases in sync
+      if (storeId) {
+        await deleteUserFromSupabase(userId, storeId);
+      }
+      
       deleteUserDialogOpen = false;
       userToDelete = null;
       await loadUsersAndRoles();
       closeUserModal();
+      
+      toast.success($locale === 'es' ? 'Usuario eliminado' : 'User deleted');
     } catch (e) {
       console.error('Error deleting user:', e);
-      alert($locale === 'es' ? 'Error al eliminar usuario' : 'Error deleting user');
+      toast.error($locale === 'es' ? 'Error al eliminar usuario' : 'Error deleting user');
     }
   }
 
@@ -795,11 +823,11 @@
               {inviteError}
             </p>
           {:else}
-            <p class="text-sm text-muted-foreground mt-1">
-              {$locale === 'es' 
-                ? `Se envió un email a ${inviteEmail} con instrucciones para crear su cuenta.`
-                : `An email was sent to ${inviteEmail} with instructions to create their account.`}
-            </p>
+          <p class="text-sm text-muted-foreground mt-1">
+            {$locale === 'es' 
+              ? `Se envió un email a ${inviteEmail} con instrucciones para crear su cuenta.`
+              : `An email was sent to ${inviteEmail} with instructions to create their account.`}
+          </p>
           {/if}
         </div>
         

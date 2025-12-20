@@ -384,7 +384,7 @@ export async function validateInvite(token: string, enforceStoreId: boolean = tr
  * Sync a local user to Supabase
  * This ensures the user data is available for team members on new devices
  */
-async function syncUserToSupabase(user: User, storeId: string): Promise<void> {
+export async function syncUserToSupabase(user: User, storeId: string): Promise<void> {
     const supabase = getSupabase();
     if (!supabase || !user.id) return;
     
@@ -452,6 +452,53 @@ async function syncUserToSupabase(user: User, storeId: string): Promise<void> {
         }
     } catch (err) {
         console.error('[TeamInvites] Error syncing user to Supabase:', err);
+    }
+}
+
+/**
+ * Delete a user from Supabase
+ * Called when user is deleted locally to keep databases in sync
+ */
+export async function deleteUserFromSupabase(localUserId: number, storeId: string): Promise<boolean> {
+    const supabase = getSupabase();
+    if (!supabase) {
+        console.warn('[TeamInvites] Supabase not available for user deletion');
+        return false;
+    }
+    
+    try {
+        console.log('[TeamInvites] Deleting user from Supabase:', localUserId, 'store:', storeId);
+        
+        // Delete from users table
+        const { error: deleteError } = await supabase
+            .from('users')
+            .delete()
+            .eq('local_id', localUserId)
+            .eq('store_id', storeId);
+        
+        if (deleteError) {
+            console.error('[TeamInvites] Failed to delete user from Supabase:', deleteError);
+            return false;
+        }
+        
+        // Also revoke any pending invites for this user
+        const { error: inviteError } = await supabase
+            .from('team_invites')
+            .update({ status: 'revoked' })
+            .eq('user_id', localUserId)
+            .eq('store_id', storeId)
+            .eq('status', 'pending');
+        
+        if (inviteError) {
+            console.warn('[TeamInvites] Could not revoke invites for deleted user:', inviteError);
+            // Don't fail - user is already deleted
+        }
+        
+        console.log('[TeamInvites] ✅ User deleted from Supabase:', localUserId);
+        return true;
+    } catch (err) {
+        console.error('[TeamInvites] Error deleting user from Supabase:', err);
+        return false;
     }
 }
 
