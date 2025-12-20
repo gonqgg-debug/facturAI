@@ -191,9 +191,9 @@
         success = true;
         loading = false;
         
-        // Redirect to home after short delay
+        // Redirect to login after short delay
         setTimeout(() => {
-          goto('/');
+          goto('/login');
         }, 2000);
       } else {
         console.warn('[Invite] No pending invite found for email:', storedEmail);
@@ -257,9 +257,9 @@
       
       success = true;
       
-      // Redirect to home after short delay
+      // Redirect to login after short delay
       setTimeout(() => {
-        goto('/');
+        goto('/login');
       }, 2000);
     } catch (e: any) {
       console.error('Sign up failed:', e);
@@ -298,9 +298,9 @@
       
       success = true;
       
-      // Redirect to home after short delay
+      // Redirect to login after short delay
       setTimeout(() => {
-        goto('/');
+        goto('/login');
       }, 2000);
     } catch (e: any) {
       console.error('Google sign up failed:', e);
@@ -335,7 +335,7 @@
         </div>
         <h1 class="text-2xl font-bold mb-2">¡Cuenta Creada!</h1>
         <p class="text-muted-foreground mb-4">
-          Tu cuenta ha sido vinculada exitosamente. Serás redirigido en un momento...
+          Tu cuenta ha sido creada exitosamente. Serás redirigido al inicio de sesión...
         </p>
         <Loader2 size={24} class="mx-auto text-primary animate-spin" />
       </div>
