@@ -145,7 +145,9 @@ BEGIN
     END IF;
 END $$;
 
--- Helper function to fetch user by invite (bypasses RLS)
+-- Helper function to fetch user (bypasses RLS)
+DROP FUNCTION IF EXISTS get_user_for_invite(INTEGER, UUID);
+
 CREATE OR REPLACE FUNCTION get_user_for_invite(p_local_id INTEGER, p_store_id UUID)
 RETURNS TABLE (
     local_id INTEGER,
@@ -188,6 +190,8 @@ GRANT EXECUTE ON FUNCTION get_user_for_invite(INTEGER, UUID) TO anon;
 GRANT EXECUTE ON FUNCTION get_user_for_invite(INTEGER, UUID) TO authenticated;
 
 -- Helper function to fetch role (bypasses RLS)
+DROP FUNCTION IF EXISTS get_role_for_invite(INTEGER, UUID);
+
 CREATE OR REPLACE FUNCTION get_role_for_invite(p_local_id INTEGER, p_store_id UUID)
 RETURNS TABLE (
     local_id INTEGER,

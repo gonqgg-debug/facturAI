@@ -116,7 +116,72 @@
           role = await db.localRoles.get(user.roleId) ?? null;
           email = invite.email;
         } else {
-          error = 'Error al cargar los datos del usuario. Por favor intenta recargar la página.';
+          // User not in cache - this is common for new devices
+          // Create a minimal user object so we can still show the form
+          console.log('[Invite] Creating minimal user from invite data');
+          user = {
+            id: invite.userId,
+            username: invite.email.split('@')[0],
+            displayName: invite.email.split('@')[0],
+            pin: '0000', // Will be set properly when account is created
+            roleId: 1, // Default, will be updated from Supabase
+            isActive: true
+          };
+          email = invite.email;
+          
+          // Try to fetch role name directly from Supabase
+          try {
+            const { getSupabase } = await import('$lib/supabase');
+            const supabase = getSupabase();
+            if (supabase) {
+              // Try RPC first
+              const { data: rpcData, error: rpcError } = await supabase
+                .rpc('get_user_for_invite', { 
+                  p_local_id: invite.userId, 
+                  p_store_id: invite.storeId 
+                });
+              
+              if (!rpcError && rpcData && rpcData.length > 0) {
+                console.log('[Invite] Fetched user via RPC:', rpcData[0]);
+                user = {
+                  id: rpcData[0].local_id,
+                  username: rpcData[0].username || invite.email.split('@')[0],
+                  displayName: rpcData[0].display_name || invite.email.split('@')[0],
+                  pin: rpcData[0].pin || '0000',
+                  roleId: rpcData[0].role_id,
+                  roleName: rpcData[0].role_name,
+                  isActive: rpcData[0].is_active !== false
+                };
+                
+                // Cache locally
+                await db.users.put(user);
+                
+                // Try to get role
+                if (rpcData[0].role_id) {
+                  const { data: roleData } = await supabase
+                    .rpc('get_role_for_invite', { 
+                      p_local_id: rpcData[0].role_id, 
+                      p_store_id: invite.storeId 
+                    });
+                  if (roleData && roleData.length > 0) {
+                    role = {
+                      id: roleData[0].local_id,
+                      name: roleData[0].name,
+                      description: roleData[0].description,
+                      permissions: roleData[0].permissions || [],
+                      isSystem: roleData[0].is_system
+                    };
+                    await db.localRoles.put(role);
+                    console.log('[Invite] Fetched and cached role:', role.name);
+                  }
+                }
+              } else {
+                console.warn('[Invite] RPC failed or returned no data:', rpcError?.message);
+              }
+            }
+          } catch (fetchErr) {
+            console.warn('[Invite] Could not fetch user/role from Supabase:', fetchErr);
+          }
         }
       }
     } catch (e) {
