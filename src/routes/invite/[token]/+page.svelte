@@ -106,28 +106,45 @@
 
   async function handleEmailLinkSignIn(url: string) {
     try {
-      // Get stored email
+      // Get stored email from localStorage
       let storedEmail = getStoredEmailForSignIn();
       
+      // If email not in localStorage, try to get it from the invite using the token
+      if (!storedEmail && token) {
+        console.log('[Invite] Email not in localStorage, fetching from invite...');
+        const inviteData = await validateInvite(token, false);
+        if (inviteData) {
+          storedEmail = inviteData.email;
+          console.log('[Invite] Found email from invite:', storedEmail);
+        }
+      }
+      
       if (!storedEmail) {
-        // Email not stored, ask user to provide it
+        // Still no email, show form to enter it
         error = 'Por favor, ingresa tu email para completar el registro.';
         loading = false;
+        // Load the invite anyway to show the form
+        await loadInvite();
         return;
       }
       
       // Complete sign-in
       const firebaseUser = await completeEmailSignIn(storedEmail, url);
       
-      // Load invite by email
-      const inviteByEmail = await db.teamInvites
+      // Load invite by email or token
+      let inviteToAccept = await db.teamInvites
         .where('email')
         .equals(storedEmail.toLowerCase())
         .and(i => i.status === 'pending')
         .first();
       
-      if (inviteByEmail) {
-        await acceptInvite(inviteByEmail.token, firebaseUser.uid);
+      // Fallback: try to find by token if not found by email
+      if (!inviteToAccept && token) {
+        inviteToAccept = await validateInvite(token, false);
+      }
+      
+      if (inviteToAccept) {
+        await acceptInvite(inviteToAccept.token, firebaseUser.uid);
         await loginWithFirebase({ 
           email: firebaseUser.email, 
           displayName: firebaseUser.displayName,
