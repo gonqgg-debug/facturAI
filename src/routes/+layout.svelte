@@ -118,8 +118,8 @@
   // Public routes that don't require authentication
   const publicRoutes = ['/', '/login', '/en'];
   
-  // Check if current route is public
-  $: isPublicRoute = publicRoutes.includes($page.url.pathname);
+  // Check if current route is public (including dynamic routes like /invite/[token])
+  $: isPublicRoute = publicRoutes.includes($page.url.pathname) || $page.url.pathname.startsWith('/invite/');
   
   // Auto-expand the group containing the current route
   $: {
@@ -144,7 +144,7 @@
     // isFirebaseAuthenticated is only true when user exists AND loading is false
     const unsubscribe = isFirebaseAuthenticated.subscribe(async (isAuthenticated) => {
       const currentPath = $page.url.pathname;
-      const isPublic = publicRoutes.includes(currentPath);
+      const isPublic = publicRoutes.includes(currentPath) || currentPath.startsWith('/invite/');
       console.log('[Layout] Firebase authenticated:', isAuthenticated, 'path:', currentPath, 'isPublic:', isPublic);
       
       // If authenticated and on login page, redirect to dashboard
