@@ -11,6 +11,7 @@ import type { TeamInvite, User, InviteStatus } from './types';
 import { getStoreId } from './device-auth';
 import { sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, getAuth } from 'firebase/auth';
 import { getFirebaseAuth } from './firebase';
+import { getSupabase } from './supabase';
 
 // ============================================================
 // CONSTANTS
@@ -112,23 +113,57 @@ export async function createInvite(
     
     // Create new invite
     const token = generateInviteToken();
+    const expiresAt = calculateExpirationDate();
+    const normalizedEmail = email.toLowerCase().trim();
+    
     const invite: TeamInvite = {
         id: generateId(),
         userId,
-        email: email.toLowerCase().trim(),
+        email: normalizedEmail,
         token,
         storeId,
         invitedBy,
         status: 'pending',
         createdAt: new Date(),
-        expiresAt: calculateExpirationDate()
+        expiresAt
     };
     
+    // Save to local database
     await db.teamInvites.add(invite);
     
+    // CRITICAL: Also save to Supabase for cross-device access
+    // Without this, team members on new devices can't find their invites
+    const supabase = getSupabase();
+    if (supabase) {
+        try {
+            const { error: supabaseError } = await supabase
+                .from('team_invites')
+                .insert({
+                    id: invite.id,
+                    store_id: storeId,
+                    user_id: userId,
+                    email: normalizedEmail,
+                    token,
+                    invited_by: invitedBy,
+                    status: 'pending',
+                    expires_at: expiresAt.toISOString()
+                });
+            
+            if (supabaseError) {
+                console.error('[TeamInvites] Failed to sync invite to Supabase:', supabaseError);
+                // Don't throw - local invite still created
+            } else {
+                console.log('[TeamInvites] ✅ Synced invite to Supabase');
+            }
+        } catch (syncError) {
+            console.error('[TeamInvites] Error syncing invite to Supabase:', syncError);
+            // Don't throw - local invite still created
+        }
+    }
+    
     // Update user email if not set
-    if (!user.email || user.email !== email) {
-        await db.users.update(userId, { email: email.toLowerCase().trim() });
+    if (!user.email || user.email !== normalizedEmail) {
+        await db.users.update(userId, { email: normalizedEmail });
     }
     
     return invite;
@@ -276,11 +311,36 @@ export async function acceptInvite(token: string, firebaseUid: string): Promise<
         email: invite.email
     });
     
-    // Mark invite as accepted
+    // Mark invite as accepted (local)
     await db.teamInvites.update(invite.id!, {
         status: 'accepted' as InviteStatus,
         acceptedAt: new Date()
     });
+    
+    // CRITICAL: Also sync acceptance to Supabase for cross-device access
+    // Without this, new devices can't find the team membership
+    const supabase = getSupabase();
+    if (supabase) {
+        try {
+            const { error: supabaseError } = await supabase
+                .from('team_invites')
+                .update({ 
+                    status: 'accepted',
+                    accepted_at: new Date().toISOString()
+                })
+                .eq('token', token);
+            
+            if (supabaseError) {
+                console.error('[TeamInvites] Failed to sync acceptance to Supabase:', supabaseError);
+                // Don't throw - local acceptance still succeeded
+            } else {
+                console.log('[TeamInvites] ✅ Synced invite acceptance to Supabase');
+            }
+        } catch (syncError) {
+            console.error('[TeamInvites] Error syncing to Supabase:', syncError);
+            // Don't throw - local acceptance still succeeded
+        }
+    }
     
     console.log('[TeamInvites] ✅ Invite accepted for user:', user.id, 'to store:', invite.storeId);
     

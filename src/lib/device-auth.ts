@@ -218,39 +218,50 @@ async function verifyDeviceRegistration(deviceId: string, token: string): Promis
 
 /**
  * Find the store ID for a team member through their accepted invite
- * @param firebaseUid - The Firebase UID of the team member
+ * Queries Supabase (cloud) instead of local IndexedDB because on a new device
+ * the local database is empty.
+ * 
+ * @param email - The email of the team member (from Firebase user)
  * @returns The store ID if found, null otherwise
  */
-async function findTeamMemberStore(firebaseUid: string): Promise<string | null> {
+async function findTeamMemberStore(email: string | null): Promise<string | null> {
+    if (!email) {
+        console.log('[DeviceAuth] No email provided for team member lookup');
+        return null;
+    }
+    
+    const supabase = getSupabase();
+    if (!supabase) {
+        console.log('[DeviceAuth] Supabase not available for team member lookup');
+        return null;
+    }
+    
     try {
-        // Dynamically import db to avoid circular dependencies
-        const { db } = await import('./db');
+        // Query Supabase for accepted team invites by email
+        // This works on new devices because it queries the cloud, not local IndexedDB
+        console.log('[DeviceAuth] Checking Supabase for team membership:', email);
         
-        // Find user by Firebase UID
-        const user = await db.users
-            .filter(u => u.firebaseUid === firebaseUid)
-            .first();
+        const { data: invite, error } = await supabase
+            .from('team_invites')
+            .select('store_id, status')
+            .eq('email', email.toLowerCase())
+            .eq('status', 'accepted')
+            .single();
         
-        if (!user?.id) {
-            console.log('[DeviceAuth] No local user found for Firebase UID:', firebaseUid);
+        if (error) {
+            // PGRST116 = no rows found - this is normal for non-team-members
+            if (error.code !== 'PGRST116') {
+                console.log('[DeviceAuth] Team invite lookup error:', error.message);
+            }
             return null;
         }
         
-        console.log('[DeviceAuth] Found local user:', user.id, user.displayName);
-        
-        // Find accepted invite for this user
-        const invite = await db.teamInvites
-            .where('userId')
-            .equals(user.id)
-            .filter(inv => inv.status === 'accepted')
-            .first();
-        
-        if (invite?.storeId) {
-            console.log('[DeviceAuth] Found team membership - store:', invite.storeId);
-            return invite.storeId;
+        if (invite?.store_id) {
+            console.log('[DeviceAuth] Found team membership in Supabase - store:', invite.store_id);
+            return invite.store_id;
         }
         
-        console.log('[DeviceAuth] No accepted team invite found for user');
+        console.log('[DeviceAuth] No accepted team invite found for email');
         return null;
     } catch (err) {
         console.error('[DeviceAuth] Error finding team member store:', err);
@@ -310,9 +321,9 @@ export async function ensureStoreExists(): Promise<string | null> {
             console.log('[DeviceAuth] Found owned store:', ownedStore.name, 'ID:', ownedStore.id);
             storeId = ownedStore.id;
         } else {
-            // STEP 2: Check if user is a team member
+            // STEP 2: Check if user is a team member (query Supabase by email)
             console.log('[DeviceAuth] No owned store found, checking team membership...');
-            storeId = await findTeamMemberStore(firebaseUid);
+            storeId = await findTeamMemberStore(email);
             
             if (storeId) {
                 isTeamMember = true;
