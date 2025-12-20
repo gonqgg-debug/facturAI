@@ -1,7 +1,37 @@
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import type { User, Role, PermissionKey } from './types';
+import { DEFAULT_ROLES } from './types';
 import { encryptedStorage, clearEncryptionKey as clearEncKey } from './encryption';
+
+/**
+ * Ensures a role has permissions populated.
+ * If role has no permissions, falls back to DEFAULT_ROLES based on role name.
+ * This handles roles that were synced from Supabase before permissions were added.
+ */
+function ensureRolePermissions(role: Role | null | undefined): Role | null {
+    if (!role) return null;
+    
+    // If role already has permissions, return as-is
+    if (role.permissions && role.permissions.length > 0) {
+        return role;
+    }
+    
+    // Find matching default role by name
+    const defaultRole = DEFAULT_ROLES.find(r => r.name === role.name);
+    
+    if (defaultRole) {
+        console.log('[Auth] Role', role.name, 'missing permissions, using defaults');
+        return {
+            ...role,
+            permissions: defaultRole.permissions
+        };
+    }
+    
+    // No matching default, return role with empty permissions
+    console.warn('[Auth] Role', role.name, 'has no permissions and no default found');
+    return role;
+}
 
 // ============ SAFE STORAGE HELPERS ============
 // Safari private browsing and other edge cases can throw on localStorage access
@@ -284,9 +314,9 @@ export async function loginWithPin(pin: string): Promise<User | null> {
         // Get user's role
         const role = await db.localRoles.get(user.roleId);
         
-        // Update stores
+        // Update stores (ensure role has permissions)
         currentUser.set(user);
-        currentRole.set(role || null);
+        currentRole.set(ensureRolePermissions(role));
         isAuthenticated.setAuthenticated(true);
         
         // Update last login
@@ -396,7 +426,7 @@ export async function restoreSession(): Promise<boolean> {
                 if (user && user.isActive) {
                     const role = await db.localRoles.get(user.roleId);
                     currentUser.set(user);
-                    currentRole.set(role || null);
+                    currentRole.set(ensureRolePermissions(role));
                     isAuthenticated.setAuthenticated(true);
                     
                     // If we used plaintext, try to encrypt it for future use (non-blocking)
@@ -611,12 +641,16 @@ export async function loginWithFirebase(firebaseUserOverride?: { email: string |
     const role = await db.localRoles.get(user.roleId);
     console.log('[Auth] User role:', role?.name);
     
+    // Ensure role has permissions (fallback to DEFAULT_ROLES if empty)
+    const roleWithPermissions = ensureRolePermissions(role);
+    console.log('[Auth] Role permissions:', roleWithPermissions?.permissions?.length || 0);
+    
     // Update stores - this sets up local authentication
     console.log('[Auth] Setting currentUser store...');
     currentUser.set(user);
     
     console.log('[Auth] Setting currentRole store...');
-    currentRole.set(role || null);
+    currentRole.set(roleWithPermissions);
     
     console.log('[Auth] Setting isAuthenticated to true...');
     isAuthenticated.setAuthenticated(true);
