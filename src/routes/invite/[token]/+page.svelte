@@ -30,7 +30,8 @@
     Loader2, 
     Shield,
     Store,
-    AlertTriangle
+    AlertTriangle,
+    KeyRound
   } from 'lucide-svelte';
 
   // State
@@ -38,6 +39,7 @@
   let submitting = false;
   let error = '';
   let success = false;
+  let emailAlreadyExists = false; // Track if email is already registered
   
   // Invite data
   let invite: TeamInvite | null = null;
@@ -265,7 +267,49 @@
       }, 2000);
     } catch (e: any) {
       console.error('[Invite] Sign up failed:', e);
-      error = e.message || 'Error al crear la cuenta. Por favor intenta de nuevo.';
+      // Check if email already exists - offer login instead
+      if (e.message?.includes('ya está registrado') || e.code === 'auth/email-already-in-use') {
+        emailAlreadyExists = true;
+        error = 'Este email ya tiene una cuenta. Ingresa tu contraseña existente para vincular tu cuenta.';
+      } else {
+        error = e.message || 'Error al crear la cuenta. Por favor intenta de nuevo.';
+      }
+    } finally {
+      submitting = false;
+    }
+  }
+  
+  async function handleExistingLogin() {
+    if (!invite || !token || !password) return;
+    
+    submitting = true;
+    error = '';
+    
+    try {
+      console.log('[Invite] Signing in with existing account...');
+      const { signInWithEmail } = await import('$lib/firebase');
+      const firebaseUserResult = await signInWithEmail(email, password);
+      console.log('[Invite] Sign-in successful:', firebaseUserResult.uid);
+      
+      // Accept invite and link accounts
+      console.log('[Invite] Accepting invite...');
+      await acceptInvite(token, firebaseUserResult.uid);
+      console.log('[Invite] Invite accepted');
+      
+      // Sign out so user has to log in fresh
+      console.log('[Invite] Signing out...');
+      await firebaseSignOut();
+      console.log('[Invite] Signed out');
+      
+      success = true;
+      
+      // Redirect to login after short delay
+      setTimeout(() => {
+        goto('/login');
+      }, 2000);
+    } catch (e: any) {
+      console.error('[Invite] Login failed:', e);
+      error = e.message || 'Contraseña incorrecta. Por favor intenta de nuevo.';
     } finally {
       submitting = false;
     }
@@ -440,8 +484,8 @@
           </div>
         </div>
 
-        <!-- Sign Up Form -->
-        <form on:submit|preventDefault={handleEmailSignUp} class="p-6 space-y-4">
+        <!-- Sign Up / Sign In Form -->
+        <form on:submit|preventDefault={emailAlreadyExists ? handleExistingLogin : handleEmailSignUp} class="p-6 space-y-4">
           {#if error}
             <div class="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm flex items-center gap-2">
               <AlertTriangle size={16} />
@@ -464,58 +508,74 @@
           </div>
 
           <div class="space-y-1.5">
-            <Label for="password">Contraseña</Label>
+            <Label for="password">{emailAlreadyExists ? 'Tu Contraseña' : 'Contraseña'}</Label>
             <Input 
               id="password"
               type="password"
               bind:value={password}
-              placeholder="Mínimo 6 caracteres"
+              placeholder={emailAlreadyExists ? 'Ingresa tu contraseña' : 'Mínimo 6 caracteres'}
               disabled={submitting}
               class="bg-input/50"
             />
           </div>
 
-          <div class="space-y-1.5">
-            <Label for="confirmPassword">Confirmar Contraseña</Label>
-            <Input 
-              id="confirmPassword"
-              type="password"
-              bind:value={confirmPassword}
-              placeholder="Repite la contraseña"
-              disabled={submitting}
-              class="bg-input/50"
-            />
-          </div>
+          {#if !emailAlreadyExists}
+            <div class="space-y-1.5">
+              <Label for="confirmPassword">Confirmar Contraseña</Label>
+              <Input 
+                id="confirmPassword"
+                type="password"
+                bind:value={confirmPassword}
+                placeholder="Repite la contraseña"
+                disabled={submitting}
+                class="bg-input/50"
+              />
+            </div>
+          {/if}
 
           <button
             type="submit"
-            disabled={submitting || !password || !confirmPassword}
+            disabled={submitting || !password || (!emailAlreadyExists && !confirmPassword)}
             class="w-full bg-primary hover:bg-primary/90 disabled:bg-muted disabled:cursor-not-allowed text-primary-foreground px-4 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors"
           >
             {#if submitting}
               <Loader2 size={18} class="animate-spin" />
-              Creando cuenta...
+              {emailAlreadyExists ? 'Vinculando cuenta...' : 'Creando cuenta...'}
+            {:else if emailAlreadyExists}
+              <KeyRound size={18} />
+              Iniciar Sesión y Vincular
             {:else}
               <UserPlus size={18} />
               Crear Cuenta
             {/if}
           </button>
+          
+          {#if emailAlreadyExists}
+            <button
+              type="button"
+              on:click={() => { emailAlreadyExists = false; error = ''; password = ''; }}
+              class="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              ← Volver a crear cuenta nueva
+            </button>
+          {/if}
 
-          <div class="relative">
-            <div class="absolute inset-0 flex items-center">
-              <span class="w-full border-t border-border" />
+          {#if !emailAlreadyExists}
+            <div class="relative">
+              <div class="absolute inset-0 flex items-center">
+                <span class="w-full border-t border-border" />
+              </div>
+              <div class="relative flex justify-center text-xs uppercase">
+                <span class="bg-card px-2 text-muted-foreground">O continúa con</span>
+              </div>
             </div>
-            <div class="relative flex justify-center text-xs uppercase">
-              <span class="bg-card px-2 text-muted-foreground">O continúa con</span>
-            </div>
-          </div>
 
-          <button
-            type="button"
-            on:click={handleGoogleSignUp}
-            disabled={submitting}
-            class="w-full bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed text-gray-900 px-4 py-3 rounded-xl font-medium flex items-center justify-center gap-3 transition-colors border border-gray-200"
-          >
+            <button
+              type="button"
+              on:click={handleGoogleSignUp}
+              disabled={submitting}
+              class="w-full bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed text-gray-900 px-4 py-3 rounded-xl font-medium flex items-center justify-center gap-3 transition-colors border border-gray-200"
+            >
             <svg class="w-5 h-5" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
               <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -524,6 +584,7 @@
             </svg>
             Google
           </button>
+          {/if}
         </form>
 
         <!-- Footer -->
