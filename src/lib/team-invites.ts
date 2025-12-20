@@ -7,7 +7,7 @@
 
 import { browser } from '$app/environment';
 import { db, generateId } from './db';
-import type { TeamInvite, User, InviteStatus } from './types';
+import type { TeamInvite, User, InviteStatus, Role } from './types';
 import { getStoreId } from './device-auth';
 import { sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, getAuth } from 'firebase/auth';
 import { getFirebaseAuth } from './firebase';
@@ -136,6 +136,10 @@ export async function createInvite(
     const supabase = getSupabase();
     if (supabase) {
         try {
+            // First, sync the user to Supabase (needed for new devices to load user data)
+            await syncUserToSupabase(user, storeId);
+            
+            // Then, sync the invite
             const { error: supabaseError } = await supabase
                 .from('team_invites')
                 .insert({
@@ -220,9 +224,117 @@ export async function createAndSendInvite(
 export async function validateInvite(token: string, enforceStoreId: boolean = true): Promise<TeamInvite | null> {
     if (!browser) return null;
     
-    const invite = await db.teamInvites.where('token').equals(token).first();
+    // First, try to find invite in local database
+    let invite = await db.teamInvites.where('token').equals(token).first();
+    
+    // If not found locally, try to fetch from Supabase
+    // This is crucial for team members on new devices who don't have local data
+    if (!invite) {
+        console.log('[TeamInvites] Invite not found locally, checking Supabase...');
+        const supabase = getSupabase();
+        
+        if (supabase) {
+            try {
+                // First try using the SECURITY DEFINER RPC function to bypass RLS
+                // This is more reliable for new devices without store_id set
+                const { data: rpcData, error: rpcError } = await supabase
+                    .rpc('validate_team_invite', { p_token: token });
+                
+                if (!rpcError && rpcData && rpcData.length > 0) {
+                    const validatedInvite = rpcData[0];
+                    console.log('[TeamInvites] ✅ Invite validated via RPC:', validatedInvite.id);
+                    
+                    // RPC only returns limited fields, fetch complete record for consistency
+                    const { data: fullInviteData, error: fullError } = await supabase
+                        .from('team_invites')
+                        .select('*')
+                        .eq('id', validatedInvite.id)
+                        .single();
+                    
+                    if (!fullError && fullInviteData) {
+                        invite = {
+                            id: fullInviteData.id,
+                            userId: fullInviteData.user_id,
+                            email: fullInviteData.email,
+                            token: fullInviteData.token,
+                            storeId: fullInviteData.store_id,
+                            invitedBy: fullInviteData.invited_by,
+                            status: fullInviteData.status as InviteStatus,
+                            createdAt: new Date(fullInviteData.created_at),
+                            expiresAt: new Date(fullInviteData.expires_at),
+                            acceptedAt: fullInviteData.accepted_at ? new Date(fullInviteData.accepted_at) : undefined
+                        };
+                        
+                        // Fetch the associated user using full invite data for consistency
+                        await fetchUserFromSupabase(fullInviteData.user_id, fullInviteData.store_id);
+                    } else {
+                        // Fallback to RPC data if full fetch fails
+                        invite = {
+                            id: validatedInvite.id,
+                            userId: validatedInvite.user_id,
+                            email: validatedInvite.email,
+                            token: token,
+                            storeId: validatedInvite.store_id,
+                            invitedBy: 0, // RPC doesn't return this
+                            status: validatedInvite.status as InviteStatus,
+                            createdAt: new Date(), // RPC doesn't return this
+                            expiresAt: new Date(validatedInvite.expires_at)
+                        };
+                        
+                        // Fetch the associated user using RPC data as fallback
+                        await fetchUserFromSupabase(validatedInvite.user_id, validatedInvite.store_id);
+                    }
+                } else {
+                    // Fallback to direct query if RPC fails
+                    console.log('[TeamInvites] RPC failed, trying direct query...');
+                    
+                    const { data, error } = await supabase
+                        .from('team_invites')
+                        .select('*')
+                        .eq('token', token)
+                        .single();
+                    
+                    if (error) {
+                        console.error('[TeamInvites] Supabase query error:', error);
+                    } else if (data) {
+                        console.log('[TeamInvites] ✅ Found invite in Supabase:', data.id);
+                        
+                        // Convert Supabase format to local format
+                        invite = {
+                            id: data.id,
+                            userId: data.user_id,
+                            email: data.email,
+                            token: data.token,
+                            storeId: data.store_id,
+                            invitedBy: data.invited_by,
+                            status: data.status as InviteStatus,
+                            createdAt: new Date(data.created_at),
+                            expiresAt: new Date(data.expires_at),
+                            acceptedAt: data.accepted_at ? new Date(data.accepted_at) : undefined
+                        };
+                        
+                        // Also need to fetch the associated user from Supabase
+                        await fetchUserFromSupabase(data.user_id, data.store_id);
+                    }
+                }
+                
+                // Store invite locally for future use
+                if (invite) {
+                    try {
+                        await db.teamInvites.put(invite);
+                        console.log('[TeamInvites] ✅ Cached invite locally');
+                    } catch (cacheError) {
+                        console.warn('[TeamInvites] Could not cache invite locally:', cacheError);
+                    }
+                }
+            } catch (supabaseError) {
+                console.error('[TeamInvites] Error fetching invite from Supabase:', supabaseError);
+            }
+        }
+    }
     
     if (!invite) {
+        console.log('[TeamInvites] Invite not found in local DB or Supabase');
         return null;
     }
     
@@ -251,6 +363,237 @@ export async function validateInvite(token: string, enforceStoreId: boolean = tr
     }
     
     return invite;
+}
+
+/**
+ * Sync a local user to Supabase
+ * This ensures the user data is available for team members on new devices
+ */
+async function syncUserToSupabase(user: User, storeId: string): Promise<void> {
+    const supabase = getSupabase();
+    if (!supabase || !user.id) return;
+    
+    try {
+        // Get role info for sync
+        const role = await db.localRoles.get(user.roleId);
+        
+        // First, sync the role if it exists
+        if (role && role.id) {
+            await syncRoleToSupabase(role, storeId);
+        }
+        
+        // Check if user already exists in Supabase
+        const { data: existingUser, error: checkError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('local_id', user.id)
+            .eq('store_id', storeId)
+            .single();
+        
+        if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+            console.error('[TeamInvites] Error checking existing user:', checkError);
+        }
+        
+        const userData = {
+            store_id: storeId,
+            local_id: user.id,
+            username: user.username || user.displayName?.toLowerCase().replace(/\s+/g, '_') || `user_${user.id}`,
+            display_name: user.displayName || 'Usuario',
+            email: user.email || null,
+            phone: user.phone || null,
+            pin: user.pin,
+            role_id: user.roleId,
+            role_name: role?.name || user.roleName || null,
+            firebase_uid: user.firebaseUid || null,
+            has_full_access: user.hasFullAccess || false,
+            is_active: user.isActive !== false,
+            last_login: user.lastLogin?.toISOString() || null,
+            created_by: user.createdBy || null
+        };
+        
+        if (existingUser) {
+            // Update existing user
+            const { error: updateError } = await supabase
+                .from('users')
+                .update(userData)
+                .eq('id', existingUser.id);
+            
+            if (updateError) {
+                console.error('[TeamInvites] Failed to update user in Supabase:', updateError);
+            } else {
+                console.log('[TeamInvites] ✅ Updated user in Supabase:', user.id);
+            }
+        } else {
+            // Insert new user
+            const { error: insertError } = await supabase
+                .from('users')
+                .insert(userData);
+            
+            if (insertError) {
+                console.error('[TeamInvites] Failed to insert user in Supabase:', insertError);
+            } else {
+                console.log('[TeamInvites] ✅ Synced user to Supabase:', user.id);
+            }
+        }
+    } catch (err) {
+        console.error('[TeamInvites] Error syncing user to Supabase:', err);
+    }
+}
+
+/**
+ * Sync a local role to Supabase
+ */
+async function syncRoleToSupabase(role: Role, storeId: string): Promise<void> {
+    const supabase = getSupabase();
+    if (!supabase || !role.id) return;
+    
+    try {
+        // Check if role already exists in Supabase
+        const { data: existingRole, error: checkError } = await supabase
+            .from('roles')
+            .select('id')
+            .eq('local_id', role.id)
+            .eq('store_id', storeId)
+            .single();
+        
+        if (checkError && checkError.code !== 'PGRST116') {
+            console.error('[TeamInvites] Error checking existing role:', checkError);
+        }
+        
+        const roleData = {
+            store_id: storeId,
+            local_id: role.id,
+            name: role.name,
+            description: role.description || null,
+            permissions: role.permissions || [],
+            is_system: role.isSystem || false  // Fixed: use isSystem per Role interface
+        };
+        
+        if (existingRole) {
+            // Update existing role
+            const { error: updateError } = await supabase
+                .from('roles')
+                .update(roleData)
+                .eq('id', existingRole.id);
+            
+            if (updateError) {
+                console.error('[TeamInvites] Failed to update role in Supabase:', updateError);
+            } else {
+                console.log('[TeamInvites] ✅ Updated role in Supabase:', role.id);
+            }
+        } else {
+            // Insert new role
+            const { error: insertError } = await supabase
+                .from('roles')
+                .insert(roleData);
+            
+            if (insertError) {
+                console.error('[TeamInvites] Failed to insert role in Supabase:', insertError);
+            } else {
+                console.log('[TeamInvites] ✅ Synced role to Supabase:', role.id);
+            }
+        }
+    } catch (err) {
+        console.error('[TeamInvites] Error syncing role to Supabase:', err);
+    }
+}
+
+/**
+ * Fetch user data from Supabase and cache locally
+ * This is needed when validating invites on new devices
+ * NOTE: Supabase uses local_id to map to the local Dexie auto-increment ID
+ */
+async function fetchUserFromSupabase(localUserId: number, storeId: string): Promise<void> {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    
+    try {
+        // Query by local_id (the Dexie auto-increment ID) and store_id
+        const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('local_id', localUserId)
+            .eq('store_id', storeId)
+            .single();
+        
+        if (error) {
+            console.error('[TeamInvites] Could not fetch user from Supabase:', error);
+            return;
+        }
+        
+        if (data) {
+            // Convert and cache locally using local_id as the Dexie ID
+            const localUser: User = {
+                id: data.local_id,  // Use local_id as the Dexie ID
+                username: data.username || data.display_name?.toLowerCase().replace(/\s+/g, '_') || `user_${data.local_id}`,
+                displayName: data.display_name || 'Usuario',
+                pin: data.pin,
+                roleId: data.role_id,
+                roleName: data.role_name,
+                isActive: data.is_active !== false,
+                firebaseUid: data.firebase_uid || undefined,
+                email: data.email || undefined,
+                phone: data.phone || undefined,
+                hasFullAccess: data.has_full_access || false,
+                lastLogin: data.last_login ? new Date(data.last_login) : undefined,
+                createdAt: data.created_at ? new Date(data.created_at) : new Date(),
+                createdBy: data.created_by || undefined,
+                realmId: data.store_id  // Use realmId for multi-tenant sync
+            };
+            
+            await db.users.put(localUser);
+            console.log('[TeamInvites] ✅ Cached user locally:', localUserId);
+            
+            // Also fetch and cache the role
+            if (data.role_id) {
+                await fetchRoleFromSupabase(data.role_id, storeId);
+            }
+        }
+    } catch (err) {
+        console.error('[TeamInvites] Error fetching user:', err);
+    }
+}
+
+/**
+ * Fetch role data from Supabase and cache locally
+ * NOTE: Supabase uses local_id to map to the local Dexie auto-increment ID
+ */
+async function fetchRoleFromSupabase(localRoleId: number, storeId: string): Promise<void> {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    
+    try {
+        // Query by local_id (the Dexie auto-increment ID) and store_id
+        const { data, error } = await supabase
+            .from('roles')
+            .select('*')
+            .eq('local_id', localRoleId)
+            .eq('store_id', storeId)
+            .single();
+        
+        if (error) {
+            console.error('[TeamInvites] Could not fetch role from Supabase:', error);
+            return;
+        }
+        
+        if (data) {
+            // Convert and cache locally using local_id as the Dexie ID
+            const localRole: Role = {
+                id: data.local_id,  // Use local_id as the Dexie ID
+                name: data.name,
+                description: data.description || undefined,
+                permissions: data.permissions || [],
+                isSystem: data.is_system || false,  // Correct property name per interface
+                createdAt: data.created_at ? new Date(data.created_at) : new Date(),
+                realmId: data.store_id  // Use realmId for multi-tenant sync
+            };
+            
+            await db.localRoles.put(localRole);
+            console.log('[TeamInvites] ✅ Cached role locally:', localRoleId);
+        }
+    } catch (err) {
+        console.error('[TeamInvites] Error fetching role:', err);
+    }
 }
 
 /**
