@@ -669,18 +669,27 @@ export async function acceptInvite(token: string, firebaseUid: string): Promise<
     const currentStoreId = getStoreId();
     
     if (currentStoreId && invite.storeId !== currentStoreId) {
-        // User is already registered to a different store
-        console.error('[TeamInvites] Store mismatch in acceptInvite:', {
-            inviteStoreId: invite.storeId,
-            currentStoreId
+        // Device has a different store - switch to the invite's store
+        // This happens when someone tests invites on the same device
+        console.log('[TeamInvites] Switching store for invite:', {
+            oldStoreId: currentStoreId,
+            newStoreId: invite.storeId
         });
-        throw new Error('You are already registered to a different store. Please sign out and try again.');
+        
+        // Update the store ID to match the invite
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('storeId', invite.storeId);
+            console.log('[TeamInvites] ✅ Updated storeId to:', invite.storeId);
+        }
     }
     
     // If no store registered yet, this is a team member on a new device
-    // The storeId from the invite will be used when ensureStoreExists() is called after login
+    // Set the storeId from the invite
     if (!currentStoreId) {
-        console.log('[TeamInvites] Team member on new device, invite storeId:', invite.storeId);
+        console.log('[TeamInvites] Team member on new device, setting invite storeId:', invite.storeId);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('storeId', invite.storeId);
+        }
     }
     
     // Get the user
