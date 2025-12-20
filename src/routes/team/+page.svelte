@@ -752,7 +752,7 @@
 
 <!-- Send Invite Modal -->
 <Dialog.Root bind:open={showInviteModal}>
-  <Dialog.Content class="sm:max-w-md">
+  <Dialog.Content class="sm:max-w-xl">
     <Dialog.Header>
       <Dialog.Title class="flex items-center gap-2">
         <Send size={20} />
