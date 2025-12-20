@@ -878,34 +878,34 @@
         </div>
       </div>
       
-      <Dialog.Footer class="flex-col sm:flex-row gap-2">
-        <Button variant="outline" on:click={closeInviteModal} disabled={inviteSending}>
-          {$locale === 'es' ? 'Cancelar' : 'Cancel'}
-        </Button>
-        <Button 
-          variant="secondary"
+      <Dialog.Footer class="flex-col gap-3">
+        <div class="flex gap-2 w-full">
+          <Button variant="outline" on:click={closeInviteModal} disabled={inviteSending} class="flex-1">
+            {$locale === 'es' ? 'Cancelar' : 'Cancel'}
+          </Button>
+          <Button 
+            on:click={() => sendInvite(true)} 
+            disabled={inviteSending || !inviteEmail}
+            class="flex-1"
+          >
+            {#if inviteSending}
+              <Loader2 size={16} class="mr-2 animate-spin" />
+              {$locale === 'es' ? 'Creando...' : 'Creating...'}
+            {:else}
+              <Send size={16} class="mr-2" />
+              {$locale === 'es' ? 'Enviar Invitación' : 'Send Invite'}
+            {/if}
+          </Button>
+        </div>
+        <button 
+          type="button"
           on:click={() => sendInvite(false)} 
           disabled={inviteSending || !inviteEmail}
+          class="text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors"
         >
-          {#if inviteSending}
-            <Loader2 size={16} class="mr-2 animate-spin" />
-          {:else}
-            <Link size={16} class="mr-2" />
-          {/if}
-          {$locale === 'es' ? 'Solo Crear Enlace' : 'Create Link Only'}
-        </Button>
-        <Button 
-          on:click={() => sendInvite(true)} 
-          disabled={inviteSending || !inviteEmail}
-        >
-          {#if inviteSending}
-            <Loader2 size={16} class="mr-2 animate-spin" />
-            {$locale === 'es' ? 'Enviando...' : 'Sending...'}
-          {:else}
-            <Send size={16} class="mr-2" />
-            {$locale === 'es' ? 'Enviar Invitación' : 'Send Invite'}
-          {/if}
-        </Button>
+          <Link size={14} />
+          {$locale === 'es' ? 'O solo crear enlace sin enviar email' : 'Or just create link without sending email'}
+        </button>
       </Dialog.Footer>
     {/if}
   </Dialog.Content>
