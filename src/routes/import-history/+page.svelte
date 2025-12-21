@@ -158,6 +158,8 @@
 
             preview = createImportPreview(headers, rows, selectedType);
             columnMappings = { ...preview.suggestedMappings };
+            console.log('[Import] File parsed, initial columnMappings:', columnMappings);
+            console.log('[Import] Preview headers:', preview.headers);
             goToStep('mapping');
         } catch (err) {
             errorMessage = err instanceof Error ? err.message : 'Failed to parse file';
@@ -197,10 +199,12 @@
 
     // Mapping handling
     function updateMapping(sourceColumn: string, targetField: string) {
+        console.log('[Import] updateMapping called:', { sourceColumn, targetField });
         columnMappings = {
             ...columnMappings,
             [sourceColumn]: targetField
         };
+        console.log('[Import] columnMappings after update:', columnMappings);
     }
 
     function getMappingStatus(): { valid: boolean; missing: string[] } {
