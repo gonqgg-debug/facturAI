@@ -186,20 +186,30 @@ export function suggestColumnMappings(headers: string[], importType: ImportType)
     const fields = getFieldDefinitions(importType);
     const mappings: Record<string, string> = {};
     
+    console.log('[Import] suggestColumnMappings - headers:', headers);
+    console.log('[Import] suggestColumnMappings - importType:', importType);
+    
     for (const header of headers) {
         const normalizedHeader = header.toLowerCase().replace(/[^a-z0-9]/g, '');
+        console.log('[Import] Processing header:', header, '-> normalized:', normalizedHeader);
         
         for (const field of fields) {
             // Check if header matches field name or any alias
             const matches = [field.field.toLowerCase(), ...field.aliases.map(a => a.toLowerCase())];
             
             if (matches.some(m => normalizedHeader === m || normalizedHeader.includes(m) || m.includes(normalizedHeader))) {
+                console.log('[Import] MATCHED:', header, '->', field.field);
                 mappings[header] = field.field;
                 break;
             }
         }
+        
+        if (!mappings[header]) {
+            console.log('[Import] NO MATCH for:', header);
+        }
     }
     
+    console.log('[Import] Final mappings:', mappings);
     return mappings;
 }
 

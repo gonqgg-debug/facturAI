@@ -229,7 +229,8 @@
         };
     }
 
-    $: mappingStatus = getMappingStatus();
+    // Force reactivity by including columnMappings in the dependency
+    $: mappingStatus = (columnMappings, getMappingStatus());
 
     // Import execution
     async function startImport() {
