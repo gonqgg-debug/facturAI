@@ -14,7 +14,7 @@
  */
 
 import { browser } from '$app/environment';
-import { getSupabase, isSupabaseConfigured } from './supabase';
+import { getSupabase, isSupabaseConfigured, setStoreContext } from './supabase';
 import { getCurrentUser, firebaseUserId } from './firebase';
 import { writable, derived, get, type Readable } from 'svelte/store';
 
@@ -161,6 +161,10 @@ export async function initializeDeviceAuth(): Promise<void> {
         const isValid = await verifyDeviceRegistration(deviceId, deviceToken);
         
         if (isValid) {
+            // CRITICAL: Set store context for RLS policies
+            await setStoreContext(storeId);
+            console.log('[DeviceAuth] Store context restored for RLS');
+            
             deviceAuthStore.set({
                 state: 'registered',
                 deviceInfo: {
@@ -413,6 +417,11 @@ export async function ensureStoreExists(): Promise<string | null> {
         console.log('[DeviceAuth] Storing credentials locally...');
         storeDeviceCredentials(deviceData.id, storeId, deviceToken);
         
+        // CRITICAL: Set store context for RLS policies
+        // This ensures subsequent operations are properly scoped to this tenant
+        await setStoreContext(storeId);
+        console.log('[DeviceAuth] Store context set for RLS');
+        
         // Update store state
         deviceAuthStore.set({
             state: 'registered',
@@ -601,7 +610,11 @@ export async function registerDevice(pairingCode: string): Promise<boolean> {
         // 5. Store credentials locally
         storeDeviceCredentials(deviceData.id, pairingData.store_id, deviceToken);
         
-        // 6. Update store state
+        // 6. Set store context for RLS policies
+        await setStoreContext(pairingData.store_id);
+        console.log('[DeviceAuth] Store context set for RLS after pairing');
+        
+        // 7. Update store state
         deviceAuthStore.set({
             state: 'registered',
             deviceInfo: {
@@ -681,7 +694,11 @@ export async function registerFirstDevice(storeName: string, ownerEmail?: string
         // 4. Store credentials locally
         storeDeviceCredentials(deviceData.id, storeId, deviceToken);
         
-        // 5. Update store state
+        // 5. Set store context for RLS policies
+        await setStoreContext(storeId);
+        console.log('[DeviceAuth] Store context set for RLS after first device registration');
+        
+        // 6. Update store state
         deviceAuthStore.set({
             state: 'registered',
             deviceInfo: {

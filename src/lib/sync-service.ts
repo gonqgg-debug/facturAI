@@ -13,7 +13,7 @@
  */
 
 import { browser } from '$app/environment';
-import { getSupabase, TABLE_NAME_MAP, SYNCED_TABLES, type Database } from './supabase';
+import { getSupabase, TABLE_NAME_MAP, SYNCED_TABLES, setStoreContext, type Database } from './supabase';
 import { getStoreId, getDeviceId, getDeviceToken, isDeviceRegistered } from './device-auth';
 import { 
     setSyncState, 
@@ -164,6 +164,12 @@ class SyncService {
         };
         
         try {
+            // CRITICAL: Set store context for RLS before any database operations
+            const contextSet = await setStoreContext(storeId);
+            if (!contextSet) {
+                console.warn('[Sync] Failed to set store context, sync may fail due to RLS');
+            }
+            
             // Phase 1: Push local changes (50% of progress)
             setSyncProgress(10);
             const pushResult = await this.pushChanges(storeId, deviceId);

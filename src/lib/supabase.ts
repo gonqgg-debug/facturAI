@@ -25,6 +25,80 @@ const SUPABASE_ANON_KEY = browser ? import.meta.env.VITE_SUPABASE_ANON_KEY : '';
  */
 export interface Database {
     public: {
+        Functions: {
+            set_store_context: {
+                Args: { p_store_id: string | null };
+                Returns: void;
+            };
+            get_store_context: {
+                Args: Record<string, never>;
+                Returns: string | null;
+            };
+            find_team_member_store: {
+                Args: { p_email: string };
+                Returns: { store_id: string }[];
+            };
+            validate_team_invite: {
+                Args: { p_token: string };
+                Returns: {
+                    id: string;
+                    store_id: string;
+                    user_id: number;
+                    email: string;
+                    status: string;
+                    expires_at: string;
+                }[];
+            };
+            get_user_for_invite: {
+                Args: { p_local_id: number; p_store_id: string };
+                Returns: {
+                    local_id: number;
+                    username: string;
+                    display_name: string;
+                    email: string;
+                    phone: string;
+                    pin: string;
+                    role_id: number;
+                    role_name: string;
+                    firebase_uid: string;
+                    has_full_access: boolean;
+                    is_active: boolean;
+                    store_id: string;
+                }[];
+            };
+            get_role_for_invite: {
+                Args: { p_local_id: number; p_store_id: string };
+                Returns: {
+                    local_id: number;
+                    name: string;
+                    description: string;
+                    permissions: string[];
+                    is_system: boolean;
+                    store_id: string;
+                }[];
+            };
+            get_changes_since: {
+                Args: { p_store_id: string; p_since: string; p_table_name?: string };
+                Returns: {
+                    table_name: string;
+                    record_id: string;
+                    action: string;
+                    data: unknown;
+                    synced_at: string;
+                }[];
+            };
+            log_sync_operation: {
+                Args: {
+                    p_store_id: string;
+                    p_device_id: string;
+                    p_table_name: string;
+                    p_record_id: string;
+                    p_action: string;
+                    p_data: unknown;
+                };
+                Returns: number;
+            };
+        };
         Tables: {
             stores: {
                 Row: {
@@ -470,6 +544,65 @@ export function getSupabase(): SupabaseClient<Database> | null {
  */
 export function isSupabaseConfigured(): boolean {
     return browser && !!SUPABASE_URL && !!SUPABASE_ANON_KEY;
+}
+
+// ============================================================
+// STORE CONTEXT FOR RLS
+// ============================================================
+
+/**
+ * Set the store context for Row Level Security (RLS) policies.
+ * This MUST be called before any database operations to ensure
+ * proper tenant isolation.
+ * 
+ * The store_id is stored as a session variable that RLS policies
+ * check to filter data by tenant.
+ * 
+ * @param storeId - The UUID of the current store/tenant
+ * @returns true if context was set successfully, false otherwise
+ */
+export async function setStoreContext(storeId: string): Promise<boolean> {
+    const supabase = getSupabase();
+    if (!supabase) {
+        console.warn('[Supabase] Cannot set store context - client not available');
+        return false;
+    }
+    
+    try {
+        const { error } = await supabase.rpc('set_store_context', { 
+            p_store_id: storeId 
+        });
+        
+        if (error) {
+            console.error('[Supabase] Failed to set store context:', error.message);
+            return false;
+        }
+        
+        console.log('[Supabase] Store context set to:', storeId);
+        return true;
+    } catch (err) {
+        console.error('[Supabase] Error setting store context:', err);
+        return false;
+    }
+}
+
+/**
+ * Clear the store context (useful for logout)
+ * Sets the context to an empty/null value
+ */
+export async function clearStoreContext(): Promise<void> {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    
+    try {
+        // Setting to null/empty will clear the context
+        await supabase.rpc('set_store_context', { 
+            p_store_id: null 
+        });
+        console.log('[Supabase] Store context cleared');
+    } catch (err) {
+        console.warn('[Supabase] Error clearing store context:', err);
+    }
 }
 
 // ============================================================
