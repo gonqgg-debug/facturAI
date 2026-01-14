@@ -77,15 +77,32 @@
 
     async function loadData() {
         if (!browser) return;
-        suppliers = await db.suppliers.toArray();
-        const rawProducts = await db.products.toArray();
+        try {
+            suppliers = await db.suppliers.toArray();
+            const rawProducts = await db.products.toArray();
+            
+            console.log('Pricing page: loaded', rawProducts.length, 'raw products from database');
+            
+            // Filter out invalid products (missing name)
+            const validProducts = rawProducts.filter((p) => p && p.name);
+            const invalidCount = rawProducts.length - validProducts.length;
+            
+            if (invalidCount > 0) {
+                console.warn('Pricing page: filtered out', invalidCount, 'invalid products (missing name)');
+            }
 
-        products = rawProducts
-            .map((p) => ({
-                ...p,
-                supplierName: suppliers.find((s) => s.id === p.supplierId)?.name || "Unknown",
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name));
+            products = validProducts
+                .map((p) => ({
+                    ...p,
+                    supplierName: suppliers.find((s) => s.id === p.supplierId)?.name || "Unknown",
+                }))
+                .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                
+            console.log('Pricing page: displaying', products.length, 'valid products');
+        } catch (e) {
+            console.error('Error loading pricing data:', e);
+            products = [];
+        }
     }
 
     // Filtering
@@ -102,8 +119,8 @@
 
     $: searchFiltered = searchQuery
         ? categoryFiltered.filter(p =>
-            p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            p.supplierName?.toLowerCase().includes(searchQuery.toLowerCase())
+            (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (p.supplierName || '').toLowerCase().includes(searchQuery.toLowerCase())
           )
         : categoryFiltered;
 
@@ -112,9 +129,9 @@
         ? [...searchFiltered].sort((a, b) => {
             let aVal: any, bVal: any;
             switch (sortColumn) {
-                case 'name': aVal = a.name; bVal = b.name; break;
+                case 'name': aVal = a.name || ''; bVal = b.name || ''; break;
                 case 'salesVolume': aVal = a.salesVolume ?? 0; bVal = b.salesVolume ?? 0; break;
-                case 'cost': aVal = a.lastPrice; bVal = b.lastPrice; break;
+                case 'cost': aVal = a.lastPrice ?? 0; bVal = b.lastPrice ?? 0; break;
                 case 'price': aVal = a.sellingPrice ?? 0; bVal = b.sellingPrice ?? 0; break;
                 case 'margin': aVal = calculateMargin(a); bVal = calculateMargin(b); break;
                 case 'aiSuggestion': aVal = a.aiSuggestedPrice ?? 0; bVal = b.aiSuggestedPrice ?? 0; break;
@@ -171,17 +188,35 @@
 
     // Calculate margin using tax-exclusive values for accurate comparison
     function calculateMargin(product: Product): number {
-        return calculateMarginExTax(product);
+        try {
+            if (!product) return 0;
+            return calculateMarginExTax(product);
+        } catch (e) {
+            console.error('Error calculating margin for product:', product?.name, e);
+            return 0;
+        }
     }
     
     // Helper to get tax-exclusive cost for display
     function getCostExTax(product: Product): number {
-        return getProductCostExTax(product);
+        try {
+            if (!product) return 0;
+            return getProductCostExTax(product);
+        } catch (e) {
+            console.error('Error getting cost for product:', product?.name, e);
+            return 0;
+        }
     }
     
     // Helper to get tax-exclusive price for display
     function getPriceExTax(product: Product): number {
-        return getProductPriceExTax(product);
+        try {
+            if (!product) return 0;
+            return getProductPriceExTax(product);
+        } catch (e) {
+            console.error('Error getting price for product:', product?.name, e);
+            return 0;
+        }
     }
 
     async function analyzeWithAI() {
@@ -269,7 +304,7 @@ ${itemsText}`;
                     const suggestions = JSON.parse(jsonStr);
 
                     for (const s of suggestions) {
-                        const product = batch.find((p) => p.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(p.name.toLowerCase()));
+                        const product = batch.find((p) => (p.name || '').toLowerCase().includes((s.name || '').toLowerCase()) || (s.name || '').toLowerCase().includes((p.name || '').toLowerCase()));
                         if (product && product.id) {
                             // AI returns tax-exclusive price
                             let suggestedPriceExTax = s.suggestedPriceExTax ?? s.suggestedPrice; // Support both formats
@@ -325,7 +360,7 @@ ${itemsText}`;
 
         invoices.forEach((inv) => {
             if (inv.items) {
-                const item = inv.items.find((i) => i.description?.toLowerCase() === product.name.toLowerCase());
+                const item = inv.items.find((i) => (i.description || '').toLowerCase() === (product.name || '').toLowerCase());
                 if (item && item.unitPrice) {
                     history.push({ date: inv.issueDate || "Unknown", price: item.unitPrice, invoiceId: inv.id });
                 }
@@ -391,8 +426,8 @@ ${itemsText}`;
             
             PRODUCT: ${product.name}
             Supplier: ${product.supplierName}
-            Cost: $${product.lastPrice}
-            Price: $${product.sellingPrice}
+            Cost: $${product.lastPrice ?? 0}
+            Price: $${product.sellingPrice ?? 0}
             Volume: ${product.salesVolume} units
             
             RULES:
@@ -502,7 +537,7 @@ ${itemsText}`;
                 Name: p.name,
                 Supplier: p.supplierName || '',
                 Category: p.category || '',
-                'Cost (stored)': p.lastPrice,
+                'Cost (stored)': p.lastPrice ?? 0,
                 'Cost (ex-tax)': costExTax.toFixed(2),
                 'Cost Inc Tax': p.costIncludesTax ?? true ? 'Yes' : 'No',
                 'Price (stored)': p.sellingPrice || '',
@@ -675,11 +710,11 @@ ${itemsText}`;
                 </Table.Row>
             </Table.Header>
             <Table.Body>
-                {#each paginatedProducts as product}
+                {#each paginatedProducts as product, idx (product.id ?? product.name ?? `product-${idx}`)}
                     {@const margin = calculateMargin(product)}
                     {@const target = product.targetMargin || 0.3}
                     {@const isLowMargin = margin < target}
-                    {@const isSelected = selectedIds.has(product.id ?? product.name)}
+                    {@const isSelected = selectedIds.has(product.id ?? product.name ?? `product-${idx}`)}
 
                     <Table.Row class="group {isSelected ? 'bg-primary/5' : ''}">
                         <Table.Cell class="w-12">
@@ -692,12 +727,12 @@ ${itemsText}`;
                         </Table.Cell>
                         {/if}
                         {#if columnVisibility.salesVolume}<Table.Cell class="text-right font-mono text-muted-foreground">{product.salesVolume || "-"}</Table.Cell>{/if}
-                        {#if columnVisibility.cost}<Table.Cell class="text-right font-mono text-foreground">${product.lastPrice.toFixed(2)}</Table.Cell>{/if}
-                        {#if columnVisibility.price}<Table.Cell class="text-right font-mono text-foreground font-bold">{product.sellingPrice ? `$${product.sellingPrice.toFixed(2)}` : "-"}</Table.Cell>{/if}
+                        {#if columnVisibility.cost}<Table.Cell class="text-right font-mono text-foreground">${Number(product.lastPrice ?? 0).toFixed(2)}</Table.Cell>{/if}
+                        {#if columnVisibility.price}<Table.Cell class="text-right font-mono text-foreground font-bold">{product.sellingPrice ? `$${Number(product.sellingPrice).toFixed(2)}` : "-"}</Table.Cell>{/if}
                         {#if columnVisibility.margin}
                         <Table.Cell class="text-right">
                             {#if product.sellingPrice}
-                                    <Badge variant={isLowMargin ? "destructive" : "default"} class="text-xs font-bold">{(margin * 100).toFixed(1)}%</Badge>
+                                    <Badge variant={isLowMargin ? "destructive" : "default"} class="text-xs font-bold">{(Number(margin) * 100).toFixed(1)}%</Badge>
                             {:else}
                                 <span class="text-muted-foreground">-</span>
                             {/if}
@@ -706,8 +741,8 @@ ${itemsText}`;
                         {#if activeTab === 'suggestions' && columnVisibility.aiSuggestion}
                             <Table.Cell class="text-right font-mono text-primary font-bold">
                                 {#if product.aiSuggestedPrice}
-                                    ${product.aiSuggestedPrice.toFixed(2)}
-                                    <div class="text-[10px] text-primary/70">{((product.aiSuggestedMargin || 0) * 100).toFixed(1)}%</div>
+                                    ${Number(product.aiSuggestedPrice).toFixed(2)}
+                                    <div class="text-[10px] text-primary/70">{(Number(product.aiSuggestedMargin || 0) * 100).toFixed(1)}%</div>
                                 {:else}-{/if}
                             </Table.Cell>
                         {/if}
@@ -782,10 +817,10 @@ ${itemsText}`;
                     <div class="flex items-end space-x-4">
                         <h2 class="text-4xl font-bold text-foreground tracking-tight">{selectedProduct.name}</h2>
                         <div class="flex items-baseline space-x-2 pb-1">
-                            <span class="text-2xl font-mono font-bold text-foreground">${selectedProduct.sellingPrice?.toFixed(2) || "-"}</span>
+                            <span class="text-2xl font-mono font-bold text-foreground">${selectedProduct.sellingPrice ? Number(selectedProduct.sellingPrice).toFixed(2) : "-"}</span>
                             {#if selectedProduct.sellingPrice && selectedProduct.lastPrice}
                                 {@const margin = calculateMargin(selectedProduct)}
-                                <span class="text-sm font-bold {margin > 0.3 ? 'text-green-500' : 'text-red-500'}">{margin > 0.3 ? "+" : ""}{(margin * 100).toFixed(1)}%</span>
+                                <span class="text-sm font-bold {margin > 0.3 ? 'text-green-500' : 'text-red-500'}">{margin > 0.3 ? "+" : ""}{(Number(margin) * 100).toFixed(1)}%</span>
                             {/if}
                         </div>
                     </div>
@@ -808,15 +843,15 @@ ${itemsText}`;
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div class="bg-secondary/50 p-4 rounded-xl border border-border">
                             <div class="text-xs text-muted-foreground mb-1 uppercase tracking-wider">Cost Basis</div>
-                            <div class="text-xl font-bold text-foreground font-mono">${selectedProduct.lastPrice.toFixed(2)}</div>
+                            <div class="text-xl font-bold text-foreground font-mono">${(selectedProduct.lastPrice ?? 0).toFixed(2)}</div>
                             </div>
                         <div class="bg-secondary/50 p-4 rounded-xl border border-border">
                             <div class="text-xs text-muted-foreground mb-1 uppercase tracking-wider">Current Price</div>
-                            <div class="text-xl font-bold text-foreground font-mono">${selectedProduct.sellingPrice?.toFixed(2) || "-"}</div>
+                            <div class="text-xl font-bold text-foreground font-mono">${selectedProduct.sellingPrice ? Number(selectedProduct.sellingPrice).toFixed(2) : "-"}</div>
                             </div>
                         <div class="bg-primary/10 p-4 rounded-xl border border-primary/20">
                             <div class="text-xs text-primary mb-1 uppercase tracking-wider">AI Suggested</div>
-                            <div class="text-xl font-bold text-primary font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2) || "-"}</div>
+                            <div class="text-xl font-bold text-primary font-mono">${selectedProduct.aiSuggestedPrice ? Number(selectedProduct.aiSuggestedPrice).toFixed(2) : "-"}</div>
                         </div>
                         <div class="bg-secondary/50 p-4 rounded-xl border border-border">
                             <div class="text-xs text-muted-foreground mb-1 uppercase tracking-wider">Volume (30d)</div>
@@ -849,7 +884,7 @@ ${itemsText}`;
                                     {#each [...productHistory].reverse() as h}
                                         <div class="flex justify-between items-center p-2 bg-secondary/50 rounded-lg border border-border hover:bg-secondary transition-colors">
                                             <span class="text-sm text-muted-foreground">{h.date}</span>
-                                            <span class="text-sm font-mono text-foreground font-bold">${h.price.toFixed(2)}</span>
+                                            <span class="text-sm font-mono text-foreground font-bold">${Number(h.price ?? 0).toFixed(2)}</span>
                                         </div>
                                     {/each}
                                 {:else}
@@ -869,7 +904,7 @@ ${itemsText}`;
                                         <div class="text-xs text-muted-foreground">{h.date} • {selectedProduct.supplierName}</div>
                                     </div>
                                     <div class="text-right">
-                                        <div class="text-sm font-mono text-foreground">${h.price.toFixed(2)}</div>
+                                        <div class="text-sm font-mono text-foreground">${Number(h.price ?? 0).toFixed(2)}</div>
                                         <div class="text-[10px] text-muted-foreground">Unit Cost</div>
                                     </div>
                                 </div>
@@ -891,11 +926,11 @@ ${itemsText}`;
                                 <div class="grid grid-cols-2 gap-3">
                                     <div class="bg-secondary p-3 rounded-lg border border-border">
                                         <div class="text-[10px] text-muted-foreground uppercase mb-1">Current Price</div>
-                                        <div class="text-lg font-bold text-foreground font-mono">${selectedProduct.sellingPrice?.toFixed(2) || "-"}</div>
+                                        <div class="text-lg font-bold text-foreground font-mono">${selectedProduct.sellingPrice ? Number(selectedProduct.sellingPrice).toFixed(2) : "-"}</div>
                                         </div>
                                     <div class="bg-primary/10 p-3 rounded-lg border border-primary/20">
                                         <div class="text-[10px] text-primary uppercase mb-1">AI Target</div>
-                                        <div class="text-lg font-bold text-primary font-mono">${selectedProduct.aiSuggestedPrice?.toFixed(2)}</div>
+                                        <div class="text-lg font-bold text-primary font-mono">${selectedProduct.aiSuggestedPrice ? Number(selectedProduct.aiSuggestedPrice).toFixed(2) : "-"}</div>
                                     </div>
                                 </div>
                             </div>

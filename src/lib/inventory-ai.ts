@@ -370,24 +370,33 @@ export function calculateSalesVelocity(
     const sumXY = dailyData.reduce((sum, d) => sum + d.day * d.quantity, 0);
     const sumXX = dailyData.reduce((sum, d) => sum + d.day * d.day, 0);
 
-    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    const denominator = n * sumXX - sumX * sumX;
+    // Avoid divide by zero when all X values are the same
+    if (denominator !== 0) {
+      const slope = (n * sumXY - sumX * sumY) / denominator;
 
-    if (slope > 0.1) {
-      trend = 'up';
-    } else if (slope < -0.1) {
-      trend = 'down';
+      if (isFinite(slope) && !isNaN(slope)) {
+        if (slope > 0.1) {
+          trend = 'up';
+        } else if (slope < -0.1) {
+          trend = 'down';
+        }
+
+        // Calculate R-squared for confidence
+        const meanY = sumY / n;
+        const ssRes = dailyData.reduce((sum, d) => {
+          const predicted = slope * d.day + (meanY - slope * (sumX / n));
+          return sum + Math.pow(d.quantity - predicted, 2);
+        }, 0);
+        const ssTot = dailyData.reduce((sum, d) => sum + Math.pow(d.quantity - meanY, 2), 0);
+        
+        // Avoid divide by zero when all quantities are the same
+        if (ssTot > 0) {
+          const rSquared = 1 - (ssRes / ssTot);
+          confidence = Math.min(1, Math.max(0, isFinite(rSquared) ? rSquared : 0));
+        }
+      }
     }
-
-    // Calculate R-squared for confidence
-    const meanY = sumY / n;
-    const ssRes = dailyData.reduce((sum, d) => {
-      const predicted = slope * d.day + (meanY - slope * (sumX / n));
-      return sum + Math.pow(d.quantity - predicted, 2);
-    }, 0);
-    const ssTot = dailyData.reduce((sum, d) => sum + Math.pow(d.quantity - meanY, 2), 0);
-    const rSquared = 1 - (ssRes / ssTot);
-
-    confidence = Math.min(1, Math.max(0, rSquared));
   }
 
   return {
@@ -426,9 +435,15 @@ export function predictDemand(
   const adjustedVelocity = salesVelocity * seasonalMultiplier;
 
   // Predict days until stockout
-  let predictedDaysUntilStockout = currentStock / adjustedVelocity;
-  if (!isFinite(predictedDaysUntilStockout) || predictedDaysUntilStockout > 365) {
-    predictedDaysUntilStockout = 365; // Cap at 1 year
+  let predictedDaysUntilStockout: number;
+  if (adjustedVelocity <= 0 || currentStock <= 0) {
+    // No sales velocity or already out of stock
+    predictedDaysUntilStockout = currentStock <= 0 ? 0 : 365;
+  } else {
+    predictedDaysUntilStockout = currentStock / adjustedVelocity;
+    if (!isFinite(predictedDaysUntilStockout) || isNaN(predictedDaysUntilStockout) || predictedDaysUntilStockout > 365) {
+      predictedDaysUntilStockout = 365; // Cap at 1 year
+    }
   }
 
   // Calculate recommended reorder quantity

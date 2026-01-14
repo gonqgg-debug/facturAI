@@ -107,23 +107,53 @@ import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListIte
 
   async function loadData() {
     if (!browser) return;
-    suppliers = await db.suppliers.toArray();
-    const rawProducts = await db.products.toArray();
+    
+    try {
+      suppliers = await db.suppliers.toArray();
+      const rawProducts = await db.products.toArray();
 
-    // Load related data for enhanced analysis
-    const sales = await db.sales.toArray();
-    const invoices = await db.invoices.toArray();
-    const stockMovements = await db.stockMovements.toArray();
+      // Set products early so the table renders while alerts are being calculated
+      products = rawProducts
+        .filter(p => p && p.name) // Filter out invalid products
+        .map(p => ({
+          ...p,
+          supplierName: suppliers.find(s => s.id === p.supplierId)?.name || 'Unknown'
+        }))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-    // Check for stock alerts (both legacy and enhanced)
-    stockAlerts = checkLowStock(rawProducts);
-    enhancedStockAlerts = await generateEnhancedStockAlerts(rawProducts, sales, invoices, stockMovements);
-    inventoryInsights = getInventoryInsights(rawProducts, enhancedStockAlerts, sales);
+      // Load related data for enhanced analysis
+      const sales = await db.sales.toArray();
+      const invoices = await db.invoices.toArray();
+      const stockMovements = await db.stockMovements.toArray();
 
-    products = rawProducts.map(p => ({
-      ...p,
-      supplierName: suppliers.find(s => s.id === p.supplierId)?.name || 'Unknown'
-    })).sort((a, b) => a.name.localeCompare(b.name));
+      // Check for stock alerts (both legacy and enhanced) with error handling
+      try {
+        stockAlerts = checkLowStock(rawProducts);
+      } catch (e) {
+        console.error('Error checking low stock:', e);
+        stockAlerts = [];
+      }
+
+      try {
+        enhancedStockAlerts = await generateEnhancedStockAlerts(rawProducts, sales, invoices, stockMovements);
+      } catch (e) {
+        console.error('Error generating enhanced stock alerts:', e);
+        enhancedStockAlerts = [];
+      }
+
+      try {
+        inventoryInsights = getInventoryInsights(rawProducts, enhancedStockAlerts, sales);
+      } catch (e) {
+        console.error('Error getting inventory insights:', e);
+        inventoryInsights = null;
+      }
+    } catch (error) {
+      console.error('Error loading catalog data:', error);
+      // Ensure products is at least an empty array so the page doesn't break
+      if (!products) {
+        products = [];
+      }
+    }
   }
 
   async function generateSmartShoppingListHandler() {
@@ -244,10 +274,10 @@ import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListIte
   
   $: searchFiltered = searchQuery 
     ? filteredByStock.filter(p => 
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.productId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.barcode?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.supplierName?.toLowerCase().includes(searchQuery.toLowerCase())
+        (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.productId || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.barcode || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.supplierName || '').toLowerCase().includes(searchQuery.toLowerCase())
       )
     : filteredByStock;
   
@@ -367,7 +397,7 @@ import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListIte
         ? products.find(p => p.productId === productId)
         : barcode 
           ? products.find(p => p.barcode === barcode)
-          : products.find(p => p.name.toLowerCase() === name?.toLowerCase());
+          : products.find(p => (p.name || '').toLowerCase() === (name || '').toLowerCase());
       
       const lastPrice = row['Cost'] || row['Costo'] || row['Last Cost'];
       const averageCost = row['AverageCost'] || row['Average Cost'] || row['Costo Promedio'];
@@ -399,7 +429,7 @@ import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListIte
         updatedCount++;
       } else {
         const supplierName = row['Supplier'] || row['Suplidor'] || 'Unknown';
-        let supplier = suppliers.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
+        let supplier = suppliers.find(s => (s.name || '').toLowerCase() === (supplierName || '').toLowerCase());
         
         if (!supplier && supplierName !== 'Unknown') {
           const newSupplierId = generateId();
@@ -835,8 +865,8 @@ import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListIte
                 </div>
               </Table.Cell>
             {/if}
-            {#if columnVisibility.cost}<Table.Cell class="text-right font-mono text-muted-foreground">${product.lastPrice.toFixed(2)}</Table.Cell>{/if}
-            {#if columnVisibility.price}<Table.Cell class="text-right font-mono font-bold">{product.sellingPrice ? `$${product.sellingPrice.toFixed(2)}` : '-'}</Table.Cell>{/if}
+            {#if columnVisibility.cost}<Table.Cell class="text-right font-mono text-muted-foreground">${Number(product.lastPrice || 0).toFixed(2)}</Table.Cell>{/if}
+            {#if columnVisibility.price}<Table.Cell class="text-right font-mono font-bold">{product.sellingPrice ? `$${Number(product.sellingPrice).toFixed(2)}` : '-'}</Table.Cell>{/if}
             {#if columnVisibility.actions}
               <Table.Cell>
                 <div class="flex justify-center space-x-2">
@@ -1149,7 +1179,7 @@ import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListIte
                       <span>Stock: {item.currentStock}</span>
                       <span>→</span>
                       <span class="font-medium text-foreground">Ordenar: {item.recommendedQuantity}</span>
-                      <span class="ml-auto font-medium">DOP {item.estimatedCost.toFixed(2)}</span>
+                      <span class="ml-auto font-medium">DOP {(item.estimatedCost ?? 0).toFixed(2)}</span>
                     </div>
                     {#if item.reasoning}
                       <div class="text-sm text-muted-foreground bg-muted/50 p-2 rounded">

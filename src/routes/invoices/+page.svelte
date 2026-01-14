@@ -6,6 +6,7 @@
   import type { Invoice, BankAccount, PaymentMethodType, Payment } from '$lib/types';
   import { parseInvoiceWithGrok } from '$lib/grok';
   import { checkInvoiceDueDates, calculatePendingPayments, type InvoiceAlert } from '$lib/alerts';
+  import { createSupplierPaymentEntry } from '$lib/journal';
   import * as Table from '$lib/components/ui/table';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -281,6 +282,27 @@
     
     await db.payments.add(payment);
     
+    // Create journal entry to clear Accounts Payable
+    try {
+      await createSupplierPaymentEntry(
+        {
+          id: payment.id,
+          invoiceId: paymentInvoice.id,
+          amount: amountToPay,
+          paymentDate: paymentDate,
+          paymentMethod: selectedPaymentMethod,
+          referenceNumber: paymentReference || undefined
+        },
+        {
+          providerName: paymentInvoice.providerName,
+          ncf: paymentInvoice.ncf
+        }
+      );
+    } catch (e) {
+      console.error('Error creating payment journal entry:', e);
+      // Continue even if journal entry fails - payment is still recorded
+    }
+    
     // Update invoice
     await db.invoices.update(paymentInvoice.id, {
       paymentStatus: isPaidInFull ? 'paid' : 'partial',
@@ -299,13 +321,16 @@
   async function quickMarkPaid(invoice: Invoice) {
     if (!invoice.id) return;
     
+    const paymentDateStr = new Date().toISOString().split('T')[0];
+    const amountToPay = invoice.total - (invoice.paidAmount ?? 0);
+    
     // Create a quick cash payment record
     const payment: Payment = {
       id: generateId(),
       invoiceId: invoice.id,
-      amount: invoice.total - (invoice.paidAmount ?? 0),
+      amount: amountToPay,
       currency: invoice.currency || 'DOP',
-      paymentDate: new Date().toISOString().split('T')[0],
+      paymentDate: paymentDateStr,
       paymentMethod: 'cash',
       notes: 'Quick payment',
       createdAt: new Date()
@@ -313,10 +338,29 @@
     
     await db.payments.add(payment);
     
+    // Create journal entry to clear Accounts Payable
+    try {
+      await createSupplierPaymentEntry(
+        {
+          id: payment.id,
+          invoiceId: invoice.id,
+          amount: amountToPay,
+          paymentDate: paymentDateStr,
+          paymentMethod: 'cash'
+        },
+        {
+          providerName: invoice.providerName,
+          ncf: invoice.ncf
+        }
+      );
+    } catch (e) {
+      console.error('Error creating payment journal entry:', e);
+    }
+    
     await db.invoices.update(invoice.id, {
       paymentStatus: 'paid',
       paidAmount: invoice.total,
-      paidDate: new Date().toISOString().split('T')[0]
+      paidDate: paymentDateStr
     });
     
     await loadInvoices();
@@ -1020,7 +1064,7 @@
         {#if selectedInvoice.paymentStatus !== 'paid'}
           <div class="mt-6 pt-4 border-t border-border flex justify-end space-x-3">
             <button 
-              on:click={() => { closeInvoice(); openPaymentModal(selectedInvoice); }}
+              on:click={() => { const invoice = selectedInvoice; closeInvoice(); openPaymentModal(invoice); }}
               class="bg-green-500 text-black px-6 py-2 rounded-xl font-bold hover:bg-green-400 transition-colors flex items-center space-x-2"
             >
               <DollarSign size={18} />

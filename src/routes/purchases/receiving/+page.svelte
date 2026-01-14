@@ -2,13 +2,14 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { db } from '$lib/db';
+  import { db, generateId } from '$lib/db';
   import { 
     Package, Plus, X, Search, Save, FileSpreadsheet, CheckCircle2, 
     AlertTriangle, ArrowRight, ClipboardList, Zap, ChevronDown, ChevronUp,
     Check, Minus, Equal
   } from 'lucide-svelte';
-  import type { Receipt, ReceiptItem, PurchaseOrder, Supplier, Product, StockMovement } from '$lib/types';
+  import type { Receipt, ReceiptItem, PurchaseOrder, Supplier, Product, StockMovement, Invoice, InvoiceItem } from '$lib/types';
+  import { createPurchaseInvoiceEntry } from '$lib/journal';
   import { generateReceiptNumber } from '$lib/utils';
   import * as Tabs from '$lib/components/ui/tabs';
   import * as Dialog from '$lib/components/ui/dialog';
@@ -56,6 +57,12 @@
 
   // Info card collapse
   let showInfoCard = true;
+
+  // Invoice creation state
+  let createInvoice = true; // Default to creating invoice
+  let invoiceNCF = '';
+  let invoiceDueDate = '';
+  let invoiceCreditDays = 30;
 
   // Check URL params for PO pre-selection
   $: {
@@ -312,7 +319,9 @@
     const receiptNumber = await generateReceiptNumber();
     const today = new Date().toISOString().split('T')[0];
 
+    const receiptId = generateId();
     const receiptData: Receipt = {
+      id: receiptId,
       receiptNumber,
       purchaseOrderId: receiptPurchaseOrderId || undefined,
       supplierId: receiptSupplierId,
@@ -324,7 +333,7 @@
       createdAt: new Date()
     };
 
-    const receiptId = await db.receipts.add(receiptData) as number;
+    await db.receipts.add(receiptData);
 
     // Update inventory
     for (const item of receiptItems) {
@@ -341,6 +350,7 @@
 
           // Create stock movement
           const movement: StockMovement = {
+            id: generateId(),
             productId: item.productId,
             type: 'in',
             quantity: item.receivedQuantity,
@@ -374,7 +384,72 @@
       }
     }
 
-    alert('Receipt saved successfully! Inventory has been updated.');
+    // Create invoice for payment tracking
+    if (createInvoice) {
+      // Calculate invoice totals
+      let invoiceSubtotal = 0;
+      let invoiceItbis = 0;
+      const invoiceItems: InvoiceItem[] = receiptItems.map(item => {
+        const value = item.receivedQuantity * item.unitPrice;
+        const taxRate = 0.18; // Default ITBIS rate
+        const itbis = value * taxRate;
+        invoiceSubtotal += value;
+        invoiceItbis += itbis;
+        
+        return {
+          description: item.productName,
+          productId: item.productId,
+          quantity: item.receivedQuantity,
+          unitPrice: item.unitPrice,
+          taxRate: taxRate,
+          priceIncludesTax: false,
+          value: value,
+          itbis: itbis,
+          amount: value + itbis
+        };
+      });
+
+      const invoiceTotal = invoiceSubtotal + invoiceItbis;
+      
+      // Calculate due date from credit days
+      const dueDateCalc = new Date(receiptDate);
+      dueDateCalc.setDate(dueDateCalc.getDate() + (invoiceCreditDays || 30));
+      const calculatedDueDate = invoiceDueDate || dueDateCalc.toISOString().split('T')[0];
+
+      const invoiceId = generateId();
+      const invoice: Invoice = {
+        id: invoiceId,
+        providerName: supplier?.name || 'Unknown',
+        providerRnc: supplier?.rnc || '',
+        issueDate: receiptDate,
+        dueDate: calculatedDueDate,
+        ncf: invoiceNCF || `REC-${receiptNumber}`, // Use receipt number if no NCF
+        currency: 'DOP',
+        items: invoiceItems,
+        subtotal: invoiceSubtotal,
+        discount: 0,
+        itbisTotal: invoiceItbis,
+        total: invoiceTotal,
+        rawText: `Generated from receipt ${receiptNumber}`,
+        status: 'verified',
+        category: 'Inventory',
+        createdAt: new Date(),
+        paymentStatus: 'pending',
+        creditDays: invoiceCreditDays,
+        receiptId: receiptId
+      };
+
+      await db.invoices.add(invoice);
+
+      // Create journal entry for the purchase (Inventory + ITBIS Paid, Credit A/P)
+      try {
+        await createPurchaseInvoiceEntry(invoice);
+      } catch (e) {
+        console.error('Error creating purchase journal entry:', e);
+      }
+    }
+
+    alert('Receipt saved successfully! Inventory has been updated.' + (createInvoice ? ' Invoice created for payment tracking.' : ''));
     
     // Reset form
     receiptSupplierId = null;
@@ -386,6 +461,11 @@
     excelFile = null;
     excelData = [];
     excelMapped = false;
+    // Reset invoice fields
+    createInvoice = true;
+    invoiceNCF = '';
+    invoiceDueDate = '';
+    invoiceCreditDays = 30;
   }
 </script>
 
@@ -649,6 +729,52 @@
             </div>
           </div>
 
+          <!-- Invoice Creation Section -->
+          <div class="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4">
+            <div class="flex items-center gap-3 mb-3">
+              <input 
+                type="checkbox" 
+                id="createInvoice" 
+                bind:checked={createInvoice}
+                class="w-5 h-5 rounded border-blue-500/50 text-blue-500 focus:ring-blue-500"
+              />
+              <Label for="createInvoice" class="text-base font-semibold cursor-pointer">
+                Create Invoice for Payment Tracking
+              </Label>
+            </div>
+            
+            {#if createInvoice}
+              <div class="grid grid-cols-3 gap-4 mt-3">
+                <div>
+                  <Label class="text-sm">NCF (Invoice Number)</Label>
+                  <Input 
+                    bind:value={invoiceNCF} 
+                    placeholder="B01-XXXXXXXX" 
+                    class="font-mono"
+                  />
+                  <p class="text-xs text-muted-foreground mt-1">Leave blank to auto-generate</p>
+                </div>
+                <div>
+                  <Label class="text-sm">Credit Days</Label>
+                  <Input 
+                    type="number" 
+                    bind:value={invoiceCreditDays} 
+                    placeholder="30"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <Label class="text-sm">Due Date</Label>
+                  <DatePicker bind:value={invoiceDueDate} class="w-full" />
+                  <p class="text-xs text-muted-foreground mt-1">Auto-calculated if empty</p>
+                </div>
+              </div>
+              <p class="text-xs text-blue-600 mt-3">
+                ✓ Invoice will appear in Purchase Invoices for payment tracking and accounting
+              </p>
+            {/if}
+          </div>
+
           <!-- Totals & Save -->
           <div class="flex justify-between items-center pt-4 border-t border-border">
             <div>
@@ -806,6 +932,47 @@
         <div>
           <Label>Notes</Label>
           <Input bind:value={receiptNotes} placeholder="Additional notes..." />
+        </div>
+
+        <!-- Invoice Creation Section -->
+        <div class="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4">
+          <div class="flex items-center gap-3 mb-3">
+            <input 
+              type="checkbox" 
+              id="createInvoiceManual" 
+              bind:checked={createInvoice}
+              class="w-5 h-5 rounded border-blue-500/50 text-blue-500 focus:ring-blue-500"
+            />
+            <Label for="createInvoiceManual" class="text-base font-semibold cursor-pointer">
+              Create Invoice for Payment Tracking
+            </Label>
+          </div>
+          
+          {#if createInvoice}
+            <div class="grid grid-cols-3 gap-4 mt-3">
+              <div>
+                <Label class="text-sm">NCF (Invoice Number)</Label>
+                <Input 
+                  bind:value={invoiceNCF} 
+                  placeholder="B01-XXXXXXXX" 
+                  class="font-mono"
+                />
+              </div>
+              <div>
+                <Label class="text-sm">Credit Days</Label>
+                <Input 
+                  type="number" 
+                  bind:value={invoiceCreditDays} 
+                  placeholder="30"
+                  min="0"
+                />
+              </div>
+              <div>
+                <Label class="text-sm">Due Date</Label>
+                <DatePicker bind:value={invoiceDueDate} class="w-full" />
+              </div>
+            </div>
+          {/if}
         </div>
 
         <!-- Total & Save -->

@@ -297,7 +297,7 @@ import { recordPurchaseITBIS } from '$lib/itbis';
       // For now, let's do exact match on description (case insensitive)
       const product = products.find(p => p.name.toLowerCase() === item.description.toLowerCase());
       
-      if (product && item.unitPrice) {
+      if (product && item.unitPrice && product.lastPrice) {
         const diff = item.unitPrice - product.lastPrice;
         // Only alert if difference is significant (> 1%)
         if (Math.abs(diff) > (product.lastPrice * 0.01)) {

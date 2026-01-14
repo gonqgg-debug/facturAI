@@ -590,6 +590,86 @@ export async function createPurchaseInvoiceEntry(
     return entry;
 }
 
+/**
+ * Create journal entry for a supplier payment
+ * Clears the Accounts Payable liability
+ * 
+ * Debit: Accounts Payable (2101) - Clear liability
+ * Credit: Cash (1101) or Bank (1102) - Reduce asset
+ */
+export async function createSupplierPaymentEntry(
+    payment: {
+        id?: string;
+        invoiceId?: string;
+        amount: number;
+        paymentDate: string;
+        paymentMethod: string;
+        referenceNumber?: string;
+    },
+    invoice: {
+        providerName: string;
+        ncf?: string;
+    },
+    createdBy?: string
+): Promise<JournalEntry> {
+    const lines: JournalEntryLine[] = [];
+    
+    // Debit: Accounts Payable (clear liability)
+    lines.push(createLine(
+        '2101', 
+        payment.amount, 
+        0, 
+        `Pago a ${invoice.providerName}${invoice.ncf ? ` - NCF ${invoice.ncf}` : ''}`
+    ));
+    
+    // Credit: Cash or Bank depending on payment method
+    const creditAccount: AccountCode = 
+        payment.paymentMethod === 'cash' ? '1101' : 
+        payment.paymentMethod === 'check' ? '1102' : 
+        payment.paymentMethod === 'bank_transfer' ? '1102' : 
+        payment.paymentMethod === 'credit_card' ? '1102' : 
+        payment.paymentMethod === 'debit_card' ? '1102' : '1101';
+    
+    const paymentMethodLabel = 
+        payment.paymentMethod === 'cash' ? 'efectivo' :
+        payment.paymentMethod === 'check' ? `cheque ${payment.referenceNumber || ''}` :
+        payment.paymentMethod === 'bank_transfer' ? `transferencia ${payment.referenceNumber || ''}` :
+        payment.paymentMethod === 'credit_card' ? 'tarjeta crédito' :
+        payment.paymentMethod === 'debit_card' ? 'tarjeta débito' : 'otro';
+    
+    lines.push(createLine(
+        creditAccount, 
+        0, 
+        payment.amount, 
+        `Pago ${paymentMethodLabel} a ${invoice.providerName}`
+    ));
+    
+    const entry: JournalEntry = {
+        id: generateId(),
+        entryNumber: await generateEntryNumber(),
+        date: payment.paymentDate,
+        description: `Pago a proveedor ${invoice.providerName}${invoice.ncf ? ` - NCF ${invoice.ncf}` : ''}`,
+        sourceType: 'supplier_payment',
+        sourceId: payment.id,
+        lines,
+        totalDebit: lines.reduce((sum, l) => sum + l.debit, 0),
+        totalCredit: lines.reduce((sum, l) => sum + l.credit, 0),
+        status: 'posted',
+        postedAt: new Date(),
+        createdBy
+    };
+    
+    await db.journalEntries.add(entry);
+    await logAccountingAction({
+        action: 'journal_entry_created',
+        entityType: 'journal_entry',
+        entityId: entry.id!,
+        userName: createdBy,
+        details: { sourceType: 'supplier_payment', entryNumber: entry.entryNumber, amount: payment.amount }
+    });
+    return entry;
+}
+
 // ============ RETURN JOURNAL ENTRIES ============
 
 /**

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
-  import { db } from '$lib/db';
+  import { db, generateId } from '$lib/db';
   import { ClipboardList, Plus, Search, Eye, Edit, Trash2, X, Check, Calendar, Package, ArrowUpDown, ArrowUp, ArrowDown, FileText, Truck, ChevronDown, ChevronUp, Copy, Clock, AlertTriangle, CheckCircle2, Circle, Send, PackageCheck } from 'lucide-svelte';
   import * as Card from '$lib/components/ui/card';
   import type { PurchaseOrder, Supplier, Product, PurchaseOrderItem, Receipt } from '$lib/types';
@@ -25,19 +25,19 @@
   let products: Product[] = [];
   let searchQuery = '';
   let statusFilter: 'all' | PurchaseOrder['status'] = 'all';
-  let supplierFilter: number | null = null;
+  let supplierFilter: string | null = null;
   let startDate = '';
   let endDate = '';
 
   // PO Creation/Edit State
   let showPOModal = false;
   let editingPO: PurchaseOrder | null = null;
-  let poSupplierId: number | null = null;
+  let poSupplierId: string | null = null;
   let poOrderDate = new Date().toISOString().split('T')[0];
   let poExpectedDate = '';
   let poNotes = '';
   let poItems: PurchaseOrderItem[] = [];
-  let newItemProductId: number | null = null;
+  let newItemProductId: string | null = null;
   let newItemProductName = '';
   let newItemQuantity = 1;
   let newItemUnitPrice = 0;
@@ -198,6 +198,7 @@
   async function openCreatePO() {
     editingPO = null;
     poSupplierId = null;
+    previousSupplierId = null; // Reset tracking for new modal
     poOrderDate = new Date().toISOString().split('T')[0];
     poExpectedDate = '';
     poNotes = '';
@@ -222,6 +223,7 @@
   function openEditPO(po: PurchaseOrder) {
     editingPO = po;
     poSupplierId = po.supplierId;
+    previousSupplierId = po.supplierId; // Initialize tracking with current supplier
     poOrderDate = po.orderDate;
     poExpectedDate = po.expectedDate || '';
     poNotes = po.notes || '';
@@ -346,6 +348,7 @@
     // Recalculate to ensure totals are correct
     const tempPO: PurchaseOrder = {
       ...(editingPO || {}),
+      id: editingPO?.id || generateId(), // Generate new ID for new POs
       poNumber,
       supplierId: poSupplierId,
       supplierName: supplier?.name,
@@ -462,6 +465,7 @@
   async function duplicatePO(po: PurchaseOrder) {
     editingPO = null;
     poSupplierId = po.supplierId;
+    previousSupplierId = po.supplierId; // Initialize tracking with duplicated supplier
     poOrderDate = new Date().toISOString().split('T')[0];
     poExpectedDate = '';
     poNotes = po.notes ? `Reorder from ${po.poNumber}` : '';
@@ -503,23 +507,23 @@
     }
   }
 
-  // Reset product search when supplier changes
-  $: if (poSupplierId !== null && poSupplierId !== undefined) {
-    // Clear product search when supplier is selected/changed
-    if (newItemProductName.trim().length > 0) {
+  // Track previous supplier to detect actual changes
+  let previousSupplierId: string | null = null;
+  
+  // Reset product search only when supplier actually changes (not on every keystroke)
+  $: if (poSupplierId !== previousSupplierId) {
+    // Only clear if supplier actually changed to a new value (not initial load)
+    if (previousSupplierId !== null && poSupplierId !== null) {
       newItemProductName = '';
       newItemProductId = null;
       showProductSearch = false;
     }
+    previousSupplierId = poSupplierId;
   }
 
-  // Product search for adding items
-  $: filteredProducts = poSupplierId 
-    ? products.filter(p => p.supplierId === poSupplierId)
-    : products;
-
-  $: productSearchResults = (showProductSearch && newItemProductName.trim().length > 0 && filteredProducts.length > 0)
-    ? filteredProducts.filter(p => {
+  // Product search for adding items - show all products, but prioritize those from selected supplier
+  $: productSearchResults = (showProductSearch && newItemProductName.trim().length > 0 && products.length > 0)
+    ? products.filter(p => {
         const searchTerm = newItemProductName.toLowerCase().trim();
         return (
           p.name?.toLowerCase().includes(searchTerm) ||
@@ -527,7 +531,16 @@
           p.barcode?.toLowerCase().includes(searchTerm) ||
           p.aliases?.some(alias => alias.toLowerCase().includes(searchTerm))
         );
-      }).slice(0, 5)
+      })
+      // Sort: supplier-matching products first, then by name
+      .sort((a, b) => {
+        const aFromSupplier = poSupplierId && a.supplierId === poSupplierId;
+        const bFromSupplier = poSupplierId && b.supplierId === poSupplierId;
+        if (aFromSupplier && !bFromSupplier) return -1;
+        if (!aFromSupplier && bFromSupplier) return 1;
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, 8) // Show more results
     : [];
 
   // Get latest transaction price from invoices for a product
@@ -700,7 +713,10 @@
         class="pl-10 bg-card"
       />
     </div>
-    <Select.Root bind:value={statusFilter}>
+    <Select.Root 
+      selected={{ value: statusFilter, label: statusFilter === 'all' ? 'All Status' : statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1) }}
+      onSelectedChange={(v) => { if (v) statusFilter = v.value; }}
+    >
       <Select.Trigger class="w-40">
         <Select.Value placeholder="All Status" />
       </Select.Trigger>
@@ -714,14 +730,17 @@
         <Select.Item value="cancelled">Cancelled</Select.Item>
       </Select.Content>
     </Select.Root>
-    <Select.Root bind:value={supplierFilter}>
+    <Select.Root 
+      selected={supplierFilter ? { value: supplierFilter, label: suppliers.find(s => s.id === supplierFilter)?.name || 'Unknown' } : { value: '', label: 'All Suppliers' }}
+      onSelectedChange={(v) => { supplierFilter = v?.value ? v.value : null; }}
+    >
       <Select.Trigger class="w-48">
         <Select.Value placeholder="All Suppliers" />
       </Select.Trigger>
       <Select.Content>
-        <Select.Item value={null}>All Suppliers</Select.Item>
+        <Select.Item value="">All Suppliers</Select.Item>
         {#each suppliers as supplier}
-          <Select.Item value={supplier.id}>{supplier.name}</Select.Item>
+          <Select.Item value={supplier.id ?? ''}>{supplier.name}</Select.Item>
         {/each}
       </Select.Content>
     </Select.Root>
@@ -885,7 +904,10 @@
       <!-- Supplier Selection -->
       <div>
         <Label>Supplier *</Label>
-        <Select.Root bind:value={poSupplierId}>
+        <Select.Root 
+          selected={poSupplierId ? { value: poSupplierId, label: suppliers.find(s => s.id === poSupplierId)?.name || 'Unknown' } : undefined}
+          onSelectedChange={(v) => { poSupplierId = v?.value ?? null; }}
+        >
           <Select.Trigger>
             <Select.Value placeholder="Select supplier" />
           </Select.Trigger>
@@ -894,7 +916,7 @@
               <div class="px-2 py-1.5 text-sm text-muted-foreground">No suppliers found</div>
             {:else}
               {#each suppliers as supplier}
-                <Select.Item value={supplier.id ?? undefined}>
+                <Select.Item value={supplier.id ?? ''}>
                   {supplier.name}
                 </Select.Item>
               {/each}
@@ -1051,9 +1073,9 @@
                         />
                       </div>
                     </Table.Cell>
-                    <Table.Cell class="text-right font-mono">${(item.value || 0).toFixed(2)}</Table.Cell>
-                    <Table.Cell class="text-right font-mono text-sm">${(item.itbis || 0).toFixed(2)}</Table.Cell>
-                    <Table.Cell class="text-right font-mono font-bold">${(item.amount || 0).toFixed(2)}</Table.Cell>
+                    <Table.Cell class="text-right font-mono">${Number(item.value || 0).toFixed(2)}</Table.Cell>
+                    <Table.Cell class="text-right font-mono text-sm">${Number(item.itbis || 0).toFixed(2)}</Table.Cell>
+                    <Table.Cell class="text-right font-mono font-bold">${Number(item.amount || 0).toFixed(2)}</Table.Cell>
                     <Table.Cell>
                       <button 
                         on:click={() => removeItem(index)}
@@ -1082,7 +1104,7 @@
             {#if productSearchResults.length > 0}
               <div class="bg-popover border border-border rounded-lg p-1 max-h-40 overflow-y-auto">
                 {#each productSearchResults as product}
-                  {@const displayPrice = product.lastPrice?.toFixed(2) || '0.00'}
+                  {@const displayPrice = Number(product.lastPrice || 0).toFixed(2)}
                   <button
                     on:click={async () => {
                       newItemProductId = product.id || null;
@@ -1141,13 +1163,16 @@
                 />
               </div>
               <div>
-                <Select.Root bind:value={newItemTaxRate}>
+                <Select.Root 
+                  selected={{ value: newItemTaxRate.toString(), label: TAX_RATES.find(r => r.value === newItemTaxRate)?.label || '18%' }}
+                  onSelectedChange={(v) => { if (v) newItemTaxRate = parseFloat(v.value); }}
+                >
                   <Select.Trigger>
                     <Select.Value placeholder="Tax" />
                   </Select.Trigger>
                   <Select.Content>
                     {#each TAX_RATES as rate}
-                      <Select.Item value={rate.value}>{rate.label}</Select.Item>
+                      <Select.Item value={rate.value.toString()}>{rate.label}</Select.Item>
                     {/each}
                   </Select.Content>
                 </Select.Root>
@@ -1326,14 +1351,14 @@
                     {/if}
                   </Table.Cell>
                   <Table.Cell class="text-center font-mono">{item.quantity}</Table.Cell>
-                  <Table.Cell class="text-right font-mono">${item.unitPrice.toFixed(2)}</Table.Cell>
+                  <Table.Cell class="text-right font-mono">${Number(item.unitPrice || 0).toFixed(2)}</Table.Cell>
                   <Table.Cell class="text-right text-sm">
                     {((item.taxRate || 0) * 100)}%
                   </Table.Cell>
-                  <Table.Cell class="text-right font-mono">${(item.value || (item.quantity * item.unitPrice)).toFixed(2)}</Table.Cell>
-                  <Table.Cell class="text-right font-mono text-sm">${(item.itbis || 0).toFixed(2)}</Table.Cell>
+                  <Table.Cell class="text-right font-mono">${Number(item.value || (item.quantity * item.unitPrice) || 0).toFixed(2)}</Table.Cell>
+                  <Table.Cell class="text-right font-mono text-sm">${Number(item.itbis || 0).toFixed(2)}</Table.Cell>
                   <Table.Cell class="text-right font-mono font-bold">
-                    ${(item.amount || (item.quantity * item.unitPrice)).toFixed(2)}
+                    ${Number(item.amount || (item.quantity * item.unitPrice) || 0).toFixed(2)}
                   </Table.Cell>
                 </Table.Row>
               {/each}
@@ -1370,17 +1395,17 @@
           <div class="w-64 space-y-1">
             <div class="flex justify-between text-sm">
               <span class="text-muted-foreground">Subtotal</span>
-              <span class="font-mono">${selectedPO.subtotal.toFixed(2)}</span>
+              <span class="font-mono">${Number(selectedPO.subtotal || 0).toFixed(2)}</span>
             </div>
             {#if selectedPO.itbisTotal !== undefined && selectedPO.itbisTotal > 0}
               <div class="flex justify-between text-sm">
                 <span class="text-muted-foreground">Tax (ITBIS)</span>
-                <span class="font-mono">${selectedPO.itbisTotal.toFixed(2)}</span>
+                <span class="font-mono">${Number(selectedPO.itbisTotal || 0).toFixed(2)}</span>
               </div>
             {/if}
             <div class="flex justify-between text-lg font-bold border-t border-border pt-1">
               <span>Total</span>
-              <span class="font-mono">${selectedPO.total.toFixed(2)}</span>
+              <span class="font-mono">${Number(selectedPO.total || 0).toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -1397,8 +1422,9 @@
     <Dialog.Footer class="flex-wrap gap-2">
       <Button variant="outline" on:click={() => { 
         if (selectedPO) {
+          const po = selectedPO;
           closePODetail(); 
-          duplicatePO(selectedPO); 
+          duplicatePO(po); 
         }
       }}>
         <Copy size={16} class="mr-2" />
@@ -1407,8 +1433,9 @@
       {#if selectedPO && selectedPO.status !== 'received' && selectedPO.status !== 'closed' && selectedPO.status !== 'cancelled'}
         <Button on:click={() => { 
           if (selectedPO) {
+            const po = selectedPO;
             closePODetail(); 
-            createReceiptFromPO(selectedPO); 
+            createReceiptFromPO(po); 
           }
         }}>
           <Truck size={16} class="mr-2" />

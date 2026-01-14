@@ -1,5 +1,5 @@
 import type { Product, Invoice, Sale, StockMovement } from './types';
-import { analyzePurchasePatterns, detectSeasonalTrends, calculateSalesVelocity, predictDemand, type PurchasePattern, type DemandForecast } from './inventory-ai';
+import { analyzePurchasePatterns, detectSeasonalTrends, calculateSalesVelocity, predictDemand, type PurchasePattern, type DemandForecast, type SeasonalTrend } from './inventory-ai';
 
 export interface StockAlert {
     type: 'low_stock' | 'out_of_stock' | 'reorder_suggestion' | 'stock_updated';
@@ -313,22 +313,48 @@ export async function generateEnhancedStockAlerts(
   for (const product of products) {
     if (!product.id) continue;
 
-    const currentStock = product.currentStock ?? 0;
-    const reorderPoint = product.reorderPoint ?? 5;
+    try {
+      const currentStock = product.currentStock ?? 0;
+      const reorderPoint = product.reorderPoint ?? 5;
 
-    // Get AI analysis
-    const demandForecast = predictDemand(product, sales, stockMovements);
-    const purchasePattern = analyzePurchasePatterns(product.id, invoices);
-    const seasonalTrends = detectSeasonalTrends(product.id, sales, stockMovements);
-    const salesVelocity = calculateSalesVelocity(product.id, sales);
+      // Get AI analysis with error handling
+      let demandForecast: DemandForecast;
+      let purchasePattern: PurchasePattern | null = null;
+      let seasonalTrends: SeasonalTrend | null = null;
 
-    // Determine if this needs an alert
-    let shouldAlert = false;
-    let severity: 'info' | 'warning' | 'critical' = 'info';
-    let alertType: StockAlert['type'] = 'low_stock';
-    let message = '';
-    let aiReasoning = '';
-    let recommendedAction = '';
+      try {
+        demandForecast = predictDemand(product, sales, stockMovements);
+      } catch (e) {
+        console.warn(`Failed to predict demand for ${product.name}:`, e);
+        demandForecast = {
+          productId: product.id,
+          currentStock,
+          predictedDaysUntilStockout: currentStock > 0 ? 365 : 0,
+          recommendedReorderQuantity: Math.max(0, reorderPoint - currentStock),
+          urgency: currentStock === 0 ? 'critical' : currentStock <= reorderPoint ? 'high' : 'low',
+          reasoning: 'Basic analysis (prediction unavailable)'
+        };
+      }
+
+      try {
+        purchasePattern = analyzePurchasePatterns(product.id, invoices);
+      } catch (e) {
+        console.warn(`Failed to analyze purchase patterns for ${product.name}:`, e);
+      }
+
+      try {
+        seasonalTrends = detectSeasonalTrends(product.id, sales, stockMovements);
+      } catch (e) {
+        console.warn(`Failed to detect seasonal trends for ${product.name}:`, e);
+      }
+
+      // Determine if this needs an alert
+      let shouldAlert = false;
+      let severity: 'info' | 'warning' | 'critical' = 'info';
+      let alertType: StockAlert['type'] = 'low_stock';
+      let message = '';
+      let aiReasoning = '';
+      let recommendedAction = '';
 
     // Critical: Stock at or below reorder point
     if (currentStock <= reorderPoint && currentStock > 0) {
@@ -428,6 +454,10 @@ export async function generateEnhancedStockAlerts(
         seasonalInsights
       });
     }
+    } catch (error) {
+      console.error(`Error processing product ${product.name || product.id}:`, error);
+      // Continue to next product instead of crashing the whole function
+    }
   }
 
   return alerts.sort((a, b) => {
@@ -487,14 +517,27 @@ export function getInventoryInsights(
     insights.push(`${reorderSuggestionsCount} sugerencias de reorden - optimizar flujo de caja`);
   }
 
-  const highVelocityProducts = products.filter(p => {
-    if (!p.id) return false;
-    const velocity = calculateSalesVelocity(p.id, sales);
-    return velocity.velocity > 5; // More than 5 units/day
-  });
+  // Calculate high velocity products with error handling
+  let highVelocityCount = 0;
+  try {
+    for (const p of products) {
+      if (!p.id) continue;
+      try {
+        const velocity = calculateSalesVelocity(p.id, sales);
+        if (velocity.velocity > 5) {
+          highVelocityCount++;
+        }
+      } catch (e) {
+        // Skip this product if velocity calculation fails
+        console.warn(`Failed to calculate velocity for product ${p.name}:`, e);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to calculate high velocity products:', e);
+  }
 
-  if (highVelocityProducts.length > 0) {
-    insights.push(`${highVelocityProducts.length} productos de alta rotación identificados`);
+  if (highVelocityCount > 0) {
+    insights.push(`${highVelocityCount} productos de alta rotación identificados`);
   }
 
   return {
