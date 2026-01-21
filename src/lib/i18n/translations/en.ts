@@ -90,6 +90,7 @@ export const en = {
     purchasingHub: 'Purchasing Hub',
     purchaseOrders: 'Purchase Orders',
     receiving: 'Receiving',
+    invoiceVault: 'Invoice Vault',
     quickCapture: 'Quick Capture',
     importInvoices: 'Import Invoices',
     purchaseHistory: 'Purchase History',

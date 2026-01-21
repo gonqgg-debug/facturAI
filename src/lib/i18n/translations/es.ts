@@ -90,6 +90,7 @@ export const es = {
     purchasingHub: 'Centro de Compras',
     purchaseOrders: 'Órdenes de Compra',
     receiving: 'Recepción',
+    invoiceVault: 'Bóveda de Facturas',
     quickCapture: 'Captura Rápida',
     importInvoices: 'Importar Facturas',
     purchaseHistory: 'Historial de Compras',

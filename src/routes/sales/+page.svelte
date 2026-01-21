@@ -27,6 +27,7 @@ import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
   import ShiftManager from '$lib/components/ShiftManager.svelte';
   import SaleReceipt from '$lib/components/SaleReceipt.svelte';
   import { goto } from '$app/navigation';
+  import { toast } from 'svelte-sonner';
 
   // Data
   let products: Product[] = [];
@@ -39,7 +40,7 @@ import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
   let showSearchResults = false;
   let barcodeBuffer = '';
   let barcodeTimeout: ReturnType<typeof setTimeout> | null = null;
-  let searchInputRef: HTMLInputElement | any;
+  let searchInputRef: HTMLInputElement | null = null;
   let lastBarcodeTime = 0;
   
   // Product Grid
@@ -127,8 +128,8 @@ import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
   });
 
   // Barcode scanner detection
-  // Barcode scanners typically send characters very fast (< 50ms between chars)
-  // and end with Enter key
+  // Barcode scanners typically send characters very fast (< 100ms between chars)
+  // and end with Enter or Tab key
   function handleBarcodeInput(event: KeyboardEvent) {
     const now = Date.now();
     const target = event.target as HTMLElement;
@@ -142,7 +143,8 @@ import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
     const timeSinceLastKey = now - lastBarcodeTime;
     lastBarcodeTime = now;
     
-    if (event.key === 'Enter') {
+    // Handle Enter or Tab as end of barcode scan
+    if (event.key === 'Enter' || event.key === 'Tab') {
       // End of barcode - process it
       if (barcodeBuffer.length >= 4) {
         processBarcodeInput(barcodeBuffer);
@@ -155,14 +157,14 @@ import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
     
     // Only accept alphanumeric characters for barcode
     if (event.key.length === 1 && /[a-zA-Z0-9]/.test(event.key)) {
-      // If it's been more than 100ms since last key, start fresh
-      if (timeSinceLastKey > 100) {
+      // If it's been more than 150ms since last key, start fresh (increased for compatibility)
+      if (timeSinceLastKey > 150) {
         barcodeBuffer = '';
       }
       
       barcodeBuffer += event.key;
       
-      // Clear buffer after 100ms of no input
+      // Clear buffer after 150ms of no input
       if (barcodeTimeout) clearTimeout(barcodeTimeout);
       barcodeTimeout = setTimeout(() => {
         // If we have a substantial buffer, it might be a barcode without Enter
@@ -170,10 +172,10 @@ import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
           processBarcodeInput(barcodeBuffer);
         }
         barcodeBuffer = '';
-      }, 100);
+      }, 150);
       
-      // Prevent default if it looks like barcode input (rapid)
-      if (timeSinceLastKey < 50 && barcodeBuffer.length > 1) {
+      // Prevent default if it looks like barcode input (rapid - increased threshold for compatibility)
+      if (timeSinceLastKey < 100 && barcodeBuffer.length > 1) {
         event.preventDefault();
       }
     }
@@ -260,7 +262,7 @@ import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
   
   function openDeliveryDialog() {
     if (cart.length === 0) {
-      alert($locale === 'es' 
+      toast.error($locale === 'es' 
         ? 'Agregue productos al carrito antes de crear un delivery.' 
         : 'Add products to cart before creating a delivery.');
       return;
@@ -274,7 +276,7 @@ import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
   async function createDeliveryOrder() {
     if (!browser) return;
     if (!$activeShift?.id) {
-      alert($locale === 'es'
+      toast.error($locale === 'es'
         ? 'Debe abrir un turno antes de crear deliveries.'
         : 'You must open a shift before creating deliveries.');
       return;
@@ -352,42 +354,48 @@ import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
         if (item.productId) {
           const productIdStr = String(item.productId);
           
-          // Consume FIFO inventory
-          const { totalCost, avgUnitCost } = await consumeFIFO(
-            productIdStr,
-            item.quantity,
-            { saleId: selectedDelivery.id }
-          );
-          
-          // Create stock movement
-          const movement: StockMovement = {
-            id: generateId(),
-            productId: productIdStr,
-            type: 'out',
-            quantity: item.quantity,
-            saleId: selectedDelivery.id,
-            date: dateStr,
-            notes: `Delivery #${selectedDelivery.receiptNumber}`,
-            unitCost: avgUnitCost,
-            totalCost: totalCost
-          };
-          await db.stockMovements.add(movement);
-          
-          // Update product stock
-          const remainingLots = await getActiveLots(productIdStr);
-          const lotStock = remainingLots.reduce((sum, lot) => sum + lot.remainingQuantity, 0);
-          const hasLots = remainingLots.length > 0;
-          const product = await db.products.get(productIdStr);
-          const newStock = hasLots 
-            ? lotStock 
-            : Math.max(0, Number(product?.currentStock ?? 0) - Number(item.quantity));
-          
-          await db.products.update(productIdStr, {
-            currentStock: newStock,
-            lastStockUpdate: dateStr,
-            salesVolume: Number(product?.salesVolume ?? 0) + Number(item.quantity),
-            lastSaleDate: dateStr
-          });
+          try {
+            // Consume FIFO inventory
+            const { totalCost, avgUnitCost } = await consumeFIFO(
+              productIdStr,
+              item.quantity,
+              { saleId: selectedDelivery.id }
+            );
+            
+            // Create stock movement
+            const movement: StockMovement = {
+              id: generateId(),
+              productId: productIdStr,
+              type: 'out',
+              quantity: item.quantity,
+              saleId: selectedDelivery.id,
+              date: dateStr,
+              notes: `Delivery #${selectedDelivery.receiptNumber}`,
+              unitCost: avgUnitCost,
+              totalCost: totalCost
+            };
+            await db.stockMovements.add(movement);
+            
+            // Update product stock
+            const remainingLots = await getActiveLots(productIdStr);
+            const lotStock = remainingLots.reduce((sum, lot) => sum + lot.remainingQuantity, 0);
+            const hasLots = remainingLots.length > 0;
+            const product = await db.products.get(productIdStr);
+            const newStock = hasLots 
+              ? lotStock 
+              : Math.max(0, Number(product?.currentStock ?? 0) - Number(item.quantity));
+            
+            await db.products.update(productIdStr, {
+              currentStock: newStock,
+              lastStockUpdate: dateStr,
+              salesVolume: Number(product?.salesVolume ?? 0) + Number(item.quantity),
+              lastSaleDate: dateStr
+            });
+          } catch (fifoError) {
+            console.error('FIFO error for product:', productIdStr, fifoError);
+            toast.error($locale === 'es' ? 'Error al actualizar inventario' : 'Inventory update error');
+            // Continue with other items - don't fail the entire delivery
+          }
         }
       }
       
@@ -429,10 +437,10 @@ import { recordSaleITBIS, reverseSaleITBIS } from '$lib/itbis';
         await shiftManagerRef.refreshSales();
       }
       
-      alert($locale === 'es' ? '¡Delivery completado!' : 'Delivery completed!');
+      toast.success($locale === 'es' ? '¡Delivery completado!' : 'Delivery completed!');
     } catch (e) {
       console.error('Error completing delivery:', e);
-      alert($locale === 'es' 
+      toast.error($locale === 'es' 
         ? 'Error al completar el delivery. Intente nuevamente.' 
         : 'Error completing delivery. Please try again.');
     }
@@ -648,7 +656,7 @@ async function openConfirmDialog() {
         try {
           const available = await getAvailableQuantity(item.productRef.id);
           if (item.quantity > available) {
-            alert($locale === 'es'
+            toast.error($locale === 'es'
               ? `Stock insuficiente para ${item.description}. Disponible: ${available}, solicitado: ${item.quantity}.`
               : `Not enough stock for ${item.description}. Available: ${available}, requested: ${item.quantity}.`);
             return;
@@ -658,7 +666,7 @@ async function openConfirmDialog() {
           // If we can't check stock, use currentStock as fallback
           const currentStock = item.productRef.currentStock ?? 0;
           if (item.quantity > currentStock) {
-            alert($locale === 'es'
+            toast.error($locale === 'es'
               ? `Stock insuficiente para ${item.description}. Disponible: ${currentStock}, solicitado: ${item.quantity}.`
               : `Not enough stock for ${item.description}. Available: ${currentStock}, requested: ${item.quantity}.`);
             return;
@@ -668,7 +676,7 @@ async function openConfirmDialog() {
       
       // For credit sales, require a customer
       if (isCredit && !selectedCustomer) {
-        alert($locale === 'es'
+        toast.error($locale === 'es'
           ? 'Debe seleccionar un cliente para ventas a crédito.'
           : 'You must select a customer for credit sales.');
         return;
@@ -679,7 +687,7 @@ async function openConfirmDialog() {
         const limit = selectedCustomer.creditLimit ?? 0;
         const balance = selectedCustomer.currentBalance ?? 0;
         if (limit > 0 && (balance + total) > limit) {
-          alert($locale === 'es'
+          toast.error($locale === 'es'
             ? `El cliente ha excedido su límite de crédito. Límite: $${limit.toLocaleString()}, Balance actual: $${balance.toLocaleString()}, Total venta: $${total.toLocaleString()}`
             : `Customer has exceeded credit limit. Limit: $${limit.toLocaleString()}, Current balance: $${balance.toLocaleString()}, Sale total: $${total.toLocaleString()}`);
           return;
@@ -690,7 +698,7 @@ async function openConfirmDialog() {
       confirmDialogOpen = true;
     } catch (e) {
       console.error('Error in openConfirmDialog:', e);
-      alert($locale === 'es' 
+      toast.error($locale === 'es' 
         ? 'Error al validar la venta. Por favor intente nuevamente.'
         : 'Error validating sale. Please try again.');
     }
@@ -700,7 +708,7 @@ async function openConfirmDialog() {
     try {
       if (!browser) return;
       if (!$activeShift?.id) {
-        alert($locale === 'es' 
+        toast.error($locale === 'es' 
           ? 'Debe abrir un turno antes de realizar ventas. Vaya a Configuración > Gestión de Turnos.'
           : 'You must open a shift before making sales. Go to Settings > Shift Management.');
         console.error('Cannot create sale: No active shift');
@@ -875,7 +883,7 @@ async function openConfirmDialog() {
     } catch (e) {
       console.error('Error confirming sale:', e);
       const errorMessage = e instanceof Error ? e.message : String(e);
-      alert($locale === 'es'
+      toast.error($locale === 'es'
         ? `Error al confirmar la venta: ${errorMessage}`
         : `Error confirming sale: ${errorMessage}`);
     }
@@ -1155,7 +1163,7 @@ async function openConfirmDialog() {
       
     } catch (e) {
       console.error('Error processing return:', e);
-      alert($locale === 'es' ? 'Error al procesar devolución' : 'Error processing return');
+      toast.error($locale === 'es' ? 'Error al procesar devolución' : 'Error processing return');
     } finally {
       returnProcessing = false;
     }
@@ -1246,7 +1254,7 @@ async function openConfirmDialog() {
                 </div>
               </div>
               <Badge variant="outline" class="{stockStatus.class}">{stockStatus.text}</Badge>
-              <div class="font-bold text-lg">${(product.sellingPrice || product.lastPrice * 1.3).toFixed(0)}</div>
+              <div class="font-bold text-lg">${(product.sellingPrice !== undefined && product.sellingPrice !== null ? product.sellingPrice : (product.lastPrice ?? 0) * 1.3).toFixed(0)}</div>
             </button>
           {/each}
         </div>
@@ -1361,7 +1369,7 @@ async function openConfirmDialog() {
                 
                 <!-- Price -->
                 <div class="text-base font-bold text-primary">
-                  ${(product.sellingPrice || product.lastPrice * 1.3).toFixed(0)}
+                  ${(product.sellingPrice !== undefined && product.sellingPrice !== null ? product.sellingPrice : (product.lastPrice ?? 0) * 1.3).toFixed(0)}
                 </div>
               </button>
             {/each}

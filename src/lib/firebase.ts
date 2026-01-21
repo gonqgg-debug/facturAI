@@ -17,6 +17,11 @@ import {
     sendPasswordResetEmail,
     sendEmailVerification,
     onAuthStateChanged,
+    updateProfile,
+    deleteUser,
+    reauthenticateWithCredential,
+    reauthenticateWithPopup,
+    EmailAuthProvider,
     GoogleAuthProvider,
     type Auth,
     type User
@@ -275,6 +280,61 @@ export async function resetPassword(email: string): Promise<void> {
         const message = getAuthErrorMessage(error);
         throw new Error(message);
     }
+}
+
+/**
+ * Send a password reset email to the current user
+ */
+export async function sendPasswordResetToCurrentUser(): Promise<void> {
+    if (!auth) throw new Error('Firebase Auth not initialized');
+    const user = auth.currentUser;
+    if (!user?.email) throw new Error('No email available for this account');
+    await sendPasswordResetEmail(auth, user.email);
+    trackEvent('password_reset_sent');
+}
+
+/**
+ * Update the current user's display name
+ */
+export async function updateFirebaseDisplayName(displayName: string): Promise<void> {
+    if (!auth) throw new Error('Firebase Auth not initialized');
+    const user = auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    await updateProfile(user, { displayName });
+    trackEvent('profile_updated', { field: 'displayName' });
+}
+
+/**
+ * Reauthenticate with email/password for sensitive actions
+ */
+export async function reauthenticateWithPassword(password: string): Promise<void> {
+    if (!auth) throw new Error('Firebase Auth not initialized');
+    const user = auth.currentUser;
+    if (!user?.email) throw new Error('No email available for this account');
+    const credential = EmailAuthProvider.credential(user.email, password);
+    await reauthenticateWithCredential(user, credential);
+}
+
+/**
+ * Reauthenticate with Google popup for sensitive actions
+ */
+export async function reauthenticateWithGoogle(): Promise<void> {
+    if (!auth) throw new Error('Firebase Auth not initialized');
+    const user = auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    const provider = new GoogleAuthProvider();
+    await reauthenticateWithPopup(user, provider);
+}
+
+/**
+ * Delete the current Firebase user
+ */
+export async function deleteCurrentUser(): Promise<void> {
+    if (!auth) throw new Error('Firebase Auth not initialized');
+    const user = auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    await deleteUser(user);
+    trackEvent('account_deleted');
 }
 
 /**

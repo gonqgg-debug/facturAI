@@ -250,6 +250,17 @@ export function resetSyncStats(): void {
 }
 
 /**
+ * Clear sync status and local persistence (used on logout)
+ */
+export function clearSyncStatus(): void {
+    syncStatusStore.set(initialSyncStatus);
+    syncStatsStore.set(initialSyncStats);
+    if (browser) {
+        localStorage.removeItem(LAST_SYNC_KEY);
+    }
+}
+
+/**
  * Mark device as registered and ready to sync
  */
 export function markDeviceRegistered(): void {
@@ -276,6 +287,15 @@ export function markDeviceNotRegistered(): void {
 if (browser) {
     window.addEventListener('online', () => setOnlineStatus(true));
     window.addEventListener('offline', () => setOnlineStatus(false));
+    
+    // Register callback with db.ts for auto-tracking updates
+    // This avoids circular imports by using dynamic import
+    import('./db').then(({ setOnPendingChangesUpdate }) => {
+        setOnPendingChangesUpdate(setPendingChanges);
+        console.log('[SyncStore] Registered pending changes callback with db.ts');
+    }).catch(err => {
+        console.error('[SyncStore] Failed to register pending changes callback:', err);
+    });
 }
 
 // ============================================================

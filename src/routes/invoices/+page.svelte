@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { page } from '$app/stores';
   import { db, generateId } from '$lib/db';
   import { FileText, Download, Trash2, Search, RefreshCw, Eye, X, Check, Clock, AlertTriangle, DollarSign, Calendar, CreditCard, Building2, Banknote, Smartphone, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-svelte';
   import * as XLSX from 'xlsx';
@@ -15,6 +16,17 @@
   import { t } from '$lib/i18n';
 
   let invoices: Invoice[] = [];
+  
+  // URL param handling for deep linking
+  $: {
+    const invoiceIdParam = $page.url.searchParams.get('id');
+    if (invoiceIdParam && invoices.length > 0 && !selectedInvoice) {
+      const invoice = invoices.find(i => i.id === invoiceIdParam);
+      if (invoice) {
+        viewInvoice(invoice);
+      }
+    }
+  }
   let searchQuery = '';
   let startDate = '';
   let endDate = '';

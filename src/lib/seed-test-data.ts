@@ -16,7 +16,14 @@ import type {
     PaymentMethodType
 } from './types';
 import { addInventoryLot, consumeFIFO, getCOGSForShift } from './fifo';
-import { createShiftCOGSEntry, createCardSettlementEntry } from './journal';
+import { 
+    createShiftCOGSEntry, 
+    createCardSettlementEntry,
+    createCashSaleEntry,
+    createCardSaleEntry,
+    createCreditSaleEntry,
+    createPurchaseInvoiceEntry
+} from './journal';
 import { recordSaleITBIS, recordPurchaseITBIS, getOrCreateSummary } from './itbis';
 
 // ============ UUID GENERATOR ============
@@ -641,6 +648,20 @@ async function seedSales(products: Product[], customers: Customer[], onProgress?
             
             await db.sales.add(sale);
             
+            // Create journal entry for the sale
+            try {
+                if (paymentMethod === 'cash') {
+                    await createCashSaleEntry(sale);
+                } else if (paymentMethod === 'credit_card' || paymentMethod === 'debit_card') {
+                    await createCardSaleEntry(sale);
+                } else {
+                    // bank_transfer or other - treat as credit sale
+                    await createCreditSaleEntry(sale);
+                }
+            } catch (e: any) {
+                console.error(`❌ Failed to create journal entry for sale #${sale.receiptNumber}:`, e?.message || e);
+            }
+            
             // Record ITBIS collected
             try {
                 await recordSaleITBIS(sale);
@@ -780,6 +801,13 @@ async function seedInvoices(suppliers: Supplier[], products: Product[]): Promise
             };
             
             await db.invoices.add(invoice);
+            
+            // Create journal entry for the purchase invoice
+            try {
+                await createPurchaseInvoiceEntry(invoice);
+            } catch (e: any) {
+                console.error(`❌ Failed to create journal entry for invoice ${invoice.ncf}:`, e?.message || e);
+            }
             
             // Create FIFO inventory lots for each item
             for (const item of itemsForLots) {

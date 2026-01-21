@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { db } from '$lib/db';
+  import { db, dbReady } from '$lib/db';
+  import { waitForStoreReady } from '$lib/device-auth';
   import { goto } from '$app/navigation';
   import TrendingDownIcon from "@tabler/icons-svelte/icons/trending-down";
   import TrendingUpIcon from "@tabler/icons-svelte/icons/trending-up";
@@ -54,15 +55,27 @@
   // Chart Data
   let chartData: { date: Date; month: string; costs: number; sales: number }[] = [];
   let maxChartValue = 0;
+  
+  // Loading state
+  let isLoading = true;
 
   onMount(async () => {
-    // Wait for database to be ready
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Wait for store to be ready (ensures sync context is set up)
+    await waitForStoreReady();
+    // Wait for database to be fully ready
+    await dbReady;
     await loadDashboardData();
+    isLoading = false;
   });
 
   async function loadDashboardData() {
     try {
+      // Guard against null db (Safari private browsing)
+      if (!db) {
+        console.warn('Database not available');
+        return;
+      }
+      
       // Ensure database is open
       if (!db.isOpen()) {
         await db.open();
@@ -213,7 +226,7 @@
 
     // Pending credit
     const creditSales = sales.filter(s => s.paymentStatus === 'pending' || s.paymentStatus === 'partial');
-    pendingCredit = creditSales.reduce((sum, s) => sum + (s.total - s.paidAmount), 0);
+    pendingCredit = creditSales.reduce((sum, s) => sum + (s.total - (s.paidAmount ?? 0)), 0);
 
     // Low stock products
     lowStockCount = products.filter(p => {
@@ -245,10 +258,10 @@
     }
 
     chartData = months.map(m => {
-      const monthInvoices = invoices.filter(i => i.issueDate.startsWith(m.key));
+      const monthInvoices = invoices.filter(i => i.issueDate?.startsWith(m.key));
       const costs = monthInvoices.reduce((sum, i) => sum + (i.total || 0), 0);
       
-      const monthSales = sales.filter(s => s.date.startsWith(m.key));
+      const monthSales = sales.filter(s => s.date?.startsWith(m.key));
       const salesTotal = monthSales.reduce((sum, s) => sum + (s.total || 0), 0);
       
       return { date: m.date, month: m.name, costs, sales: salesTotal };
@@ -301,6 +314,46 @@
   }
 </script>
 
+{#if isLoading}
+  <!-- Loading Skeleton -->
+  <div class="flex-1 space-y-6 pb-24 pt-8 md:pt-12 animate-pulse">
+    <!-- Top Cards Skeleton -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 px-4 lg:px-6">
+      {#each Array(4) as _}
+        <div class="bg-card border border-border rounded-xl p-6">
+          <div class="h-4 bg-muted rounded w-1/2 mb-4"></div>
+          <div class="h-8 bg-muted rounded w-3/4 mb-2"></div>
+          <div class="h-4 bg-muted rounded w-1/3"></div>
+        </div>
+      {/each}
+    </div>
+    
+    <!-- Quick Stats Skeleton -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 px-4 lg:px-6">
+      {#each Array(4) as _}
+        <div class="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
+          <div class="w-10 h-10 bg-muted rounded-lg"></div>
+          <div class="flex-1">
+            <div class="h-3 bg-muted rounded w-1/2 mb-2"></div>
+            <div class="h-6 bg-muted rounded w-2/3"></div>
+          </div>
+        </div>
+      {/each}
+    </div>
+    
+    <!-- Chart Skeleton -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 px-4 lg:px-6">
+      <div class="bg-card border border-border rounded-xl p-6">
+        <div class="h-6 bg-muted rounded w-1/3 mb-4"></div>
+        <div class="h-48 bg-muted rounded"></div>
+      </div>
+      <div class="bg-card border border-border rounded-xl p-6">
+        <div class="h-6 bg-muted rounded w-1/3 mb-4"></div>
+        <div class="h-48 bg-muted rounded"></div>
+      </div>
+    </div>
+  </div>
+{:else}
 <div class="flex-1 space-y-6 pb-24 pt-8 md:pt-12">
   
   <!-- Top Cards: Sales vs Expenses -->
@@ -675,4 +728,5 @@
   </div>
 
 </div>
+{/if}
 

@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { db, generateId } from '$lib/db';
+  import { triggerSync } from '$lib/sync-service';
   import { Search, Plus, Upload, Edit2, Trash2, Package, AlertTriangle, Barcode, Download, ArrowUpDown, ArrowUp, ArrowDown, Columns3, Receipt, ShoppingCart, Sparkles, Brain, CheckCircle } from 'lucide-svelte';
   import type { Product, Supplier, Sale, Invoice, StockMovement } from '$lib/types';
   import * as XLSX from 'xlsx';
@@ -453,6 +454,10 @@ import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListIte
 
     await loadData();
     isImporting = false;
+    // Trigger immediate sync after bulk import
+    void triggerSync().catch((error) => {
+        console.warn('[Catalog] Immediate sync failed after import (non-blocking):', error);
+    });
     alert(`Import Complete!\nCreated: ${createdCount}\nUpdated: ${updatedCount}\nSkipped: ${skippedCount}`);
   }
 
@@ -531,6 +536,12 @@ import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListIte
 
     closeDialog();
     await loadData();
+
+    // Trigger immediate sync so updates propagate faster across devices
+    // Fire-and-forget so UI doesn't block on network/auth issues.
+    void triggerSync().catch((error) => {
+        console.warn('[Catalog] Immediate sync failed (non-blocking):', error);
+    });
   }
 
   function confirmDelete(product: ProductWithSupplier) {
@@ -544,6 +555,10 @@ import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListIte
     deleteDialogOpen = false;
     productToDelete = null;
     await loadData();
+    // Trigger immediate sync after delete
+    void triggerSync().catch((error) => {
+        console.warn('[Catalog] Immediate sync failed after delete (non-blocking):', error);
+    });
   }
   
   function confirmBulkDelete() {
@@ -559,6 +574,10 @@ import { generateSmartShoppingList, type SmartShoppingList, type ShoppingListIte
     bulkDeleteDialogOpen = false;
     clearSelection();
     await loadData();
+    // Trigger immediate sync after bulk delete
+    void triggerSync().catch((error) => {
+        console.warn('[Catalog] Immediate sync failed after bulk delete (non-blocking):', error);
+    });
   }
   
   function exportProducts() {

@@ -18,9 +18,21 @@
   import { locale } from '$lib/stores';
   import { t } from '$lib/i18n';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { Checkbox } from '$lib/components/ui/checkbox';
 
   let purchaseOrders: PurchaseOrder[] = [];
+  
+  // Check URL params for auto-opening PO detail
+  $: {
+    const poIdParam = $page.url.searchParams.get('id');
+    if (poIdParam && purchaseOrders.length > 0 && !showPODetail) {
+      const po = purchaseOrders.find(p => p.id === poIdParam);
+      if (po) {
+        viewPODetail(po);
+      }
+    }
+  }
   let suppliers: Supplier[] = [];
   let products: Product[] = [];
   let searchQuery = '';
@@ -1117,7 +1129,8 @@
                       newItemProductName = selectedProductName;
                       newItemUnitPrice = latestPrice || product.lastPrice || 0;
                       newItemTaxRate = product.costTaxRate || 0.18;
-                      newItemPriceIncludesTax = product.costIncludesTax ?? false;
+                      // ALWAYS default to price WITHOUT tax for POs (supplier prices are typically net)
+                      newItemPriceIncludesTax = false;
                       
                       // Hide search dropdown
                       showProductSearch = false;
@@ -1184,8 +1197,9 @@
             <div class="flex items-center gap-2">
               <Checkbox bind:checked={newItemPriceIncludesTax} id="price-includes-tax" />
               <Label for="price-includes-tax" class="text-sm cursor-pointer">
-                Price includes tax
+                Precio incluye ITBIS
               </Label>
+              <span class="text-xs text-muted-foreground">(por defecto: sin ITBIS)</span>
             </div>
             <Input 
               bind:value={newItemNotes}

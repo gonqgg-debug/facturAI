@@ -7,10 +7,11 @@
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { db } from '$lib/db';
-  import { initializeFirebase, trackScreenView, trackLogin, isFirebaseAuthenticated, isFirebaseLoading, firebaseUserEmail, getCurrentUser } from '$lib/firebase';
+  import { initializeFirebase, trackScreenView, trackLogin, isFirebaseAuthenticated, isFirebaseLoading, firebaseAuth, firebaseUserEmail, getCurrentUser } from '$lib/firebase';
   import { loginWithFirebase } from '$lib/auth';
   import { initializeSyncService, triggerSync } from '$lib/sync-service';
-  import { initializeDeviceAuth, ensureStoreExists } from '$lib/device-auth';
+  import { initializeRealtimeService, stopRealtimeService } from '$lib/realtime-service';
+  import { initializeDeviceAuth, ensureStoreExists, signalStoreReady } from '$lib/device-auth';
   import { isSyncing, syncMessage, hasPendingChanges } from '$lib/sync-store';
   import { currentRole, userPermissions, hasPermission } from '$lib/auth';
   import type { PermissionKey } from '$lib/types';
@@ -71,6 +72,7 @@
         { href: '/purchases', labelKey: 'nav.purchasingHub', icon: ClipboardList, permission: 'invoices.view' as PermissionKey },
         { href: '/purchases/orders', labelKey: 'nav.purchaseOrders', icon: FileCheck, permission: 'invoices.view' as PermissionKey },
         { href: '/purchases/receiving', labelKey: 'nav.receiving', icon: Package, permission: 'inventory.adjust' as PermissionKey },
+        { href: '/purchases/vault', labelKey: 'nav.invoiceVault', icon: Camera, permission: 'invoices.view' as PermissionKey },
         { href: '/capture', labelKey: 'nav.quickCapture', icon: Zap, permission: 'invoices.capture' as PermissionKey },
         { href: '/purchases/history', labelKey: 'nav.purchaseHistory', icon: BarChart3, permission: 'invoices.view' as PermissionKey },
         { href: '/suppliers', labelKey: 'nav.suppliers', icon: Users, permission: 'invoices.view' as PermissionKey }
@@ -207,8 +209,8 @@
           console.log('[Layout] Cashier attempting to access', currentPath, '- redirecting to /sales');
           goto('/sales');
         }
-      } else {
-        // Check route permissions for non-cashiers
+      } else if (currentPath !== '/dashboard') {
+        // Check route permissions for non-cashiers (dashboard is always accessible)
         // Find the best matching route (exact match first, then prefix match)
         let requiredPermission: PermissionKey | undefined = routePermissions[currentPath];
         if (!requiredPermission) {
@@ -234,12 +236,19 @@
   let servicesInitialized = false;
   
   onMount(() => {
-    // Subscribe to Firebase authentication state
-    // isFirebaseAuthenticated is only true when user exists AND loading is false
-    const unsubscribe = isFirebaseAuthenticated.subscribe(async (isAuthenticated) => {
+    // Subscribe to Firebase authentication state (including loading state)
+    // We subscribe to firebaseAuth directly to properly handle loading completion
+    const unsubscribe = firebaseAuth.subscribe(async (authState) => {
+      const { user, loading } = authState;
+      const isAuthenticated = !!user && !loading;
       const currentPath = $page.url.pathname;
       const isPublic = publicRoutes.includes(currentPath) || currentPath.startsWith('/invite/');
-      console.log('[Layout] Firebase authenticated:', isAuthenticated, 'path:', currentPath, 'isPublic:', isPublic);
+      console.log('[Layout] Firebase auth state:', { user: !!user, loading, isAuthenticated, path: currentPath, isPublic });
+      
+      // Skip if still loading
+      if (loading) {
+        return;
+      }
       
       // If authenticated and on login page, redirect to dashboard
       if (isAuthenticated && currentPath === '/login') {
@@ -249,8 +258,7 @@
       }
       
       // If not authenticated and on protected route, redirect to login
-      // But only if we're sure auth has loaded (isAuthenticated being false after loading means no user)
-      if (!isAuthenticated && !isPublic && !$isFirebaseLoading) {
+      if (!isAuthenticated && !isPublic) {
         console.log('[Layout] Not authenticated on protected route, redirecting to login');
         goto('/login');
         return;
@@ -284,9 +292,20 @@
             console.log('[Layout] Local user and role set up');
           }
           
-          // Then start sync service
-          initializeSyncService();
-          console.log('[Layout] Sync service initialized');
+          // Then start sync service and wait for initial sync
+          console.log('[Layout] Starting sync service...');
+          const syncResult = await initializeSyncService();
+          console.log('[Layout] Sync service initialized, pulled:', syncResult.pulled, 'records');
+          
+          // Start realtime subscriptions for instant sync
+          console.log('[Layout] Starting realtime service...');
+          initializeRealtimeService();
+          console.log('[Layout] Realtime service started');
+          
+          // Signal that store is ready AFTER sync completes
+          // This unblocks pages waiting for data
+          signalStoreReady(storeId);
+          console.log('[Layout] Store ready signaled');
         } catch (err) {
           console.error('[Layout] Service initialization failed:', err);
         }
@@ -329,6 +348,7 @@
 
     return () => {
       unsubscribe();
+      stopRealtimeService();
       if (browser) {
         document.removeEventListener('click', handleClickOutside);
       }

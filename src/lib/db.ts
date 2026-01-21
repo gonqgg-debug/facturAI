@@ -3,6 +3,62 @@ import Dexie, { type Table } from 'dexie';
 // Dexie Cloud removed - using Supabase for sync instead
 import { browser } from '$app/environment';
 
+// ============ SYNCED TABLES CONFIGURATION ============
+// Tables that should be synced to Supabase
+// This is the source of truth - supabase.ts imports from here
+//
+// IMPORTANT: Requires migration 015_sync_schema_alignment.sql to be applied
+// This migration aligns Supabase schema with TypeScript interfaces
+export const ALL_SYNCED_TABLES = [
+    // Business data - CORE
+    'invoices',
+    'suppliers',
+    'rules',
+    'globalContext',
+    'products',
+    'stockMovements',
+    'bankAccounts',
+    'payments',
+    'customers',
+    'sales',
+    'returns',
+    'customerSegments',
+    'weatherRecords',
+    'purchaseOrders',
+    'receipts',
+    
+    // Team management
+    'teamInvites',
+    
+    // User management
+    'shifts',
+    'users',
+    'localRoles',
+    
+    // FIFO Inventory (requires migration 015)
+    'inventoryLots',
+    'costConsumptions',
+    
+    // Accounting (requires migration 015)
+    'journalEntries',
+    'itbisSummaries',
+    'cardSettlements',
+    
+    // Tax/NCF tracking (requires migration 015)
+    'ncfRanges',
+    'ncfUsage',
+    
+    // Audit & Settings (requires migration 015)
+    'accountingAuditLog',
+    'receiptSettings',
+    
+    // Analytics (requires migration 015)
+    'transactionFeatures',
+    'realTimeInsights'
+] as const;
+
+export type SyncedTableName = typeof ALL_SYNCED_TABLES[number];
+
 /**
  * Generate a UUID for cloud-synced records
  * Dexie Cloud uses '@id' which should auto-generate, but we need a fallback
@@ -486,6 +542,178 @@ export class MinimarketDatabase extends Dexie {
             }
         }
     }
+    
+    /**
+     * Initialize hooks for automatic change tracking on all synced tables.
+     * This ensures ANY write operation (even direct db.table.add/put/delete)
+     * gets tracked for sync without requiring explicit trackChange calls.
+     */
+    initializeHooks() {
+        console.log('[DB] Initializing auto-tracking hooks for all synced tables...');
+        
+        for (const tableName of ALL_SYNCED_TABLES) {
+            try {
+                const table = this.table(tableName);
+                if (!table) {
+                    console.warn(`[DB] Table ${tableName} not found, skipping hooks`);
+                    continue;
+                }
+                
+                // Hook: Creating (insert)
+                table.hook('creating', function(primKey, obj, trans) {
+                    // Skip if this is the pendingChanges table itself
+                    if (tableName === 'pendingChanges') return;
+                    
+                    // For auto-increment tables, primKey might be undefined
+                    // We'll track after creation in that case
+                    const recordId = primKey ?? obj?.id;
+                    
+                    if (recordId) {
+                        // Schedule tracking after transaction commits
+                        trans.on('complete', () => {
+                            trackChangeFromHook(tableName, String(recordId), 'insert', obj);
+                        });
+                    } else {
+                        // For auto-increment, we need to get the ID after creation
+                        // This is handled by the 'created' subscription
+                        console.log(`[DB Hook] Creating ${tableName} with auto-generated ID`);
+                    }
+                });
+                
+                // Hook: Updating
+                table.hook('updating', function(modifications, primKey, obj, trans) {
+                    if (tableName === 'pendingChanges') return modifications;
+                    
+                    const recordId = primKey ?? obj?.id;
+                    if (recordId) {
+                        // Merge modifications with original object
+                        const updatedObj = { ...obj, ...modifications };
+                        trans.on('complete', () => {
+                            trackChangeFromHook(tableName, String(recordId), 'update', updatedObj);
+                        });
+                    }
+                    return modifications;
+                });
+                
+                // Hook: Deleting
+                table.hook('deleting', function(primKey, obj, trans) {
+                    if (tableName === 'pendingChanges') return;
+                    
+                    const recordId = primKey ?? obj?.id;
+                    if (recordId && obj) {
+                        trans.on('complete', () => {
+                            trackChangeFromHook(tableName, String(recordId), 'delete', obj);
+                        });
+                    }
+                });
+                
+                console.log(`[DB] Hooks registered for table: ${tableName}`);
+            } catch (err) {
+                console.error(`[DB] Failed to register hooks for ${tableName}:`, err);
+            }
+        }
+        
+        console.log('[DB] Auto-tracking hooks initialized for all synced tables');
+    }
+}
+
+// ============ CHANGE TRACKING FROM HOOKS ============
+
+/**
+ * Flag to prevent duplicate tracking when using db-operations wrapper functions.
+ * Set to true before db-operations calls trackChange, then reset after.
+ */
+let isTrackingFromWrapper = false;
+
+/**
+ * Enable/disable wrapper tracking flag
+ */
+export function setTrackingFromWrapper(value: boolean): void {
+    isTrackingFromWrapper = value;
+}
+
+/**
+ * Track a change from Dexie hooks.
+ * This is called automatically when any write operation occurs.
+ */
+async function trackChangeFromHook(
+    tableName: string,
+    recordId: string,
+    action: 'insert' | 'update' | 'delete',
+    data: Record<string, unknown>
+): Promise<void> {
+    // Skip if tracking is being done by wrapper function to avoid duplicates
+    if (isTrackingFromWrapper) {
+        console.log(`[DB Hook] Skipping ${tableName} ${action} - already tracked by wrapper`);
+        return;
+    }
+    
+    // Skip pendingChanges table itself
+    if (tableName === 'pendingChanges') return;
+    
+    // Skip if table is not in synced list (safety check)
+    if (!ALL_SYNCED_TABLES.includes(tableName as SyncedTableName)) {
+        return;
+    }
+    
+    if (!browser || !dbInstance?.pendingChanges) {
+        console.log('[DB Hook] Skipped - no browser or pendingChanges table');
+        return;
+    }
+    
+    try {
+        const change: Omit<PendingChangeRecord, 'id'> = {
+            tableName,
+            recordId,
+            action,
+            data,
+            timestamp: Date.now(),
+            synced: false
+        };
+        
+        await dbInstance.pendingChanges.add(change);
+        console.log(`[DB Hook] Auto-tracked ${action} for ${tableName}:${recordId}`);
+        
+        // Update pending changes count (import dynamically to avoid circular deps)
+        const count = await dbInstance.pendingChanges.count();
+        // We'll update the store via a callback to avoid import issues
+        if (onPendingChangesUpdate) {
+            onPendingChangesUpdate(count);
+        }
+    } catch (err) {
+        console.error(`[DB Hook] Failed to track change for ${tableName}:`, err);
+    }
+}
+
+/**
+ * Callback for updating pending changes count in sync-store
+ * Set by sync-store on initialization to avoid circular imports
+ */
+let onPendingChangesUpdate: ((count: number) => void) | null = null;
+
+/**
+ * Register callback for pending changes updates
+ */
+export function setOnPendingChangesUpdate(callback: (count: number) => void): void {
+    onPendingChangesUpdate = callback;
+}
+
+/**
+ * Export trackChangeFromHook for use by db-operations (with wrapper flag)
+ */
+export async function trackChange(
+    tableName: string,
+    recordId: string,
+    action: 'insert' | 'update' | 'delete',
+    data: Record<string, unknown>
+): Promise<void> {
+    // Set flag to prevent hooks from double-tracking
+    setTrackingFromWrapper(true);
+    try {
+        await trackChangeFromHook(tableName, recordId, action, data);
+    } finally {
+        setTrackingFromWrapper(false);
+    }
 }
 
 // ============ DATABASE INSTANCE ============
@@ -593,12 +821,14 @@ if (browser && db) {
     // Open database (Supabase sync is handled separately in sync-service.ts)
     db.open()
         .then(() => {
+            // Initialize auto-tracking hooks for all tables
+            db.initializeHooks();
             // Initialize default roles and admin user
             return db.initializeDefaults();
         })
         .then(() => {
             clearTimeout(dbTimeout);
-            console.log('Database initialized successfully with defaults');
+            console.log('Database initialized successfully with defaults and hooks');
             dbReadyResolve();
         })
         .catch(async (err) => {

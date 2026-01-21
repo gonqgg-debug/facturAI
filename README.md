@@ -59,11 +59,19 @@ A modern PWA for managing invoices, extracting data with AI, and tracking expens
 2. Import the project in Vercel
 3. Add environment variables in Vercel Dashboard:
    - Go to **Settings → Environment Variables**
+   - Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+   - Add `VITE_FIREBASE_*` variables (see `.env.example`)
    - Add `XAI_API_KEY` with your Grok API key
    - Add `OPENWEATHER_API_KEY` with your OpenWeatherMap API key
+   - Optional: `SENTRY_DSN` and `PUBLIC_SENTRY_DSN`
 4. Deploy!
 
 The app will automatically use the environment variables from Vercel in production.
+
+### Operations Runbook
+
+For manual multi‑tenant/sync checks and a full deployment checklist, see:
+`OPERATIONS_RUNBOOK.md`
 
 ## Project Structure
 

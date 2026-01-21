@@ -198,10 +198,11 @@ export async function consumeFIFO(
         
         // Create a consumption record for the unfulfilled quantity
         // This handles cases where lots weren't created (legacy data)
+        // Use undefined for lotId instead of a placeholder string (Supabase expects UUID or null)
         const legacyConsumption: CostConsumption = {
             id: generateId(),
             ...reference,
-            lotId: 'LEGACY_NO_LOT',
+            lotId: undefined, // No lot available for legacy data
             productId,
             quantity: remainingToConsume,
             unitCost: avgCost,
@@ -245,7 +246,8 @@ export async function revertConsumption(
     
     // Restore quantities to lots
     for (const consumption of consumptions) {
-        if (consumption.lotId !== 'LEGACY_NO_LOT') {
+        // Skip legacy consumptions that don't have a valid lot ID
+        if (consumption.lotId && consumption.lotId !== 'LEGACY_NO_LOT') {
             const lot = await db.inventoryLots.get(consumption.lotId);
             if (lot) {
                 await db.inventoryLots.update(consumption.lotId, {

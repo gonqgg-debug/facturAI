@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { db, generateId } from '$lib/db';
+  import { triggerSync } from '$lib/sync-service';
+  import { syncStatus } from '$lib/sync-store';
   import { Search, Package, ArrowUp, ArrowDown, ClipboardList, AlertTriangle, CheckCircle2, History } from 'lucide-svelte';
   import type { Product, StockMovement } from '$lib/types';
   import { getFIFOCost, consumeFIFO, addInventoryLot } from '$lib/fifo';
@@ -49,8 +51,27 @@
     { value: 'other', label: 'Otro' }
   ];
 
+  let lastSyncSeen: string | null = null;
+  let unsubscribeSync: (() => void) | null = null;
+
   onMount(async () => {
     await loadData();
+
+    // Refresh adjustments when sync completes to reflect remote changes.
+    unsubscribeSync = syncStatus.subscribe((status) => {
+      const nextSync = status.lastSyncAt?.toISOString() || null;
+      if (nextSync && nextSync !== lastSyncSeen && status.state !== 'syncing') {
+        lastSyncSeen = nextSync;
+        void loadData();
+      }
+    });
+  });
+
+  onDestroy(() => {
+    if (unsubscribeSync) {
+      unsubscribeSync();
+      unsubscribeSync = null;
+    }
   });
 
   async function loadData() {
@@ -186,6 +207,10 @@
     adjustmentDialogOpen = false;
     selectedProduct = null;
     await loadData();
+    // Trigger immediate sync so adjustments propagate faster across devices
+    void triggerSync().catch((error) => {
+      console.warn('[InventoryAdjustments] Immediate sync failed (non-blocking):', error);
+    });
   }
   
   async function openKardex(product: Product) {

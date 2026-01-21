@@ -102,3 +102,45 @@ export async function generateReceiptNumber(): Promise<string> {
 	
 	return `REC-${year}-${String(count).padStart(4, '0')}`;
 }
+
+/**
+ * Format a number as currency
+ * @param value - The number to format
+ * @param showSymbol - Whether to show the DOP symbol (default true)
+ * @param decimals - Number of decimal places (default 0)
+ * @returns Formatted currency string
+ */
+export function formatCurrency(
+	value: number | null | undefined, 
+	showSymbol = true, 
+	decimals = 0
+): string {
+	const numValue = value ?? 0;
+	const formatted = numValue.toLocaleString('en-US', { 
+		minimumFractionDigits: decimals,
+		maximumFractionDigits: decimals 
+	});
+	return showSymbol ? `DOP ${formatted}` : formatted;
+}
+
+/**
+ * Format a number as a short currency (e.g., $1.5K, $2.3M)
+ * @param value - The number to format
+ * @param showSymbol - Whether to show the $ symbol (default true)
+ * @returns Formatted short currency string
+ */
+export function formatShortCurrency(
+	value: number | null | undefined,
+	showSymbol = true
+): string {
+	const numValue = value ?? 0;
+	const prefix = showSymbol ? '$' : '';
+	
+	if (Math.abs(numValue) >= 1_000_000) {
+		return `${prefix}${(numValue / 1_000_000).toFixed(1)}M`;
+	}
+	if (Math.abs(numValue) >= 1_000) {
+		return `${prefix}${(numValue / 1_000).toFixed(1)}K`;
+	}
+	return `${prefix}${numValue.toFixed(0)}`;
+}

@@ -83,6 +83,61 @@ export const deviceStoreId = derived(
 );
 
 // ============================================================
+// STORE READY PROMISE & MUTEX
+// ============================================================
+
+// Mutex to prevent race conditions when multiple calls to ensureStoreExists happen
+let isCreatingStore = false;
+let storeCreationPromise: Promise<string | null> | null = null;
+
+// Promise that resolves when store is ready (registered or error)
+let storeReadyResolve: ((value: string | null) => void) | null = null;
+let storeReadyPromise: Promise<string | null> | null = null;
+
+/**
+ * Get a promise that resolves when the store is ready
+ * Returns the store ID if successful, null if failed
+ */
+export function waitForStoreReady(): Promise<string | null> {
+    // If promise already exists (registration in progress), return it
+    if (storeReadyPromise) {
+        return storeReadyPromise;
+    }
+    
+    // If already registered AND has store ID, return immediately
+    const currentStoreId = getStoreId();
+    if (currentStoreId && !isCreatingStore) {
+        return Promise.resolve(currentStoreId);
+    }
+    
+    // If registration is in progress (isCreatingStore), wait for it
+    // Create new promise that will be resolved by signalStoreReady
+    storeReadyPromise = new Promise<string | null>((resolve) => {
+        storeReadyResolve = resolve;
+        
+        // If we already have a store ID but were waiting for creation,
+        // resolve immediately (edge case)
+        if (currentStoreId && !isCreatingStore) {
+            resolve(currentStoreId);
+        }
+    });
+    
+    return storeReadyPromise;
+}
+
+/**
+ * Signal that store is ready (call after registration AND sync complete)
+ */
+export function signalStoreReady(storeId: string | null): void {
+    if (storeReadyResolve) {
+        storeReadyResolve(storeId);
+        storeReadyResolve = null;
+    }
+    // Reset for potential future use (logout/login)
+    storeReadyPromise = null;
+}
+
+// ============================================================
 // LOCAL STORAGE HELPERS
 // ============================================================
 
@@ -128,6 +183,19 @@ function clearDeviceCredentials(): void {
     localStorage.removeItem(DEVICE_ID_KEY);
     localStorage.removeItem(STORE_ID_KEY);
     localStorage.removeItem(DEVICE_TOKEN_KEY);
+}
+
+/**
+ * Clear local device auth state without touching cloud records
+ * Useful for logout flows that should remove local credentials
+ */
+export function clearLocalDeviceAuth(): void {
+    clearDeviceCredentials();
+    deviceAuthStore.set({
+        state: 'not_registered',
+        deviceInfo: null,
+        error: null
+    });
 }
 
 // ============================================================
@@ -302,6 +370,31 @@ async function findTeamMemberStore(email: string | null): Promise<string | null>
 export async function ensureStoreExists(): Promise<string | null> {
     console.log('[DeviceAuth] ensureStoreExists called');
     
+    // Mutex: If already creating store, return the existing promise
+    if (isCreatingStore && storeCreationPromise) {
+        console.log('[DeviceAuth] Store creation already in progress, waiting...');
+        return storeCreationPromise;
+    }
+    
+    // Start the creation process
+    isCreatingStore = true;
+    storeCreationPromise = ensureStoreExistsInternal();
+    
+    try {
+        const result = await storeCreationPromise;
+        return result;
+    } finally {
+        // Reset mutex after completion
+        isCreatingStore = false;
+        storeCreationPromise = null;
+    }
+}
+
+/**
+ * Internal implementation of ensureStoreExists
+ * Called only once due to mutex protection
+ */
+async function ensureStoreExistsInternal(): Promise<string | null> {
     const supabase = getSupabase();
     if (!supabase) {
         console.error('[DeviceAuth] Supabase not configured - check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
@@ -436,6 +529,10 @@ export async function ensureStoreExists(): Promise<string | null> {
         });
         
         console.log('[DeviceAuth] ✅ Device registered successfully to store:', storeId, isTeamMember ? '(team member)' : '(owner)');
+        
+        // Note: Don't signal store ready here - let the layout do it after sync completes
+        // This ensures pages wait for both store registration AND initial sync
+        
         return storeId;
         
     } catch (err) {
@@ -445,6 +542,10 @@ export async function ensureStoreExists(): Promise<string | null> {
             state: 'error', 
             error: `Registration failed: ${err instanceof Error ? err.message : 'unknown error'}` 
         }));
+        
+        // Signal store ready with null (failed) so waiting components can proceed
+        signalStoreReady(null);
+        
         return null;
     }
 }

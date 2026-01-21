@@ -6,7 +6,7 @@
   import { 
     Package, Plus, X, Search, Save, FileSpreadsheet, CheckCircle2, 
     AlertTriangle, ArrowRight, ClipboardList, Zap, ChevronDown, ChevronUp,
-    Check, Minus, Equal
+    Check, Minus, Equal, Camera, Image, Trash2, Eye
   } from 'lucide-svelte';
   import type { Receipt, ReceiptItem, PurchaseOrder, Supplier, Product, StockMovement, Invoice, InvoiceItem } from '$lib/types';
   import { createPurchaseInvoiceEntry } from '$lib/journal';
@@ -30,8 +30,8 @@
   let purchaseOrders: PurchaseOrder[] = [];
 
   // Receipt State
-  let receiptSupplierId: number | null = null;
-  let receiptPurchaseOrderId: number | null = null;
+  let receiptSupplierId: string | number | null = null;
+  let receiptPurchaseOrderId: string | number | null = null;
   let receiptDate = new Date().toISOString().split('T')[0];
   let receiptNotes = '';
   let receiptItems: ReceiptItem[] = [];
@@ -63,15 +63,50 @@
   let invoiceNCF = '';
   let invoiceDueDate = '';
   let invoiceCreditDays = 30;
+  
+  // Invoice photo capture state
+  let invoicePhotoUrl: string | null = null;
+  let invoicePhotoName: string | null = null;
+  let showPhotoPreview = false;
+  let photoInputRef: HTMLInputElement;
 
-  // Check URL params for PO pre-selection
+  // Check URL params for PO pre-selection or viewing existing receipt
+  let viewingReceipt: Receipt | null = null;
+  let showReceiptView = false;
+  
   $: {
     const poParam = $page.url.searchParams.get('po');
+    const receiptParam = $page.url.searchParams.get('id') || $page.url.searchParams.get('receipt');
+    
     if (poParam && !receiptPurchaseOrderId) {
-      const poId = parseInt(poParam, 10);
+      // Try to parse as number first (for legacy data), fall back to string (UUID)
+      const poId = /^\d+$/.test(poParam) ? parseInt(poParam, 10) : poParam;
       receiptPurchaseOrderId = poId;
       loadPOItems(poId);
     }
+    
+    // If viewing an existing receipt
+    if (receiptParam && !viewingReceipt) {
+      loadReceiptForView(receiptParam);
+    }
+  }
+  
+  async function loadReceiptForView(receiptId: string) {
+    try {
+      const receipt = await db.receipts.get(receiptId);
+      if (receipt) {
+        viewingReceipt = receipt;
+        showReceiptView = true;
+      }
+    } catch (error) {
+      console.error('Error loading receipt:', error);
+    }
+  }
+  
+  function closeReceiptView() {
+    showReceiptView = false;
+    viewingReceipt = null;
+    goto('/purchases/receiving');
   }
 
   onMount(async () => {
@@ -102,16 +137,23 @@
     }
   }
 
-  async function loadPOItems(poId?: number) {
-    const id = poId || receiptPurchaseOrderId;
+  async function loadPOItems(poId?: string | number) {
+    const id = poId ?? receiptPurchaseOrderId;
     if (!id) {
       selectedPO = null;
       receiptItems = [];
       return;
     }
     
+    console.log(`[Receiving] Loading PO with ID: ${id} (type: ${typeof id})`);
     const po = await db.purchaseOrders.get(id);
-    if (!po) return;
+    if (!po) {
+      console.warn(`[Receiving] PO not found with ID: ${id}`);
+      return;
+    }
+
+    console.log(`[Receiving] Loaded PO ${po.poNumber} with ${po.items.length} items`, 
+      po.items.map(i => ({ name: i.productName, productId: i.productId })));
 
     selectedPO = po;
     receiptSupplierId = po.supplierId;
@@ -126,7 +168,8 @@
     }));
   }
 
-  function handlePOChange(poId: number | null) {
+  function handlePOChange(poId: string | number | null) {
+    console.log(`[Receiving] PO selected with ID:`, poId, `(type: ${typeof poId})`);
     receiptPurchaseOrderId = poId;
     if (poId) {
       loadPOItems(poId);
@@ -175,6 +218,73 @@
   $: openPOs = purchaseOrders.filter(po => 
     po.status === 'draft' || po.status === 'sent' || po.status === 'partial'
   );
+
+  // Photo handling functions
+  async function handlePhotoCapture(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || !input.files[0]) return;
+    
+    const file = input.files[0];
+    invoicePhotoName = file.name;
+    
+    // Compress and convert to base64
+    const compressed = await compressImage(file, 1200, 0.8);
+    invoicePhotoUrl = compressed;
+  }
+  
+  async function compressImage(file: File, maxWidth: number, quality: number): Promise<string> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = document.createElement('img');
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let { width, height } = img;
+          
+          // Scale down if needed
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  
+  function clearPhoto() {
+    invoicePhotoUrl = null;
+    invoicePhotoName = null;
+    if (photoInputRef) {
+      photoInputRef.value = '';
+    }
+  }
+  
+  function triggerPhotoCapture(inputId: string) {
+    const input = document.getElementById(inputId) as HTMLInputElement;
+    if (input) {
+      input.click();
+    }
+  }
+  
+  function triggerGallerySelect(inputId: string) {
+    const input = document.getElementById(inputId) as HTMLInputElement;
+    if (input) {
+      input.removeAttribute('capture');
+      input.click();
+      // Restore capture attribute after a short delay
+      setTimeout(() => input.setAttribute('capture', 'environment'), 100);
+    }
+  }
 
   // Condition badge color
   function getConditionColor(condition: ReceiptItem['condition']): string {
@@ -306,6 +416,12 @@
 
   // Save Receipt
   async function saveReceipt() {
+    console.log(`[Receiving] === SAVE RECEIPT START ===`);
+    console.log(`[Receiving] receiptSupplierId:`, receiptSupplierId);
+    console.log(`[Receiving] receiptPurchaseOrderId:`, receiptPurchaseOrderId, `(type: ${typeof receiptPurchaseOrderId})`);
+    console.log(`[Receiving] receiptItems count:`, receiptItems.length);
+    console.log(`[Receiving] Items with productId:`, receiptItems.filter(i => i.productId).length);
+    
     if (!receiptSupplierId) {
       alert('Please select a supplier');
       return;
@@ -330,58 +446,174 @@
       items: receiptItems,
       total: receiptTotal,
       notes: receiptNotes || undefined,
+      invoicePhotoUrl: invoicePhotoUrl || undefined,
+      invoicePhotoName: invoicePhotoName || undefined,
       createdAt: new Date()
     };
 
     await db.receipts.add(receiptData);
 
     // Update inventory
+    let inventoryUpdated = 0;
+    let inventorySkipped = 0;
+    
+    console.log(`[Receiving] Starting inventory update for ${receiptItems.length} items`);
+    
+    // Load all products once for efficient matching
+    const allProducts = await db.products.toArray();
+    console.log(`[Receiving] Loaded ${allProducts.length} products for matching`);
+    
     for (const item of receiptItems) {
-      if (item.productId && item.condition === 'good') {
-        const product = await db.products.get(item.productId);
+      console.log(`[Receiving] Processing item: "${item.productName}", productId: ${item.productId}, qty: ${item.receivedQuantity}, condition: ${item.condition}`);
+      
+      // Skip non-good condition items
+      if (item.condition !== 'good') {
+        console.log(`[Receiving] ⏭ Skipping "${item.productName}" - condition: ${item.condition}`);
+        inventorySkipped++;
+        continue;
+      }
+      
+      // Try to find the product by ID first
+      let product: typeof allProducts[0] | undefined;
+      
+      if (item.productId) {
+        // First try direct ID match
+        product = allProducts.find(p => p.id === item.productId);
+        if (!product) {
+          // Try string comparison in case of type mismatch
+          product = allProducts.find(p => String(p.id) === String(item.productId));
+        }
         if (product) {
-          const previousStock = Number(product.currentStock ?? 0);
-          await db.products.update(item.productId, {
-            currentStock: previousStock + item.receivedQuantity,
+          console.log(`[Receiving] ✓ Found product by ID: "${product.name}" (ID: ${product.id})`);
+        }
+      }
+      
+      // If not found by ID, try to find by name (exact and fuzzy match)
+      if (!product) {
+        const itemNameLower = item.productName.toLowerCase().trim();
+        
+        // Exact name match
+        product = allProducts.find(p => p.name.toLowerCase().trim() === itemNameLower);
+        
+        // Try alias match
+        if (!product) {
+          product = allProducts.find(p => 
+            p.aliases?.some(alias => alias.toLowerCase().trim() === itemNameLower)
+          );
+        }
+        
+        // Try partial match (name contains or is contained)
+        if (!product) {
+          product = allProducts.find(p => 
+            p.name.toLowerCase().includes(itemNameLower) ||
+            itemNameLower.includes(p.name.toLowerCase())
+          );
+        }
+        
+        if (product) {
+          console.log(`[Receiving] ✓ Found product by name match: "${item.productName}" -> "${product.name}" (ID: ${product.id})`);
+        }
+      }
+      
+      if (product && product.id) {
+        const previousStock = Number(product.currentStock ?? 0);
+        const newStock = previousStock + Number(item.receivedQuantity);
+        
+        console.log(`[Receiving] 📦 Updating inventory for "${product.name}": ${previousStock} + ${item.receivedQuantity} = ${newStock}`);
+        
+        try {
+          await db.products.update(product.id, {
+            currentStock: newStock,
             lastPrice: item.unitPrice,
             lastDate: receiptDate,
             lastStockUpdate: today
           });
+          
+          // Verify update
+          const verifyProduct = await db.products.get(product.id);
+          console.log(`[Receiving] ✓ Verified: "${product.name}" stock is now ${verifyProduct?.currentStock}`);
 
           // Create stock movement
           const movement: StockMovement = {
             id: generateId(),
-            productId: item.productId,
+            productId: product.id,
             type: 'in',
             quantity: item.receivedQuantity,
             receiptId: receiptId,
             date: today,
-            notes: `Receipt from ${supplier?.name}${item.condition !== 'good' ? ` (${item.condition})` : ''}`
+            notes: `Receipt from ${supplier?.name}`
           };
           await db.stockMovements.add(movement);
+          inventoryUpdated++;
+        } catch (updateError) {
+          console.error(`[Receiving] ✗ Failed to update inventory for "${product.name}":`, updateError);
+          inventorySkipped++;
         }
+      } else {
+        console.warn(`[Receiving] ✗ Could not find product for "${item.productName}" (productId: ${item.productId}) - inventory NOT updated`);
+        console.log(`[Receiving] Available products (first 5):`, allProducts.slice(0, 5).map(p => ({ id: p.id, name: p.name })));
+        inventorySkipped++;
       }
     }
+    
+    console.log(`[Receiving] ═══════════════════════════════════════`);
+    console.log(`[Receiving] Inventory update complete: ${inventoryUpdated} updated, ${inventorySkipped} skipped`);
+    console.log(`[Receiving] ═══════════════════════════════════════`);
 
     // Update PO status if linked
-    if (receiptPurchaseOrderId) {
-      const po = await db.purchaseOrders.get(receiptPurchaseOrderId);
-      if (po) {
+    console.log(`[Receiving] Checking PO status update. receiptPurchaseOrderId:`, receiptPurchaseOrderId, `type:`, typeof receiptPurchaseOrderId);
+    
+    // Ensure we have a valid PO ID
+    const poIdToUpdate = receiptPurchaseOrderId ? String(receiptPurchaseOrderId) : null;
+    console.log(`[Receiving] Normalized PO ID:`, poIdToUpdate);
+    
+    if (poIdToUpdate) {
+      // Try to find PO by the ID
+      let po = await db.purchaseOrders.get(poIdToUpdate);
+      
+      // If not found, try looking up in the array (in case of type mismatch)
+      if (!po) {
+        console.log(`[Receiving] PO not found by direct get, searching in array...`);
+        const allPOs = await db.purchaseOrders.toArray();
+        po = allPOs.find(p => String(p.id) === poIdToUpdate);
+        console.log(`[Receiving] Array search result:`, po ? 'FOUND' : 'NOT FOUND');
+      }
+      
+      console.log(`[Receiving] Found PO for status update:`, po ? { id: po.id, poNumber: po.poNumber, currentStatus: po.status } : 'NOT FOUND');
+      
+      if (po && po.id) {
         // Check if all items received
         const allReceived = po.items.every(poItem => {
           const receiptItem = receiptItems.find(ri => 
             ri.productId === poItem.productId || 
-            ri.productName === poItem.productName
+            ri.productName.toLowerCase() === poItem.productName.toLowerCase()
           );
-          return receiptItem && receiptItem.receivedQuantity >= poItem.quantity;
+          const isReceived = receiptItem && receiptItem.receivedQuantity >= poItem.quantity;
+          console.log(`[Receiving] Item "${poItem.productName}": ordered=${poItem.quantity}, received=${receiptItem?.receivedQuantity ?? 0}, match=${isReceived}`);
+          return isReceived;
         });
 
         const newStatus = allReceived ? 'received' : 'partial';
-        await db.purchaseOrders.update(receiptPurchaseOrderId, {
-          status: newStatus,
-          updatedAt: new Date()
-        });
+        console.log(`[Receiving] Updating PO ${po.id} status from "${po.status}" to "${newStatus}"`);
+        
+        try {
+          await db.purchaseOrders.update(po.id, {
+            status: newStatus,
+            updatedAt: new Date()
+          });
+          console.log(`[Receiving] ✓ PO status updated successfully to "${newStatus}"`);
+          
+          // Verify the update
+          const verifyPO = await db.purchaseOrders.get(po.id);
+          console.log(`[Receiving] Verification - PO status is now:`, verifyPO?.status);
+        } catch (error) {
+          console.error(`[Receiving] ✗ Failed to update PO status:`, error);
+        }
+      } else {
+        console.warn(`[Receiving] Could not find PO with ID: ${poIdToUpdate}`);
       }
+    } else {
+      console.log(`[Receiving] No PO linked to this receipt (receiptPurchaseOrderId is empty)`);
     }
 
     // Create invoice for payment tracking
@@ -449,7 +681,8 @@
       }
     }
 
-    alert('Receipt saved successfully! Inventory has been updated.' + (createInvoice ? ' Invoice created for payment tracking.' : ''));
+    const successMsg = `Receipt saved successfully!\n\n✓ ${inventoryUpdated} product(s) inventory updated\n${inventorySkipped > 0 ? `⚠ ${inventorySkipped} item(s) skipped` : ''}${createInvoice ? '\n✓ Invoice created for payment tracking' : ''}${poIdToUpdate ? `\n✓ PO status updated` : ''}`;
+    alert(successMsg);
     
     // Reset form
     receiptSupplierId = null;
@@ -466,6 +699,9 @@
     invoiceNCF = '';
     invoiceDueDate = '';
     invoiceCreditDays = 30;
+    // Reset photo
+    invoicePhotoUrl = null;
+    invoicePhotoName = null;
   }
 </script>
 
@@ -772,6 +1008,74 @@
               <p class="text-xs text-blue-600 mt-3">
                 ✓ Invoice will appear in Purchase Invoices for payment tracking and accounting
               </p>
+              
+              <!-- Invoice Photo Capture -->
+              <div class="mt-4 pt-4 border-t border-blue-500/20">
+                <Label class="text-sm font-medium flex items-center gap-2">
+                  <Camera size={16} />
+                  Foto de Factura (Opcional)
+                </Label>
+                <p class="text-xs text-muted-foreground mb-3">Captura una foto de la factura física para tu archivo</p>
+                
+                <input 
+                  type="file" 
+                  accept="image/*"
+                  capture="environment"
+                  on:change={handlePhotoCapture}
+                  bind:this={photoInputRef}
+                  class="hidden"
+                  id="invoice-photo-po"
+                />
+                
+                {#if invoicePhotoUrl}
+                  <div class="flex items-center gap-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                    <div class="relative w-16 h-16 rounded-lg overflow-hidden border border-border">
+                      <img src={invoicePhotoUrl} alt="Invoice" class="w-full h-full object-cover" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium text-green-700 truncate">{invoicePhotoName}</p>
+                      <p class="text-xs text-green-600">Foto capturada ✓</p>
+                    </div>
+                    <div class="flex gap-2">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        on:click={() => showPhotoPreview = true}
+                        class="h-8 w-8 p-0"
+                      >
+                        <Eye size={16} />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        on:click={clearPhoto}
+                        class="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      >
+                        <Trash2 size={16} />
+                      </Button>
+                    </div>
+                  </div>
+                {:else}
+                  <div class="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      class="flex-1"
+                      on:click={() => triggerPhotoCapture('invoice-photo-po')}
+                    >
+                      <Camera size={16} class="mr-2" />
+                      Tomar Foto
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      class="flex-1"
+                      on:click={() => triggerGallerySelect('invoice-photo-po')}
+                    >
+                      <Image size={16} class="mr-2" />
+                      Elegir de Galería
+                    </Button>
+                  </div>
+                {/if}
+              </div>
             {/if}
           </div>
 
@@ -972,6 +1276,73 @@
                 <DatePicker bind:value={invoiceDueDate} class="w-full" />
               </div>
             </div>
+            
+            <!-- Invoice Photo Capture (Manual Tab) -->
+            <div class="mt-4 pt-4 border-t border-blue-500/20">
+              <Label class="text-sm font-medium flex items-center gap-2">
+                <Camera size={16} />
+                Foto de Factura (Opcional)
+              </Label>
+              <p class="text-xs text-muted-foreground mb-3">Captura una foto de la factura física para tu archivo</p>
+              
+              <input 
+                type="file" 
+                accept="image/*"
+                capture="environment"
+                on:change={handlePhotoCapture}
+                class="hidden"
+                id="invoice-photo-manual"
+              />
+              
+              {#if invoicePhotoUrl}
+                <div class="flex items-center gap-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                  <div class="relative w-16 h-16 rounded-lg overflow-hidden border border-border">
+                    <img src={invoicePhotoUrl} alt="Invoice" class="w-full h-full object-cover" />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-green-700 truncate">{invoicePhotoName}</p>
+                    <p class="text-xs text-green-600">Foto capturada ✓</p>
+                  </div>
+                  <div class="flex gap-2">
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      on:click={() => showPhotoPreview = true}
+                      class="h-8 w-8 p-0"
+                    >
+                      <Eye size={16} />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      on:click={clearPhoto}
+                      class="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                    >
+                      <Trash2 size={16} />
+                    </Button>
+                  </div>
+                </div>
+              {:else}
+                <div class="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    class="flex-1"
+                    on:click={() => triggerPhotoCapture('invoice-photo-manual')}
+                  >
+                    <Camera size={16} class="mr-2" />
+                    Tomar Foto
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    class="flex-1"
+                    on:click={() => triggerGallerySelect('invoice-photo-manual')}
+                  >
+                    <Image size={16} class="mr-2" />
+                    Elegir de Galería
+                  </Button>
+                </div>
+              {/if}
+            </div>
           {/if}
         </div>
 
@@ -1106,3 +1477,153 @@
     </Tabs.Content>
   </Tabs.Root>
 </div>
+
+<!-- Receipt View Dialog -->
+<Dialog.Root bind:open={showReceiptView}>
+  <Dialog.Content class="max-w-3xl max-h-[90vh] overflow-y-auto">
+    <Dialog.Header>
+      <Dialog.Title>Receipt Details</Dialog.Title>
+      <Dialog.Description>{viewingReceipt?.receiptNumber}</Dialog.Description>
+    </Dialog.Header>
+
+    {#if viewingReceipt}
+      <div class="space-y-4">
+        <!-- Info Grid -->
+        <div class="grid grid-cols-2 gap-4">
+          <div class="bg-muted/50 p-3 rounded-lg">
+            <div class="text-xs text-muted-foreground uppercase mb-1">Supplier</div>
+            <div class="font-medium">{viewingReceipt.supplierName || 'Unknown'}</div>
+          </div>
+          <div class="bg-muted/50 p-3 rounded-lg">
+            <div class="text-xs text-muted-foreground uppercase mb-1">Receipt Date</div>
+            <div class="font-medium">{viewingReceipt.receiptDate}</div>
+          </div>
+          {#if viewingReceipt.purchaseOrderId}
+            <div class="bg-muted/50 p-3 rounded-lg">
+              <div class="text-xs text-muted-foreground uppercase mb-1">Linked PO</div>
+              <div class="font-medium font-mono">{viewingReceipt.purchaseOrderId}</div>
+            </div>
+          {/if}
+          <div class="bg-muted/50 p-3 rounded-lg">
+            <div class="text-xs text-muted-foreground uppercase mb-1">Total</div>
+            <div class="font-bold text-lg">${viewingReceipt.total.toLocaleString()}</div>
+          </div>
+        </div>
+
+        <!-- Items Table -->
+        <div>
+          <h3 class="font-bold mb-2">Items Received</h3>
+          <Table.Root>
+            <Table.Header>
+              <Table.Row>
+                <Table.Head>Product</Table.Head>
+                <Table.Head class="text-center">Ordered</Table.Head>
+                <Table.Head class="text-center">Received</Table.Head>
+                <Table.Head class="text-center">Condition</Table.Head>
+                <Table.Head class="text-right">Unit Price</Table.Head>
+                <Table.Head class="text-right">Amount</Table.Head>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {#each viewingReceipt.items as item}
+                <Table.Row>
+                  <Table.Cell>
+                    <div class="font-medium">{item.productName}</div>
+                    {#if item.notes}
+                      <div class="text-xs text-muted-foreground">{item.notes}</div>
+                    {/if}
+                  </Table.Cell>
+                  <Table.Cell class="text-center font-mono">{item.quantity}</Table.Cell>
+                  <Table.Cell class="text-center font-mono font-bold">{item.receivedQuantity}</Table.Cell>
+                  <Table.Cell class="text-center">
+                    <span class="px-2 py-1 rounded text-xs font-medium 
+                      {item.condition === 'good' ? 'bg-green-500/10 text-green-500' : 
+                       item.condition === 'damaged' ? 'bg-red-500/10 text-red-500' : 
+                       item.condition === 'expired' ? 'bg-amber-500/10 text-amber-500' : 
+                       'bg-purple-500/10 text-purple-500'}">
+                      {item.condition}
+                    </span>
+                  </Table.Cell>
+                  <Table.Cell class="text-right font-mono">${item.unitPrice.toFixed(2)}</Table.Cell>
+                  <Table.Cell class="text-right font-mono font-bold">
+                    ${(item.receivedQuantity * item.unitPrice).toFixed(2)}
+                  </Table.Cell>
+                </Table.Row>
+              {/each}
+            </Table.Body>
+          </Table.Root>
+        </div>
+
+        {#if viewingReceipt.notes}
+          <div>
+            <h3 class="font-bold mb-2">Notes</h3>
+            <p class="text-sm text-muted-foreground">{viewingReceipt.notes}</p>
+          </div>
+        {/if}
+
+        {#if viewingReceipt.invoicePhotoUrl}
+          <div>
+            <h3 class="font-bold mb-2 flex items-center gap-2">
+              <Camera size={16} />
+              Foto de Factura
+            </h3>
+            <button 
+              class="block rounded-lg overflow-hidden border border-border hover:border-primary transition-colors cursor-pointer"
+              on:click={() => {
+                invoicePhotoUrl = viewingReceipt?.invoicePhotoUrl || null;
+                showPhotoPreview = true;
+              }}
+            >
+              <img 
+                src={viewingReceipt.invoicePhotoUrl} 
+                alt="Invoice" 
+                class="max-w-xs max-h-48 object-contain"
+              />
+            </button>
+            <p class="text-xs text-muted-foreground mt-1">Click para ver en grande</p>
+          </div>
+        {/if}
+
+        <!-- Totals -->
+        <div class="flex justify-end">
+          <div class="w-64 space-y-1">
+            <div class="flex justify-between text-lg font-bold border-t border-border pt-2">
+              <span>Total</span>
+              <span class="font-mono">${viewingReceipt.total.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <Dialog.Footer>
+      <Button variant="outline" on:click={closeReceiptView}>Close</Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
+
+<!-- Photo Preview Modal -->
+<Dialog.Root bind:open={showPhotoPreview}>
+  <Dialog.Content class="max-w-4xl">
+    <Dialog.Header>
+      <Dialog.Title class="flex items-center gap-2">
+        <Camera size={20} />
+        Foto de Factura
+      </Dialog.Title>
+    </Dialog.Header>
+    
+    {#if invoicePhotoUrl}
+      <div class="flex justify-center items-center bg-muted/30 rounded-lg p-4 min-h-[400px]">
+        <img 
+          src={invoicePhotoUrl} 
+          alt="Invoice full view" 
+          class="max-w-full max-h-[70vh] object-contain rounded"
+        />
+      </div>
+    {/if}
+    
+    <Dialog.Footer>
+      <Button variant="outline" on:click={() => showPhotoPreview = false}>Cerrar</Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>

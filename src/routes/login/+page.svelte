@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
+  import { goto, replaceState } from '$app/navigation';
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-svelte';
@@ -71,6 +71,27 @@
 
   onMount(() => {
     console.log('[Login] Page mounted');
+    
+    // Check for clear parameter to reset local storage (for testing)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('clear') === 'true') {
+      console.log('[Login] Clearing localStorage and IndexedDB for testing...');
+      localStorage.clear();
+      // Clear IndexedDB
+      if (window.indexedDB) {
+        indexedDB.databases().then(dbs => {
+          dbs.forEach(db => {
+            if (db.name) {
+              indexedDB.deleteDatabase(db.name);
+              console.log('[Login] Deleted IndexedDB:', db.name);
+            }
+          });
+        }).catch(e => console.warn('Could not list databases:', e));
+      }
+      toast.success($locale === 'es' ? 'Datos locales limpiados' : 'Local data cleared');
+      // Remove the query parameter using SvelteKit's replaceState
+      replaceState('/login', {});
+    }
     
     // Initialize Firebase
     initializeFirebase();
@@ -230,6 +251,11 @@
     authMode = mode;
     error = '';
     successMessage = '';
+  }
+  
+  // Clear error messages when locale changes (they were translated at error time)
+  $: if ($locale) {
+    error = '';
   }
 </script>
 

@@ -27,6 +27,7 @@
     type RestoreResult,
     type ValidationResult
   } from '$lib/backup';
+  import SyncStatusPanel from '$lib/components/SyncStatusPanel.svelte';
 
   // Active tab
   type Tab = 'general' | 'integrations' | 'data';
@@ -698,6 +699,9 @@
   <!-- Data Tab -->
   {#if activeTab === 'data'}
     <div class="space-y-6">
+      <!-- Sync Status Panel -->
+      <SyncStatusPanel />
+
       <!-- Backup Section -->
       <div class="bg-card text-card-foreground border border-border rounded-xl p-5">
         <h2 class="text-lg font-semibold mb-2 flex items-center gap-2">

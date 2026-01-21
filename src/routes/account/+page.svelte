@@ -2,8 +2,18 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { locale } from '$lib/stores';
-  import { firebaseUser, firebaseUserEmail, isFirebaseAuthenticated, firebaseSignOut } from '$lib/firebase';
-  import { t } from '$lib/i18n';
+  import { 
+    firebaseUser, 
+    isFirebaseAuthenticated, 
+    firebaseSignOut,
+    sendPasswordResetToCurrentUser,
+    updateFirebaseDisplayName,
+    reauthenticateWithPassword,
+    reauthenticateWithGoogle,
+    deleteCurrentUser
+  } from '$lib/firebase';
+  import { currentUser, logout } from '$lib/auth';
+  import { clearStoreContext } from '$lib/supabase';
   import { 
     User as UserIcon, 
     Mail, 
@@ -15,14 +25,32 @@
     Store,
     Cloud,
     CheckCircle2,
-    AlertCircle
+    AlertCircle,
+    Trash2,
+    KeyRound,
+    Save
   } from 'lucide-svelte';
-  import { deviceAuth, getStoreId, getDeviceId } from '$lib/device-auth';
-  import { syncStatus, getLastSyncTimestamp } from '$lib/sync-store';
+  import { Input } from '$lib/components/ui/input';
+  import { Button } from '$lib/components/ui/button';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import { toast } from 'svelte-sonner';
+  import { deviceAuth, getStoreId, getDeviceId, clearLocalDeviceAuth } from '$lib/device-auth';
+  import { syncStatus, getLastSyncTimestamp, clearSyncStatus } from '$lib/sync-store';
+  import { stopSyncService } from '$lib/sync-service';
 
   let isSigningOut = false;
   let deviceInfo: { deviceId: string | null; storeId: string | null } | null = null;
   let lastSyncTime: string | null = null;
+  let displayNameInput = '';
+  let displayNameTouched = false;
+  let isUpdatingProfile = false;
+  let isSendingReset = false;
+  let deleteDialogOpen = false;
+  let deletePassword = '';
+  let deleteConfirm = '';
+  let isDeleting = false;
+  let deleteError = '';
+  let providerIds: string[] = [];
   
   onMount(() => {
     const storeId = getStoreId();
@@ -33,16 +61,99 @@
     lastSyncTime = getLastSyncTimestamp();
   });
 
+  $: providerIds = $firebaseUser?.providerData?.map(p => p.providerId) || [];
+  $: if ($firebaseUser && !displayNameTouched) {
+    displayNameInput = $firebaseUser.displayName || '';
+  }
+
+  async function clearLocalSession(): Promise<void> {
+    stopSyncService();
+    await logout();
+    clearLocalDeviceAuth();
+    await clearStoreContext();
+    clearSyncStatus();
+  }
+
   async function handleSignOut() {
     if (isSigningOut) return;
     isSigningOut = true;
     try {
       await firebaseSignOut();
+      await clearLocalSession();
       window.location.href = '/login';
     } catch (error) {
       console.error('Sign out error:', error);
+      toast.error($locale === 'es' ? 'Error al cerrar sesión' : 'Sign out failed');
     } finally {
       isSigningOut = false;
+    }
+  }
+
+  async function handleUpdateProfile() {
+    const trimmed = displayNameInput.trim();
+    if (!trimmed) {
+      toast.error($locale === 'es' ? 'El nombre no puede estar vacío' : 'Display name cannot be empty');
+      return;
+    }
+    isUpdatingProfile = true;
+    try {
+      await updateFirebaseDisplayName(trimmed);
+      if ($currentUser?.id) {
+        const { db } = await import('$lib/db');
+        await db.users.update($currentUser.id, { displayName: trimmed });
+        currentUser.set({ ...$currentUser, displayName: trimmed });
+      }
+      displayNameTouched = false;
+      toast.success($locale === 'es' ? 'Perfil actualizado' : 'Profile updated');
+    } catch (error) {
+      console.error('Profile update error:', error);
+      toast.error($locale === 'es' ? 'No se pudo actualizar el perfil' : 'Failed to update profile');
+    } finally {
+      isUpdatingProfile = false;
+    }
+  }
+
+  async function handleSendPasswordReset() {
+    if (isSendingReset) return;
+    isSendingReset = true;
+    try {
+      await sendPasswordResetToCurrentUser();
+      toast.success($locale === 'es' ? 'Email de restablecimiento enviado' : 'Password reset email sent');
+    } catch (error) {
+      console.error('Password reset error:', error);
+      toast.error($locale === 'es' ? 'No se pudo enviar el email' : 'Failed to send reset email');
+    } finally {
+      isSendingReset = false;
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (isDeleting) return;
+    deleteError = '';
+    isDeleting = true;
+    try {
+      const isPasswordProvider = providerIds.includes('password');
+      const isGoogleProvider = providerIds.includes('google.com');
+      if (isPasswordProvider) {
+        if (!deletePassword) {
+          deleteError = $locale === 'es' ? 'Ingresa tu contraseña para continuar' : 'Enter your password to continue';
+          return;
+        }
+        await reauthenticateWithPassword(deletePassword);
+      } else if (isGoogleProvider) {
+        await reauthenticateWithGoogle();
+      } else {
+        deleteError = $locale === 'es' ? 'Este proveedor requiere reautenticación manual' : 'This provider requires manual reauthentication';
+        return;
+      }
+      await deleteCurrentUser();
+      await clearLocalSession();
+      window.location.href = '/login';
+    } catch (error) {
+      console.error('Delete account error:', error);
+      deleteError = $locale === 'es' ? 'No se pudo eliminar la cuenta' : 'Failed to delete account';
+    } finally {
+      isDeleting = false;
     }
   }
 
@@ -196,15 +307,62 @@
       </div>
     </div>
 
+    <!-- Account Actions -->
+    <div class="bg-card text-card-foreground border border-border rounded-xl p-6 mb-6">
+      <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+        <UserIcon size={18} class="text-primary" />
+        {$locale === 'es' ? 'Cuenta' : 'Account'}
+      </h3>
+
+      <div class="space-y-4">
+        <div>
+          <label for="displayName" class="block text-sm font-medium mb-2">
+            {$locale === 'es' ? 'Nombre para Mostrar' : 'Display Name'}
+          </label>
+          <div class="flex gap-2">
+            <Input
+              id="displayName"
+              bind:value={displayNameInput}
+              on:input={() => { displayNameTouched = true; }}
+              placeholder={$locale === 'es' ? 'Tu nombre' : 'Your name'}
+              class="bg-input/50"
+              disabled={isUpdatingProfile}
+            />
+            <Button
+              on:click={handleUpdateProfile}
+              disabled={isUpdatingProfile || !displayNameInput.trim()}
+              class="whitespace-nowrap"
+            >
+              <Save size={16} />
+              {$locale === 'es' ? 'Guardar' : 'Save'}
+            </Button>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between border-t border-border/50 pt-4">
+          <div>
+            <p class="text-sm font-medium">{$locale === 'es' ? 'Restablecer contraseña' : 'Reset password'}</p>
+            <p class="text-xs text-muted-foreground">
+              {$locale === 'es' ? 'Enviamos un email de restablecimiento a tu cuenta.' : 'We will email a reset link to your account.'}
+            </p>
+          </div>
+          <Button variant="outline" on:click={handleSendPasswordReset} disabled={isSendingReset}>
+            <KeyRound size={16} />
+            {$locale === 'es' ? 'Enviar' : 'Send'}
+          </Button>
+        </div>
+      </div>
+    </div>
+
     <!-- Sign Out -->
-    <div class="bg-card text-card-foreground border border-border rounded-xl p-6">
+    <div class="bg-card text-card-foreground border border-border rounded-xl p-6 mb-6">
       <h3 class="text-lg font-semibold mb-2">
         {$locale === 'es' ? 'Cerrar Sesión' : 'Sign Out'}
       </h3>
       <p class="text-sm text-muted-foreground mb-4">
         {$locale === 'es' 
-          ? 'Cierra tu sesión en este dispositivo. Tus datos permanecerán sincronizados.'
-          : 'Sign out from this device. Your data will remain synced.'}
+          ? 'Cierra tu sesión y limpia los datos locales de este dispositivo.'
+          : 'Sign out and clear local data from this device.'}
       </p>
       
       <button
@@ -220,6 +378,22 @@
           {$locale === 'es' ? 'Cerrar Sesión' : 'Sign Out'}
         {/if}
       </button>
+    </div>
+
+    <!-- Delete Account -->
+    <div class="bg-card text-card-foreground border border-border rounded-xl p-6">
+      <h3 class="text-lg font-semibold mb-2 text-destructive">
+        {$locale === 'es' ? 'Eliminar Cuenta' : 'Delete Account'}
+      </h3>
+      <p class="text-sm text-muted-foreground mb-4">
+        {$locale === 'es'
+          ? 'Elimina tu cuenta de acceso. Esto no borra los datos de la tienda.'
+          : 'Deletes your login account. This does not remove store data.'}
+      </p>
+      <Button variant="destructive" on:click={() => { deleteDialogOpen = true; deletePassword = ''; deleteConfirm = ''; deleteError = ''; }}>
+        <Trash2 size={16} />
+        {$locale === 'es' ? 'Eliminar Cuenta' : 'Delete Account'}
+      </Button>
     </div>
 
   {:else}
@@ -243,4 +417,57 @@
     </div>
   {/if}
 </div>
+
+<!-- Delete Account Dialog -->
+<AlertDialog.Root bind:open={deleteDialogOpen}>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>
+        {$locale === 'es' ? 'Confirmar eliminación' : 'Confirm deletion'}
+      </AlertDialog.Title>
+      <AlertDialog.Description>
+        {$locale === 'es'
+          ? 'Escribe DELETE para confirmar. Si tu cuenta es con contraseña, ingrésala para continuar.'
+          : 'Type DELETE to confirm. If your account uses a password, enter it to continue.'}
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+
+    <div class="space-y-3">
+      <Input
+        placeholder="DELETE"
+        bind:value={deleteConfirm}
+        class="bg-input/50"
+      />
+      {#if providerIds.includes('password')}
+        <Input
+          type="password"
+          placeholder={$locale === 'es' ? 'Contraseña' : 'Password'}
+          bind:value={deletePassword}
+          class="bg-input/50"
+        />
+      {/if}
+      {#if deleteError}
+        <p class="text-sm text-destructive">{deleteError}</p>
+      {/if}
+    </div>
+
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel on:click={() => { deleteDialogOpen = false; deleteError = ''; }}>
+        {$locale === 'es' ? 'Cancelar' : 'Cancel'}
+      </AlertDialog.Cancel>
+      <AlertDialog.Action
+        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        on:click={handleDeleteAccount}
+        disabled={isDeleting || deleteConfirm !== 'DELETE'}
+      >
+        {#if isDeleting}
+          <RefreshCw size={16} class="animate-spin" />
+          {$locale === 'es' ? 'Eliminando...' : 'Deleting...'}
+        {:else}
+          {$locale === 'es' ? 'Eliminar' : 'Delete'}
+        {/if}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
 

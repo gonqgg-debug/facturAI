@@ -609,11 +609,15 @@ export async function clearStoreContext(): Promise<void> {
 // TABLE NAME MAPPING
 // ============================================================
 
+// Import all synced tables from db.ts (source of truth)
+import { ALL_SYNCED_TABLES } from './db';
+
 /**
- * Mapping between Dexie table names and Supabase table names
- * Dexie uses camelCase, Supabase uses snake_case
+ * Mapping between Dexie table names (camelCase) and Supabase table names (snake_case)
+ * Expanded to include ALL tables for full sync capability
  */
-export const TABLE_NAME_MAP: Record<string, keyof Database['public']['Tables']> = {
+export const TABLE_NAME_MAP: Record<string, string> = {
+    // Business data (existing)
     'suppliers': 'suppliers',
     'products': 'products',
     'customers': 'customers',
@@ -628,18 +632,44 @@ export const TABLE_NAME_MAP: Record<string, keyof Database['public']['Tables']> 
     'rules': 'rules',
     'globalContext': 'global_context',
     'customerSegments': 'customer_segments',
-    'weatherRecords': 'weather_records'
+    'weatherRecords': 'weather_records',
+    
+    // Accounting tables (new)
+    'inventoryLots': 'inventory_lots',
+    'costConsumptions': 'cost_consumptions',
+    'journalEntries': 'journal_entries',
+    'itbisSummaries': 'itbis_summaries',
+    'cardSettlements': 'card_settlements',
+    'ncfRanges': 'ncf_ranges',
+    'ncfUsage': 'ncf_usage',
+    'accountingAuditLog': 'accounting_audit_log',
+    
+    // Settings (new)
+    'receiptSettings': 'receipt_settings',
+    
+    // Team management (new)
+    'teamInvites': 'team_invites',
+    
+    // User management - now synced (new)
+    'shifts': 'shifts',
+    'users': 'users',
+    'localRoles': 'roles',  // Dexie uses 'localRoles', Supabase uses 'roles'
+    
+    // Analytics (new)
+    'transactionFeatures': 'transaction_features',
+    'realTimeInsights': 'real_time_insights'
 };
 
 /**
  * List of tables that should be synced
+ * Now uses ALL_SYNCED_TABLES from db.ts as single source of truth
  */
-export const SYNCED_TABLES = Object.keys(TABLE_NAME_MAP);
+export const SYNCED_TABLES: string[] = [...ALL_SYNCED_TABLES];
 
 /**
  * Get Supabase table name from Dexie table name
  */
-export function getSupabaseTableName(dexieTableName: string): keyof Database['public']['Tables'] | null {
+export function getSupabaseTableName(dexieTableName: string): string | null {
     return TABLE_NAME_MAP[dexieTableName] || null;
 }
 

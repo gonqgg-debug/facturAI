@@ -636,6 +636,8 @@ export interface Receipt {
     total: number;
     notes?: string;
     receivedBy?: string;
+    invoicePhotoUrl?: string; // URL or base64 of invoice photo
+    invoicePhotoName?: string; // Original filename
     createdAt: Date;
 }
 
