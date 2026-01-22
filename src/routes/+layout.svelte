@@ -22,6 +22,10 @@
   import { t, type Locale } from '$lib/i18n';
   import { Toaster } from 'svelte-sonner';
   import { toast } from 'svelte-sonner';
+  import { injectAnalytics } from '@vercel/analytics/sveltekit';
+
+  // Initialize Vercel Analytics
+  injectAnalytics();
 
   // Route to permission mapping
   const routePermissions: Record<string, PermissionKey> = {
