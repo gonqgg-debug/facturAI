@@ -17,6 +17,7 @@
     firebaseUser,
     firebaseSignOut
   } from '$lib/firebase';
+  import { loginWithFirebase } from '$lib/auth';
   import { db } from '$lib/db';
   import type { TeamInvite, User, Role } from '$lib/types';
   import { Input } from '$lib/components/ui/input';
@@ -36,7 +37,7 @@
     EyeOff,
     Sparkles
   } from 'lucide-svelte';
-  import { toast } from 'svelte-sonner';
+  import { toast, Toaster } from 'svelte-sonner';
   
   // Password visibility
   let showPassword = false;
@@ -338,11 +339,13 @@
     // Validate form
     if (!password || password.length < 6) {
       error = 'La contraseña debe tener al menos 6 caracteres.';
+      toast.error('La contraseña debe tener al menos 6 caracteres.');
       return;
     }
     
     if (password !== confirmPassword) {
       error = 'Las contraseñas no coinciden.';
+      toast.error('Las contraseñas no coinciden.');
       return;
     }
     
@@ -366,6 +369,7 @@
       console.log('[Invite] Signed out');
       
       success = true;
+      toast.success('¡Cuenta creada exitosamente!');
       
       // Redirect to login after short delay
       setTimeout(() => {
@@ -376,9 +380,14 @@
       // Check if email already exists - offer login instead
       if (e.message?.includes('ya está registrado') || e.code === 'auth/email-already-in-use') {
         emailAlreadyExists = true;
-        error = 'Este email ya tiene una cuenta. Ingresa tu contraseña existente para vincular tu cuenta.';
+        // Don't set error - we want to show the form with login option instead
+        error = '';
+        toast.warning('Este email ya tiene una cuenta', {
+          description: 'Ingresa tu contraseña existente para vincular tu cuenta.'
+        });
       } else {
         error = e.message || 'Error al crear la cuenta. Por favor intenta de nuevo.';
+        toast.error(error);
       }
     } finally {
       submitting = false;
@@ -408,6 +417,7 @@
       console.log('[Invite] Signed out');
       
       success = true;
+      toast.success('¡Cuenta vinculada exitosamente!');
       
       // Redirect to login after short delay
       setTimeout(() => {
@@ -416,6 +426,7 @@
     } catch (e: any) {
       console.error('[Invite] Login failed:', e);
       error = e.message || 'Contraseña incorrecta. Por favor intenta de nuevo.';
+      toast.error(error);
     } finally {
       submitting = false;
     }
@@ -435,6 +446,9 @@
       // Check if email matches invite
       if (firebaseUserResult.email?.toLowerCase() !== invite.email.toLowerCase()) {
         error = `Por favor usa la cuenta de Google asociada a ${invite.email}`;
+        toast.error('Email incorrecto', {
+          description: `Por favor usa la cuenta de Google asociada a ${invite.email}`
+        });
         submitting = false;
         return;
       }
@@ -452,6 +466,7 @@
       console.log('[Invite] Signed out');
       
       success = true;
+      toast.success('¡Cuenta vinculada exitosamente!');
       
       // Redirect to login after short delay
       setTimeout(() => {
@@ -459,10 +474,12 @@
       }, 2000);
     } catch (e: any) {
       console.error('[Invite] Google sign up failed:', e);
-      if (e.message?.includes('cancelado') || e.message?.includes('cancelled')) {
+      if (e.message?.includes('cancelado') || e.message?.includes('cancelled') || e.message?.includes('popup-closed')) {
         error = '';
+        // Don't show toast for user-cancelled actions
       } else {
         error = e.message || 'Error al iniciar sesión con Google.';
+        toast.error(error);
       }
     } finally {
       submitting = false;
@@ -720,3 +737,5 @@
   </div>
 </div>
 
+<!-- Toast Notifications -->
+<Toaster richColors position="top-center" />

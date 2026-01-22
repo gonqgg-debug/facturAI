@@ -448,18 +448,40 @@ export function predictDemand(
 
   // Calculate recommended reorder quantity
   // Formula: (Velocity × Lead Time × Safety Buffer) - Current Stock
+  // But also ensure we recommend enough to reach the reorder point + buffer when no sales data
   const leadTime = 2; // Assume 2 days lead time (configurable)
   const safetyBuffer = 1.2; // 20% safety buffer
-  const reorderQuantity = Math.max(0, Math.ceil(adjustedVelocity * leadTime * safetyBuffer - currentStock));
+  
+  let reorderQuantity: number;
+  if (adjustedVelocity > 0) {
+    // When we have sales data, use velocity-based calculation
+    reorderQuantity = Math.max(0, Math.ceil(adjustedVelocity * leadTime * safetyBuffer - currentStock));
+  } else {
+    // When no sales data, use reorder point as the baseline
+    // Recommend enough to get to 2x the reorder point (safety stock)
+    const targetStock = reorderPoint * 2;
+    reorderQuantity = Math.max(0, targetStock - currentStock);
+  }
 
-  // Determine urgency
+  // Determine urgency based on both stock level and velocity
   let urgency: 'critical' | 'high' | 'medium' | 'low' = 'low';
-  if (predictedDaysUntilStockout <= 1) {
+  
+  // Stock-level based urgency (applies even without sales data)
+  if (currentStock === 0) {
     urgency = 'critical';
-  } else if (predictedDaysUntilStockout <= 3) {
+  } else if (currentStock <= reorderPoint * 0.5) {
+    urgency = 'critical';
+  } else if (currentStock <= reorderPoint) {
     urgency = 'high';
-  } else if (predictedDaysUntilStockout <= 7) {
-    urgency = 'medium';
+  } else if (adjustedVelocity > 0) {
+    // Velocity-based urgency when we have sales data
+    if (predictedDaysUntilStockout <= 1) {
+      urgency = 'critical';
+    } else if (predictedDaysUntilStockout <= 3) {
+      urgency = 'high';
+    } else if (predictedDaysUntilStockout <= 7) {
+      urgency = 'medium';
+    }
   }
 
   // Generate reasoning
@@ -475,7 +497,11 @@ export function predictDemand(
     reasoningParts.push(`Seasonal demand ${Math.round(seasonalMultiplier * 100)}% above average`);
   }
 
-  if (predictedDaysUntilStockout <= 30) {
+  if (currentStock === 0) {
+    reasoningParts.push('Out of stock - reorder immediately');
+  } else if (currentStock <= reorderPoint) {
+    reasoningParts.push(`Stock (${currentStock}) at or below reorder point (${reorderPoint})`);
+  } else if (predictedDaysUntilStockout <= 30 && adjustedVelocity > 0) {
     reasoningParts.push(`Stock will last ${Math.round(predictedDaysUntilStockout)} days`);
   } else {
     reasoningParts.push('Stock level appears sufficient');
@@ -586,9 +612,21 @@ export async function generateSmartShoppingList(
       try {
         // Get demand forecast
         const forecast = predictDemand(product, sales, stockMovements);
+        
+        const currentStock = product.currentStock ?? 0;
+        const reorderPoint = product.reorderPoint ?? 5;
 
-        // Skip products that don't need reordering
-        if (forecast.urgency === 'low' && forecast.recommendedReorderQuantity <= 0) {
+        // Include products if:
+        // 1. They have a recommended reorder quantity > 0, OR
+        // 2. Current stock is at or below reorder point (regardless of urgency), OR
+        // 3. Urgency is not 'low'
+        const needsReordering = 
+          forecast.recommendedReorderQuantity > 0 || 
+          currentStock <= reorderPoint ||
+          forecast.urgency !== 'low';
+
+        // Skip products that definitely don't need reordering
+        if (!needsReordering) {
           continue;
         }
 

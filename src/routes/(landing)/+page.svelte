@@ -542,13 +542,13 @@
       <!-- CTA Buttons -->
       <div class="flex flex-col sm:flex-row justify-center gap-4">
         <button 
-          class="bg-[#1E88E6] hover:bg-[#1778CF] text-white text-xl px-10 py-5 rounded-full shadow-xl shadow-[#1E88E6]/25 transition-all hover:scale-105 font-bold" 
+          class="bg-[#1E88E6] hover:bg-[#1778CF] text-white text-base sm:text-xl px-6 sm:px-10 py-3 sm:py-5 rounded-full shadow-xl shadow-[#1E88E6]/25 transition-all hover:scale-105 font-bold" 
           on:click={scrollToTrialForm}
         >
           Prueba gratis 14 días
         </button>
         <button 
-          class="bg-white hover:bg-gray-50 text-[#1E88E6] text-xl px-10 py-5 rounded-full shadow-lg border-2 border-[#1E88E6] transition-all hover:scale-105 font-bold" 
+          class="bg-white hover:bg-gray-50 text-[#1E88E6] text-base sm:text-xl px-6 sm:px-10 py-3 sm:py-5 rounded-full shadow-lg border-2 border-[#1E88E6] transition-all hover:scale-105 font-bold" 
           on:click={scrollToTrialForm}
         >
           Ver demo en vivo
@@ -648,25 +648,25 @@
                     </div>
                     
                     <!-- Generated Config Preview -->
-                    <div class="bg-white rounded-lg p-4 border border-emerald-100">
-                      <div class="grid grid-cols-2 gap-4 text-sm">
+                    <div class="bg-white rounded-lg p-3 sm:p-4 border border-emerald-100">
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 text-sm">
                         <div class="flex items-center gap-2">
-                          <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                          <div class="w-2 h-2 bg-purple-500 rounded-full shrink-0"></div>
                           <span class="text-gray-600">Categoría:</span>
                           <span class="font-medium text-gray-800">Panadería</span>
                         </div>
                         <div class="flex items-center gap-2">
-                          <div class="w-2 h-2 bg-indigo-500 rounded-full"></div>
+                          <div class="w-2 h-2 bg-indigo-500 rounded-full shrink-0"></div>
                           <span class="text-gray-600">Descuento:</span>
                           <span class="font-medium text-gray-800">15%</span>
                         </div>
                         <div class="flex items-center gap-2">
-                          <div class="w-2 h-2 bg-cyan-500 rounded-full"></div>
+                          <div class="w-2 h-2 bg-cyan-500 rounded-full shrink-0"></div>
                           <span class="text-gray-600">Horario:</span>
                           <span class="font-medium text-gray-800">6:00 PM - Cierre</span>
                         </div>
                         <div class="flex items-center gap-2">
-                          <div class="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                          <div class="w-2 h-2 bg-emerald-500 rounded-full shrink-0"></div>
                           <span class="text-gray-600">Estado:</span>
                           <span class="font-medium text-emerald-600">Activo</span>
                         </div>
@@ -907,29 +907,29 @@
           </div>
           
           <!-- Step Indicators -->
-          <div class="flex items-center justify-center gap-2 mb-6">
+          <div class="flex items-center justify-center gap-1 sm:gap-2 mb-6 flex-wrap">
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {catalogStep === 0 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {catalogStep === 0 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(catalogTimeout); catalogStep = 0; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
-              Ver Alertas
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
+              <span class="hidden xs:inline">Ver</span> Alertas
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {catalogStep === 1 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {catalogStep === 1 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(catalogTimeout); catalogStep = 1; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
-              Generar Lista
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
+              <span class="hidden xs:inline">Generar</span> Lista
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {catalogStep === 2 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {catalogStep === 2 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(catalogTimeout); catalogStep = 2; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
-              IA Sugiere
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
+              IA <span class="hidden xs:inline">Sugiere</span>
             </button>
           </div>
           
@@ -1022,29 +1022,29 @@
           </div>
           
           <!-- Step Indicators -->
-          <div class="flex items-center justify-center gap-2 mb-6">
+          <div class="flex items-center justify-center gap-1 sm:gap-2 mb-6 flex-wrap">
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {pricingStep === 0 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {pricingStep === 0 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(pricingTimeout); pricingStep = 0; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
-              Ver Producto
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
+              Producto
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {pricingStep === 1 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {pricingStep === 1 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(pricingTimeout); pricingStep = 1; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
-              Iniciar Análisis
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
+              Análisis
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {pricingStep === 2 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {pricingStep === 2 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(pricingTimeout); pricingStep = 2; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
-              Recomendación IA
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
+              IA
             </button>
           </div>
           
@@ -1137,29 +1137,29 @@
           </div>
           
           <!-- Step Indicators -->
-          <div class="flex items-center justify-center gap-2 mb-6">
+          <div class="flex items-center justify-center gap-1 sm:gap-2 mb-6 flex-wrap">
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {insightsStep === 0 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {insightsStep === 0 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(insightsTimeout); insightsStep = 0; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
               Segmentos
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {insightsStep === 1 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {insightsStep === 1 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(insightsTimeout); insightsStep = 1; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
               Patrones
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {insightsStep === 2 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {insightsStep === 2 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(insightsTimeout); insightsStep = 2; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
-              Predicciones
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
+              Predicción
             </button>
           </div>
           
@@ -1251,28 +1251,28 @@
           </div>
           
           <!-- Step Indicators -->
-          <div class="flex items-center justify-center gap-2 mb-6">
+          <div class="flex items-center justify-center gap-1 sm:gap-2 mb-6 flex-wrap">
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {captureStep === 0 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {captureStep === 0 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(captureTimeout); captureStep = 0; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
               Capturar
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {captureStep === 1 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {captureStep === 1 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(captureTimeout); captureStep = 1; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
-              IA Procesa
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
+              Procesa
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {captureStep === 2 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {captureStep === 2 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(captureTimeout); captureStep = 2; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
               Validar
             </button>
           </div>
@@ -1539,7 +1539,7 @@
   <!-- Trial Form Section -->
   <section id="trial-form" class="py-24 px-6 bg-gradient-to-br from-[#1E88E6] to-[#1565C0]">
     <div class="max-w-4xl mx-auto">
-      <div class="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
+      <div class="bg-white rounded-3xl shadow-2xl p-6 sm:p-8 md:p-12">
         {#if formSubmitted}
           <!-- Success State -->
           <div class="text-center py-8">
@@ -1557,8 +1557,8 @@
             <span class="inline-flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-sm font-bold mb-4">
               <Sparkles size={16} /> 14 días gratis, sin tarjeta
             </span>
-            <h2 class="text-3xl md:text-4xl font-bold text-gray-800 mb-4">Comienza tu Prueba Gratis</h2>
-            <p class="text-xl text-gray-600">Completa el formulario y te ayudaremos a configurar tu cuenta.</p>
+            <h2 class="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-4">Comienza tu Prueba Gratis</h2>
+            <p class="text-lg sm:text-xl text-gray-600">Completa el formulario y te ayudaremos a configurar tu cuenta.</p>
           </div>
           
           {#if formError}
@@ -1568,7 +1568,7 @@
           {/if}
           
           <form on:submit|preventDefault={submitTrialForm} class="space-y-6">
-            <div class="grid md:grid-cols-2 gap-6">
+            <div class="grid md:grid-cols-2 gap-4 sm:gap-6">
               <!-- Name -->
               <div>
                 <label for="trial-name" class="block text-sm font-medium text-gray-700 mb-2">
@@ -1907,13 +1907,13 @@
       
       <div class="flex flex-col sm:flex-row justify-center gap-4 mb-6">
         <button 
-          class="bg-[#1E88E6] hover:bg-[#1778CF] text-white text-xl px-12 py-5 rounded-full shadow-2xl shadow-[#1E88E6]/30 hover:shadow-[#1E88E6]/40 transition-all hover:scale-105 font-bold" 
+          class="bg-[#1E88E6] hover:bg-[#1778CF] text-white text-base sm:text-xl px-6 sm:px-12 py-3 sm:py-5 rounded-full shadow-2xl shadow-[#1E88E6]/30 hover:shadow-[#1E88E6]/40 transition-all hover:scale-105 font-bold" 
           on:click={scrollToTrialForm}
         >
-          Empieza tu prueba gratis - 14 días
+          Empieza tu prueba gratis
         </button>
         <button 
-          class="bg-white hover:bg-gray-50 text-[#1E88E6] text-xl px-12 py-5 rounded-full shadow-lg border-2 border-[#1E88E6] transition-all hover:scale-105 font-bold" 
+          class="bg-white hover:bg-gray-50 text-[#1E88E6] text-base sm:text-xl px-6 sm:px-12 py-3 sm:py-5 rounded-full shadow-lg border-2 border-[#1E88E6] transition-all hover:scale-105 font-bold" 
           on:click={scrollToTrialForm}
         >
           Agenda una demo personalizada

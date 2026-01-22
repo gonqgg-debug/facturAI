@@ -853,7 +853,7 @@
       <Button variant="ghost" on:click={() => closeShiftDialogOpen = false}>
         {t('common.cancel', $locale)}
       </Button>
-      <Button variant="destructive" on:click={closeShift} disabled={totalCounted === 0}>
+      <Button variant="destructive" on:click={closeShift}>
         {t('shifts.closeShift', $locale)}
       </Button>
     </Dialog.Footer>

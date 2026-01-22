@@ -203,9 +203,13 @@
     if (lastCheckedPath !== currentPath) {
       lastCheckedPath = currentPath;
       
-      // Cashier mode: only allow /sales route
+      // Cashier mode: allow /sales, /dashboard, and /account routes
       if (isCashierMode) {
-        if (currentPath !== '/sales' && !currentPath.startsWith('/sales/')) {
+        const allowedCashierRoutes = ['/sales', '/dashboard', '/account'];
+        const isAllowed = allowedCashierRoutes.some(route => 
+          currentPath === route || currentPath.startsWith(route + '/')
+        );
+        if (!isAllowed) {
           console.log('[Layout] Cashier attempting to access', currentPath, '- redirecting to /sales');
           goto('/sales');
         }
@@ -519,9 +523,51 @@
 {:else if $isFirebaseAuthenticated}
 <div class="flex flex-col h-screen w-full overflow-hidden bg-background text-foreground transition-colors duration-300">
   
-  <!-- Cashier mode: No sidebar, just content -->
+  <!-- Cashier mode: Minimal header with exit option, no sidebar -->
   {#if isCashierMode}
-    <slot />
+    {#if !$isPosMode}
+    <header class="fixed top-0 left-0 right-0 h-14 bg-card border-b border-border z-40 flex items-center px-4 justify-between">
+      <div class="flex items-center gap-3">
+        <img src={isDark ? "/cuadra_logo_white.png" : "/cuadra_logo.png"} alt="Cuadra" class="h-8 w-auto" />
+      </div>
+      <div class="flex items-center gap-2">
+        <a 
+          href="/dashboard" 
+          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                 {$page.url.pathname === '/dashboard' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}"
+        >
+          <Home size={18} />
+          <span class="hidden sm:inline">{t('nav.home', $locale)}</span>
+        </a>
+        <a 
+          href="/sales" 
+          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                 {$page.url.pathname === '/sales' || $page.url.pathname.startsWith('/sales/') ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}"
+        >
+          <ShoppingCart size={18} />
+          <span class="hidden sm:inline">{t('nav.pos', $locale)}</span>
+        </a>
+        <a 
+          href="/account" 
+          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                 {$page.url.pathname === '/account' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}"
+        >
+          <User size={18} />
+          <span class="hidden sm:inline">{t('nav.account', $locale)}</span>
+        </a>
+        <button on:click={toggleTheme} class="p-2 rounded-lg hover:bg-secondary text-muted-foreground transition-colors ml-2">
+          {#if isDark}
+            <Sun size={18} />
+          {:else}
+            <Moon size={18} />
+          {/if}
+        </button>
+      </div>
+    </header>
+    {/if}
+    <main class="flex-1 overflow-y-auto {$isPosMode ? '' : 'pt-14'} bg-background">
+      <slot />
+    </main>
   {:else}
   <!-- Top Bar (Desktop/Tablet) - Hidden in POS mode -->
   {#if !$isPosMode}

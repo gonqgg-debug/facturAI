@@ -313,27 +313,28 @@ describe('Stores Module', () => {
         });
 
         describe('isWeatherConfigured', () => {
-            it('should be false when both apiKey and location are empty', () => {
-                weatherApiKey.set('');
+            // Note: API key is now configured server-side via OPENWEATHER_API_KEY env variable
+            // isWeatherConfigured only checks if storeLocation is set
+            
+            it('should be false when location is empty', () => {
                 storeLocation.set('');
                 expect(get(isWeatherConfigured)).toBe(false);
             });
 
-            it('should be false when only apiKey is set', () => {
-                weatherApiKey.set('test-api-key');
-                storeLocation.set('');
+            it('should be false when location is only whitespace', () => {
+                storeLocation.set('   ');
                 expect(get(isWeatherConfigured)).toBe(false);
             });
 
-            it('should be false when only location is set', () => {
+            it('should be true when location is set', () => {
+                storeLocation.set('New York, US');
+                expect(get(isWeatherConfigured)).toBe(true);
+            });
+
+            it('should be true with location regardless of weatherApiKey (deprecated)', () => {
+                // weatherApiKey is deprecated - API key is now server-side
                 weatherApiKey.set('');
-                storeLocation.set('New York, US');
-                expect(get(isWeatherConfigured)).toBe(false);
-            });
-
-            it('should be true when both are set', () => {
-                weatherApiKey.set('test-api-key');
-                storeLocation.set('New York, US');
+                storeLocation.set('Santo Domingo, DO');
                 expect(get(isWeatherConfigured)).toBe(true);
             });
         });
@@ -372,7 +373,7 @@ describe('Stores Module', () => {
         describe('storeLocation store', () => {
             it('should accept location strings', () => {
                 storeLocation.set('Santo Domingo, DO');
-                expect(mockValues.localStorage['store_location']).toBe('Santo Domingo, DO');
+                expect(get(storeLocation)).toBe('Santo Domingo, DO');
             });
         });
     });

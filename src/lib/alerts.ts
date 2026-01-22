@@ -364,9 +364,15 @@ export async function generateEnhancedStockAlerts(
       message = `${product.name}: Stock bajo (${currentStock} unidades)`;
 
       aiReasoning = demandForecast.reasoning;
-      recommendedAction = `Reordenar ${demandForecast.recommendedReorderQuantity} unidades`;
+      
+      // Calculate recommended quantity - use forecast or fallback to reorder point based
+      const recommendedQty = demandForecast.recommendedReorderQuantity > 0 
+        ? demandForecast.recommendedReorderQuantity 
+        : Math.max(reorderPoint * 2 - currentStock, reorderPoint);
+      
+      recommendedAction = `Reordenar ${recommendedQty} unidades`;
 
-      if (purchasePattern && purchasePattern.confidence === 'high') {
+      if (purchasePattern && purchasePattern.confidence === 'high' && purchasePattern.averageDaysBetweenOrders > 0) {
         const daysSinceLastOrder = purchasePattern.daysSinceLastOrder;
         if (daysSinceLastOrder >= purchasePattern.averageDaysBetweenOrders) {
           recommendedAction += ` - Normalmente ordenas cada ${purchasePattern.averageDaysBetweenOrders} días`;
@@ -382,9 +388,15 @@ export async function generateEnhancedStockAlerts(
       message = `${product.name} está agotado`;
 
       aiReasoning = `Producto sin stock. ${demandForecast.reasoning}`;
-      recommendedAction = `Reordenar inmediatamente ${demandForecast.recommendedReorderQuantity} unidades`;
+      
+      // Calculate recommended quantity - use forecast or fallback to reorder point based
+      const recommendedQty = demandForecast.recommendedReorderQuantity > 0 
+        ? demandForecast.recommendedReorderQuantity 
+        : reorderPoint * 2;
+      
+      recommendedAction = `Reordenar inmediatamente ${recommendedQty} unidades`;
 
-      if (purchasePattern && purchasePattern.confidence === 'high') {
+      if (purchasePattern && purchasePattern.confidence === 'high' && purchasePattern.daysSinceLastOrder > 0) {
         recommendedAction += ` - Último pedido hace ${purchasePattern.daysSinceLastOrder} días`;
       }
     }

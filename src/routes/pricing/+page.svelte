@@ -438,7 +438,7 @@ ${itemsText}`;
                 "suggestedPrice": number,
                 "suggestedMargin": number,
                 "reasoning": "Short, punchy analysis.",
-                "analystRating": "BUY" | "SELL" | "HOLD",
+                "analystRating": "RAISE PRICE" | "LOWER PRICE" | "PRICE OK",
                 "creativeIdea": "One specific, out-of-the-box idea (e.g. 'Bundle with Coke', 'Flash Sale Friday')."
 }`;
 
@@ -916,12 +916,12 @@ ${itemsText}`;
                 <!-- RIGHT COLUMN: AI Analyst -->
                 <div class="w-full md:w-[450px] bg-card flex flex-col border-l border-border">
                     <div class="p-6 border-b border-border">
-                        <h3 class="text-sm font-bold text-muted-foreground uppercase mb-4 flex items-center space-x-2"><Sparkles size={16} class="text-primary" /><span>AI Analyst Rating</span></h3>
+                        <h3 class="text-sm font-bold text-muted-foreground uppercase mb-4 flex items-center space-x-2"><Sparkles size={16} class="text-primary" /><span>AI Pricing Recommendation</span></h3>
 
                         {#if selectedProduct.aiAnalystRating}
                             <div class="space-y-4">
                                 <div class="flex items-center justify-between">
-                                    <div class="text-3xl font-black tracking-tighter {selectedProduct.aiAnalystRating === 'BUY' ? 'text-green-500' : selectedProduct.aiAnalystRating === 'SELL' ? 'text-red-500' : 'text-yellow-500'}">{selectedProduct.aiAnalystRating}</div>
+                                    <div class="text-3xl font-black tracking-tighter {selectedProduct.aiAnalystRating === 'RAISE PRICE' ? 'text-green-500' : selectedProduct.aiAnalystRating === 'LOWER PRICE' ? 'text-red-500' : 'text-yellow-500'}">{selectedProduct.aiAnalystRating}</div>
                                     </div>
                                 <div class="grid grid-cols-2 gap-3">
                                     <div class="bg-secondary p-3 rounded-lg border border-border">

@@ -108,7 +108,8 @@ export const insightsCounts = derived(realTimeInsights, $insights => {
 });
 
 // ============ WEATHER STORES ============
-// OpenWeatherMap API key
+// OpenWeatherMap API key - DEPRECATED: API key is now stored server-side in .env
+// Kept for backwards compatibility but no longer used for configuration check
 export const weatherApiKey = persistentStringStore('weather_api_key', '');
 
 // Store location for weather data (city name, e.g., "Santo Domingo, DO")
@@ -127,7 +128,9 @@ export const lastWeatherUpdate = writable<Date | null>(null);
 export const weatherError = writable<string | null>(null);
 
 // Derived store for weather availability
+// Note: API key is now configured server-side via OPENWEATHER_API_KEY env variable
+// Only need to check if store location is configured
 export const isWeatherConfigured = derived(
-    [weatherApiKey, storeLocation],
-    ([$key, $location]) => Boolean($key && $location)
+    storeLocation,
+    ($location) => Boolean($location && $location.trim().length > 0)
 );

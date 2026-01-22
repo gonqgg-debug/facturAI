@@ -397,6 +397,31 @@ export async function syncUserToSupabase(user: User, storeId: string): Promise<v
             await syncRoleToSupabase(role, storeId);
         }
         
+        // Check if another user with same email already exists in Supabase (different local_id)
+        // This prevents duplicate email issues
+        if (user.email) {
+            const { data: emailConflict, error: emailCheckError } = await supabase
+                .from('users')
+                .select('id, local_id, display_name')
+                .eq('email', user.email.toLowerCase().trim())
+                .eq('store_id', storeId)
+                .neq('local_id', user.id)
+                .maybeSingle();
+            
+            if (!emailCheckError && emailConflict) {
+                console.warn('[TeamInvites] Email conflict detected in Supabase:', {
+                    existingUserId: emailConflict.local_id,
+                    existingUserName: emailConflict.display_name,
+                    newUserId: user.id,
+                    newUserName: user.displayName,
+                    email: user.email
+                });
+                // Don't sync this user - email already in use by another user
+                // The UI should have prevented this, but this is a safety check
+                return;
+            }
+        }
+        
         // Check if user already exists in Supabase
         const { data: existingUser, error: checkError } = await supabase
             .from('users')
@@ -767,8 +792,45 @@ export async function syncTeamUsersFromSupabase(storeId: string): Promise<void> 
         // Cache all users
         if (usersData && usersData.length > 0) {
             console.log('[TeamInvites] Syncing', usersData.length, 'users...');
+            
+            // Track emails we've seen to detect duplicates from Supabase
+            const seenEmails = new Map<string, number>(); // email -> local_id
+            
             for (const userData of usersData) {
                 try {
+                    // Check for email duplicates in the incoming data
+                    if (userData.email) {
+                        const normalizedEmail = userData.email.toLowerCase().trim();
+                        const existingLocalId = seenEmails.get(normalizedEmail);
+                        if (existingLocalId !== undefined) {
+                            console.warn('[TeamInvites] Duplicate email detected in Supabase data:', {
+                                email: normalizedEmail,
+                                firstUserId: existingLocalId,
+                                duplicateUserId: userData.local_id
+                            });
+                            // Skip this duplicate - keep the first one we saw
+                            continue;
+                        }
+                        seenEmails.set(normalizedEmail, userData.local_id);
+                        
+                        // Also check if email conflicts with existing local user (different ID)
+                        const localEmailConflict = await db.users
+                            .where('email')
+                            .equals(normalizedEmail)
+                            .first();
+                        if (localEmailConflict && localEmailConflict.id !== userData.local_id) {
+                            console.warn('[TeamInvites] Email conflict with local user:', {
+                                localUserId: localEmailConflict.id,
+                                localUserName: localEmailConflict.displayName,
+                                incomingUserId: userData.local_id,
+                                incomingUserName: userData.display_name,
+                                email: normalizedEmail
+                            });
+                            // Skip - don't overwrite local user with different ID
+                            continue;
+                        }
+                    }
+                    
                     const localUser: User = {
                         id: userData.local_id,
                         username: userData.username || userData.display_name?.toLowerCase().replace(/\s+/g, '_') || `user_${userData.local_id}`,
@@ -853,18 +915,20 @@ export async function acceptInvite(token: string, firebaseUid: string): Promise<
         }
         
         // Update the store ID to match the invite
+        // Use the same key as device-auth.ts: 'minimarket_store_id'
         if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('storeId', invite.storeId);
+            localStorage.setItem('minimarket_store_id', invite.storeId);
             console.log('[TeamInvites] ✅ Updated storeId to:', invite.storeId);
         }
     }
     
     // If no store registered yet, this is a team member on a new device
     // Set the storeId from the invite
+    // Use the same key as device-auth.ts: 'minimarket_store_id'
     if (!currentStoreId) {
         console.log('[TeamInvites] Team member on new device, setting invite storeId:', invite.storeId);
         if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('storeId', invite.storeId);
+            localStorage.setItem('minimarket_store_id', invite.storeId);
         }
     }
     
@@ -916,12 +980,12 @@ export async function acceptInvite(token: string, firebaseUid: string): Promise<
         acceptedAt: new Date()
     });
     
-    // CRITICAL: Also sync acceptance to Supabase for cross-device access
-    // Without this, new devices can't find the team membership
+    // CRITICAL: Sync changes to Supabase for cross-device access
     const supabase = getSupabase();
     if (supabase) {
         try {
-            const { error: supabaseError } = await supabase
+            // 1. Update team_invites status to 'accepted'
+            const { error: inviteError } = await supabase
                 .from('team_invites')
                 .update({ 
                     status: 'accepted',
@@ -929,11 +993,29 @@ export async function acceptInvite(token: string, firebaseUid: string): Promise<
                 })
                 .eq('token', token);
             
-            if (supabaseError) {
-                console.error('[TeamInvites] Failed to sync acceptance to Supabase:', supabaseError);
-                // Don't throw - local acceptance still succeeded
+            if (inviteError) {
+                console.error('[TeamInvites] Failed to sync invite acceptance to Supabase:', inviteError);
             } else {
                 console.log('[TeamInvites] ✅ Synced invite acceptance to Supabase');
+            }
+            
+            // 2. CRITICAL: Update users table with firebaseUid
+            // Without this, new devices can't find the team member by Firebase UID
+            const { error: userError } = await supabase
+                .from('users')
+                .update({ 
+                    firebase_uid: firebaseUid,
+                    has_full_access: true,
+                    email: invite.email
+                })
+                .eq('local_id', user.id)
+                .eq('store_id', invite.storeId);
+            
+            if (userError) {
+                console.error('[TeamInvites] Failed to sync user firebaseUid to Supabase:', userError);
+                // Don't throw - local acceptance still succeeded
+            } else {
+                console.log('[TeamInvites] ✅ Synced user firebaseUid to Supabase');
             }
         } catch (syncError) {
             console.error('[TeamInvites] Error syncing to Supabase:', syncError);

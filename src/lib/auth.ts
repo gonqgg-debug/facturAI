@@ -499,9 +499,10 @@ export async function logout() {
  * after Firebase authentication has completed.
  * 
  * Priority order for user lookup:
- * 1. Find user by firebaseUid (team member who accepted invite)
- * 2. Find user by email (existing admin/owner)
- * 3. Create new admin user (store owner first login)
+ * 1. Find user by firebaseUid in local DB (team member who accepted invite)
+ * 2. Find user by firebaseUid in Supabase (team member on new device)
+ * 3. Find user by email in local DB (existing admin/owner)
+ * 4. Create new admin user (store owner first login)
  * 
  * @param firebaseUserOverride - Optional Firebase user to use instead of getting from store
  */
@@ -535,17 +536,56 @@ export async function loginWithFirebase(firebaseUserOverride?: { email: string |
     let user: User | undefined;
     
     try {
-        // PRIORITY 1: Look for a user linked by Firebase UID (team member who accepted invite)
-        console.log('[Auth] Searching for user with firebaseUid:', firebaseUser.uid);
+        // PRIORITY 1: Look for a user linked by Firebase UID in local DB
+        console.log('[Auth] Searching for user with firebaseUid in local DB:', firebaseUser.uid);
         user = await db.users
             .filter(u => u.firebaseUid === firebaseUser!.uid)
             .first();
         
         if (user) {
-            console.log('[Auth] Found user by firebaseUid:', user.id, user.displayName);
+            console.log('[Auth] Found user by firebaseUid in local DB:', user.id, user.displayName);
         }
         
-        // PRIORITY 2: Look for a user by email (existing admin/owner or user before linking)
+        // PRIORITY 2: If not found locally, check Supabase (team member on new device)
+        if (!user) {
+            console.log('[Auth] User not found locally, checking Supabase...');
+            const { getStoreId } = await import('./device-auth');
+            const { getSupabase } = await import('./supabase');
+            const storeId = getStoreId();
+            const supabase = getSupabase();
+            
+            if (supabase && storeId) {
+                try {
+                    // Use the find_user_by_firebase_uid RPC function
+                    const { data: supabaseUser, error } = await supabase
+                        .rpc('find_user_by_firebase_uid', {
+                            p_firebase_uid: firebaseUser.uid,
+                            p_store_id: storeId
+                        });
+                    
+                    if (!error && supabaseUser && supabaseUser.length > 0) {
+                        const userData = supabaseUser[0];
+                        console.log('[Auth] Found user in Supabase:', userData.local_id, userData.display_name);
+                        
+                        // Fetch the full user data and cache locally
+                        const { syncTeamUsersFromSupabase } = await import('./team-invites');
+                        await syncTeamUsersFromSupabase(storeId);
+                        
+                        // Now try to get the user from local DB again
+                        user = await db.users.get(userData.local_id);
+                        if (user) {
+                            console.log('[Auth] User cached locally:', user.id, user.displayName);
+                        }
+                    } else if (error) {
+                        console.log('[Auth] Supabase user lookup error:', error.message);
+                    }
+                } catch (supabaseError) {
+                    console.warn('[Auth] Error checking Supabase for user:', supabaseError);
+                }
+            }
+        }
+        
+        // PRIORITY 3: Look for a user by email in local DB (existing admin/owner or user before linking)
         if (!user && firebaseUser.email) {
             console.log('[Auth] Searching for user with email:', firebaseUser.email);
             user = await db.users
@@ -569,7 +609,7 @@ export async function loginWithFirebase(firebaseUserOverride?: { email: string |
             }
         }
         
-        // PRIORITY 3: Create a new admin user for this Firebase account (store owner first login)
+        // PRIORITY 4: Create a new admin user for this Firebase account (store owner first login)
         if (!user) {
             console.log('[Auth] Creating admin user for Firebase account:', firebaseUser.email);
             

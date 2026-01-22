@@ -163,6 +163,49 @@
       return;
     }
     
+    // Check for duplicate email (if email is provided)
+    if (userForm.email?.trim()) {
+      const normalizedEmail = userForm.email.trim().toLowerCase();
+      
+      // Check local DB first
+      const existingEmailUser = await db.users.where('email').equals(normalizedEmail).first();
+      if (existingEmailUser && existingEmailUser.id !== editingUser?.id) {
+        userFormError = $locale === 'es' 
+          ? 'Este email ya está en uso por otro usuario' 
+          : 'This email is already in use by another user';
+        return;
+      }
+      
+      // Also check Supabase for email conflicts (in case of sync issues)
+      const storeIdForCheck = getStoreId();
+      if (storeIdForCheck) {
+        try {
+          const { getSupabase } = await import('$lib/supabase');
+          const supabase = getSupabase();
+          if (supabase) {
+            const { data: supabaseConflict } = await supabase
+              .from('users')
+              .select('local_id, display_name')
+              .eq('email', normalizedEmail)
+              .eq('store_id', storeIdForCheck)
+              .neq('local_id', editingUser?.id || 0)
+              .maybeSingle();
+            
+            if (supabaseConflict) {
+              const conflictData = supabaseConflict as { local_id: number; display_name: string };
+              userFormError = $locale === 'es' 
+                ? `Este email ya está en uso por "${conflictData.display_name}"` 
+                : `This email is already in use by "${conflictData.display_name}"`;
+              return;
+            }
+          }
+        } catch (supabaseErr) {
+          console.warn('Could not check Supabase for email conflict:', supabaseErr);
+          // Continue - local check passed
+        }
+      }
+    }
+    
     try {
       const role = roles.find(r => r.id === userForm.roleId);
       const storeId = getStoreId();
@@ -311,28 +354,19 @@
         await loadUsersAndRoles();
       }
       
-      // Try to send email if requested
+      // NOTE: We no longer use Firebase Email Link (sendSignInLinkToEmail) because:
+      // 1. It conflicts with password-based signup flow
+      // 2. It requires complex Email Link configuration in Firebase
+      // 3. The simple invite link + password signup is more reliable
+      // Instead, just show success and let admin share the link manually or via their own email
+      inviteSuccess = true;
+      
       if (sendEmail) {
-        try {
-          await sendInviteEmail(invite);
-          inviteSuccess = true;
-        } catch (emailError: any) {
-          console.error('Failed to send invite email:', emailError);
-          // Still show success but with email warning
-          inviteSuccess = true;
-          if (emailError.message?.includes('quota')) {
-            inviteError = $locale === 'es' 
-              ? 'Cuota de emails excedida. Comparte el enlace manualmente.'
-              : 'Email quota exceeded. Share the link manually.';
-          } else {
-            inviteError = $locale === 'es' 
-              ? 'No se pudo enviar el email. Comparte el enlace manualmente.'
-              : 'Could not send email. Share the link manually.';
-          }
-        }
-      } else {
-        // Just creating link without email
-        inviteSuccess = true;
+        // Show a message that they should share the link manually
+        // In the future, we could integrate a proper email service here
+        inviteError = $locale === 'es' 
+          ? 'Comparte el enlace con el usuario por WhatsApp, email u otro medio.'
+          : 'Share the link with the user via WhatsApp, email or other means.';
       }
     } catch (e: any) {
       console.error('Failed to create invite:', e);
@@ -484,7 +518,7 @@
                 {#if inviteStatus === 'linked'}
                   <span class="text-xs bg-emerald-500/20 text-emerald-600 px-2 py-0.5 rounded-full flex items-center gap-1">
                     <CheckCircle2 size={10} />
-                    {$locale === 'es' ? 'Cuenta Completa' : 'Full Access'}
+                    {$locale === 'es' ? 'Cuenta Vinculada' : 'Account Linked'}
                   </span>
                 {:else if inviteStatus === 'pending'}
                   <span class="text-xs bg-amber-500/20 text-amber-600 px-2 py-0.5 rounded-full flex items-center gap-1">
@@ -815,28 +849,21 @@
         </div>
         <div>
           <h3 class="font-semibold text-lg">
-            {$locale === 'es' ? '¡Invitación Creada!' : 'Invite Created!'}
+            {$locale === 'es' ? '¡Enlace de Invitación Listo!' : 'Invite Link Ready!'}
           </h3>
-          {#if inviteError}
-            <!-- Email failed but invite created -->
-            <p class="text-sm text-amber-500 mt-1">
-              {inviteError}
-            </p>
-          {:else}
           <p class="text-sm text-muted-foreground mt-1">
             {$locale === 'es' 
-              ? `Se envió un email a ${inviteEmail} con instrucciones para crear su cuenta.`
-              : `An email was sent to ${inviteEmail} with instructions to create their account.`}
+              ? `Comparte este enlace con ${inviteEmail} por WhatsApp, email u otro medio.`
+              : `Share this link with ${inviteEmail} via WhatsApp, email or other means.`}
           </p>
-          {/if}
         </div>
         
         <!-- Copy Link Section -->
-        <div class="bg-muted/50 rounded-lg p-3 space-y-2">
-          <p class="text-xs text-muted-foreground">
+        <div class="bg-primary/5 border border-primary/20 rounded-lg p-4 space-y-3">
+          <p class="text-sm font-medium text-primary">
             {$locale === 'es' 
-              ? 'Comparte este enlace para que el usuario cree su cuenta:'
-              : 'Share this link for the user to create their account:'}
+              ? 'Enlace de invitación:'
+              : 'Invite link:'}
           </p>
           <div class="flex gap-2">
             <input 
@@ -889,8 +916,8 @@
           />
           <p class="text-xs text-muted-foreground">
             {$locale === 'es' 
-              ? 'El usuario recibirá un email con un enlace para crear su cuenta.'
-              : 'The user will receive an email with a link to create their account.'}
+              ? 'Se generará un enlace que puedes compartir por WhatsApp, email u otro medio.'
+              : 'A link will be generated that you can share via WhatsApp, email or other means.'}
           </p>
         </div>
         
@@ -925,23 +952,15 @@
           {$locale === 'es' ? 'Cancelar' : 'Cancel'}
         </Button>
         <Button 
-          variant="secondary"
           on:click={() => sendInvite(false)} 
-          disabled={inviteSending || !inviteEmail}
-        >
-          <Link size={16} class="mr-2" />
-          {$locale === 'es' ? 'Crear Enlace' : 'Create Link'}
-        </Button>
-        <Button 
-          on:click={() => sendInvite(true)} 
           disabled={inviteSending || !inviteEmail}
         >
           {#if inviteSending}
             <Loader2 size={16} class="mr-2 animate-spin" />
-            {$locale === 'es' ? 'Enviando...' : 'Sending...'}
+            {$locale === 'es' ? 'Generando...' : 'Generating...'}
           {:else}
-            <Send size={16} class="mr-2" />
-            {$locale === 'es' ? 'Enviar Invitación' : 'Send Invite'}
+            <Link size={16} class="mr-2" />
+            {$locale === 'es' ? 'Generar Enlace' : 'Generate Link'}
           {/if}
         </Button>
       </Dialog.Footer>

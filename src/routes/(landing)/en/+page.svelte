@@ -542,13 +542,13 @@
       <!-- CTA Buttons -->
       <div class="flex flex-col sm:flex-row justify-center gap-4">
         <button 
-          class="bg-[#1E88E6] hover:bg-[#1778CF] text-white text-xl px-10 py-5 rounded-full shadow-xl shadow-[#1E88E6]/25 transition-all hover:scale-105 font-bold" 
+          class="bg-[#1E88E6] hover:bg-[#1778CF] text-white text-base sm:text-xl px-6 sm:px-10 py-3 sm:py-5 rounded-full shadow-xl shadow-[#1E88E6]/25 transition-all hover:scale-105 font-bold" 
           on:click={scrollToTrialForm}
         >
           Free 14-day trial
         </button>
         <button 
-          class="bg-white hover:bg-gray-50 text-[#1E88E6] text-xl px-10 py-5 rounded-full shadow-lg border-2 border-[#1E88E6] transition-all hover:scale-105 font-bold" 
+          class="bg-white hover:bg-gray-50 text-[#1E88E6] text-base sm:text-xl px-6 sm:px-10 py-3 sm:py-5 rounded-full shadow-lg border-2 border-[#1E88E6] transition-all hover:scale-105 font-bold" 
           on:click={scrollToTrialForm}
         >
           Watch live demo
@@ -648,25 +648,25 @@
                     </div>
                     
                     <!-- Generated Config Preview -->
-                    <div class="bg-white rounded-lg p-4 border border-emerald-100">
-                      <div class="grid grid-cols-2 gap-4 text-sm">
+                    <div class="bg-white rounded-lg p-3 sm:p-4 border border-emerald-100">
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 text-sm">
                         <div class="flex items-center gap-2">
-                          <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                          <div class="w-2 h-2 bg-purple-500 rounded-full shrink-0"></div>
                           <span class="text-gray-600">Category:</span>
                           <span class="font-medium text-gray-800">Bakery</span>
                         </div>
                         <div class="flex items-center gap-2">
-                          <div class="w-2 h-2 bg-indigo-500 rounded-full"></div>
+                          <div class="w-2 h-2 bg-indigo-500 rounded-full shrink-0"></div>
                           <span class="text-gray-600">Discount:</span>
                           <span class="font-medium text-gray-800">15%</span>
                         </div>
                         <div class="flex items-center gap-2">
-                          <div class="w-2 h-2 bg-cyan-500 rounded-full"></div>
+                          <div class="w-2 h-2 bg-cyan-500 rounded-full shrink-0"></div>
                           <span class="text-gray-600">Schedule:</span>
                           <span class="font-medium text-gray-800">6:00 PM - Close</span>
                         </div>
                         <div class="flex items-center gap-2">
-                          <div class="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                          <div class="w-2 h-2 bg-emerald-500 rounded-full shrink-0"></div>
                           <span class="text-gray-600">Status:</span>
                           <span class="font-medium text-emerald-600">Active</span>
                         </div>
@@ -908,29 +908,29 @@
           </div>
           
           <!-- Step Indicators -->
-          <div class="flex items-center justify-center gap-2 mb-6">
+          <div class="flex items-center justify-center gap-1 sm:gap-2 mb-6 flex-wrap">
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {catalogStep === 0 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {catalogStep === 0 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(catalogTimeout); catalogStep = 0; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
-              View Alerts
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
+              Alerts
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {catalogStep === 1 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {catalogStep === 1 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(catalogTimeout); catalogStep = 1; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
-              Generate List
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
+              Generate
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {catalogStep === 2 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {catalogStep === 2 ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(catalogTimeout); catalogStep = 2; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
-              AI Suggests
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
+              AI
             </button>
           </div>
           
@@ -1023,29 +1023,29 @@
           </div>
           
           <!-- Step Indicators -->
-          <div class="flex items-center justify-center gap-2 mb-6">
+          <div class="flex items-center justify-center gap-1 sm:gap-2 mb-6 flex-wrap">
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {pricingStep === 0 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {pricingStep === 0 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(pricingTimeout); pricingStep = 0; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
-              View Product
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
+              Product
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {pricingStep === 1 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {pricingStep === 1 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(pricingTimeout); pricingStep = 1; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
-              Start Analysis
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
+              Analysis
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {pricingStep === 2 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {pricingStep === 2 ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(pricingTimeout); pricingStep = 2; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
-              AI Recommendation
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
+              AI
             </button>
           </div>
           
@@ -1138,29 +1138,29 @@
           </div>
           
           <!-- Step Indicators -->
-          <div class="flex items-center justify-center gap-2 mb-6">
+          <div class="flex items-center justify-center gap-1 sm:gap-2 mb-6 flex-wrap">
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {insightsStep === 0 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {insightsStep === 0 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(insightsTimeout); insightsStep = 0; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
               Segments
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {insightsStep === 1 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {insightsStep === 1 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(insightsTimeout); insightsStep = 1; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
               Patterns
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {insightsStep === 2 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {insightsStep === 2 ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(insightsTimeout); insightsStep = 2; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
-              Predictions
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
+              Predict
             </button>
           </div>
           
@@ -1252,28 +1252,28 @@
           </div>
           
           <!-- Step Indicators -->
-          <div class="flex items-center justify-center gap-2 mb-6">
+          <div class="flex items-center justify-center gap-1 sm:gap-2 mb-6 flex-wrap">
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {captureStep === 0 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {captureStep === 0 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(captureTimeout); captureStep = 0; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">1</span>
               Capture
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {captureStep === 1 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {captureStep === 1 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(captureTimeout); captureStep = 1; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
-              AI Processes
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">2</span>
+              Process
             </button>
-            <ArrowRight size={16} class="text-gray-300" />
+            <ArrowRight size={14} class="text-gray-300 hidden sm:block" />
             <button 
-              class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all {captureStep === 2 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
+              class="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all {captureStep === 2 ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-600'}"
               on:click={() => { clearTimeout(captureTimeout); captureStep = 2; }}
             >
-              <span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
+              <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white/20 flex items-center justify-center text-xs">3</span>
               Validate
             </button>
           </div>
@@ -1363,13 +1363,13 @@
         <p class="text-gray-600 max-w-xl mx-auto mb-6">
           Point of sale, employee management, tax reports, multiple locations, integrations and hundreds of features that adapt to your business.
         </p>
-        <a 
-          href="#pricing" 
-          class="inline-flex items-center gap-2 bg-gradient-to-r from-[#1E88E6] to-[#1565C0] text-white px-8 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all"
+        <button 
+          on:click={scrollToTrialForm}
+          class="inline-flex items-center gap-2 bg-gradient-to-r from-[#1E88E6] to-[#1565C0] text-white px-6 sm:px-8 py-3 sm:py-4 rounded-full font-bold text-base sm:text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all"
         >
           Start your free trial
           <ArrowRight size={20} />
-        </a>
+        </button>
       </div>
     </div>
   </section>
@@ -1530,6 +1530,151 @@
     </div>
   </section>
 
+  <!-- Trial Form Section -->
+  <section id="trial-form" class="py-24 px-6 bg-gradient-to-br from-[#1E88E6] to-[#1565C0]">
+    <div class="max-w-4xl mx-auto">
+      <div class="bg-white rounded-3xl shadow-2xl p-6 sm:p-8 md:p-12">
+        {#if formSubmitted}
+          <!-- Success State -->
+          <div class="text-center py-8">
+            <div class="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <CheckCircle2 class="text-emerald-500" size={40} />
+            </div>
+            <h2 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-4">Thank you for your interest!</h2>
+            <p class="text-lg sm:text-xl text-gray-600 mb-2">We have received your request.</p>
+            <p class="text-gray-500">We will contact you soon to activate your free trial.</p>
+            <p class="text-sm text-gray-400 mt-6">Redirecting to login in a few seconds...</p>
+          </div>
+        {:else}
+          <!-- Form -->
+          <div class="text-center mb-8">
+            <span class="inline-flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-sm font-bold mb-4">
+              <Sparkles size={16} /> 14 days free, no card required
+            </span>
+            <h2 class="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-4">Start Your Free Trial</h2>
+            <p class="text-lg sm:text-xl text-gray-600">Fill out the form and we'll help you set up your account.</p>
+          </div>
+          
+          {#if formError}
+            <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-center">
+              {formError}
+            </div>
+          {/if}
+          
+          <form on:submit|preventDefault={submitTrialForm} class="space-y-6">
+            <div class="grid md:grid-cols-2 gap-4 sm:gap-6">
+              <!-- Name -->
+              <div>
+                <label for="trial-name" class="block text-sm font-medium text-gray-700 mb-2">
+                  Full name <span class="text-red-500">*</span>
+                </label>
+                <input 
+                  id="trial-name"
+                  type="text" 
+                  bind:value={trialForm.name}
+                  placeholder="Your name"
+                  class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#1E88E6] focus:ring-2 focus:ring-[#1E88E6]/20 outline-none transition-all"
+                  required
+                />
+              </div>
+              
+              <!-- Email -->
+              <div>
+                <label for="trial-email" class="block text-sm font-medium text-gray-700 mb-2">
+                  Email <span class="text-red-500">*</span>
+                </label>
+                <input 
+                  id="trial-email"
+                  type="email" 
+                  bind:value={trialForm.email}
+                  placeholder="you@email.com"
+                  class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#1E88E6] focus:ring-2 focus:ring-[#1E88E6]/20 outline-none transition-all"
+                  required
+                />
+              </div>
+              
+              <!-- Phone -->
+              <div>
+                <label for="trial-phone" class="block text-sm font-medium text-gray-700 mb-2">
+                  Phone / WhatsApp
+                </label>
+                <input 
+                  id="trial-phone"
+                  type="tel" 
+                  bind:value={trialForm.phone}
+                  placeholder="+1 555 123 4567"
+                  class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#1E88E6] focus:ring-2 focus:ring-[#1E88E6]/20 outline-none transition-all"
+                />
+              </div>
+              
+              <!-- Business Name -->
+              <div>
+                <label for="trial-business" class="block text-sm font-medium text-gray-700 mb-2">
+                  Business name <span class="text-red-500">*</span>
+                </label>
+                <input 
+                  id="trial-business"
+                  type="text" 
+                  bind:value={trialForm.businessName}
+                  placeholder="My Business"
+                  class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#1E88E6] focus:ring-2 focus:ring-[#1E88E6]/20 outline-none transition-all"
+                  required
+                />
+              </div>
+            </div>
+            
+            <!-- Business Type -->
+            <div>
+              <label for="trial-type" class="block text-sm font-medium text-gray-700 mb-2">
+                Business type
+              </label>
+              <select 
+                id="trial-type"
+                bind:value={trialForm.businessType}
+                class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#1E88E6] focus:ring-2 focus:ring-[#1E88E6]/20 outline-none transition-all bg-white"
+              >
+                <option value="">Select an option</option>
+                <option value="minimarket">Minimarket / Convenience Store</option>
+                <option value="retail">Retail Store</option>
+                <option value="restaurant">Restaurant / Cafe</option>
+                <option value="pharmacy">Pharmacy</option>
+                <option value="hardware">Hardware Store</option>
+                <option value="clothing">Clothing Store</option>
+                <option value="services">Professional Services</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            
+            <!-- Submit Button -->
+            <button 
+              type="submit"
+              disabled={isSubmitting}
+              class="w-full bg-gradient-to-r from-[#1E88E6] to-[#1565C0] text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg hover:scale-[1.02] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
+            >
+              {#if isSubmitting}
+                <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Submitting...
+              {:else}
+                Start my free trial
+                <ArrowRight size={20} />
+              {/if}
+            </button>
+            
+            <!-- Trust badges -->
+            <div class="flex flex-wrap justify-center gap-4 text-sm text-gray-500 pt-4">
+              <span class="flex items-center gap-1"><CheckCircle2 size={14} class="text-emerald-500" /> No credit card</span>
+              <span class="flex items-center gap-1"><CheckCircle2 size={14} class="text-emerald-500" /> Assisted setup</span>
+              <span class="flex items-center gap-1"><CheckCircle2 size={14} class="text-emerald-500" /> Cancel anytime</span>
+            </div>
+          </form>
+        {/if}
+      </div>
+    </div>
+  </section>
+
   <!-- Pricing Section -->
   <section id="pricing" class="py-24 px-6 bg-white">
     <div class="max-w-6xl mx-auto">
@@ -1632,7 +1777,7 @@
           </ul>
           <button 
             class="w-full py-3 rounded-full bg-white text-[#1E88E6] font-bold hover:bg-gray-100 transition-all"
-            on:click={goToLogin}
+            on:click={scrollToTrialForm}
           >
             Start free
           </button>
@@ -1675,7 +1820,7 @@
           </ul>
           <button 
             class="w-full py-3 rounded-full border-2 border-[#1E88E6] text-[#1E88E6] font-bold hover:bg-[#1E88E6] hover:text-white transition-all"
-            on:click={goToLogin}
+            on:click={scrollToTrialForm}
           >
             Contact sales
           </button>
@@ -1756,16 +1901,16 @@
       
       <div class="flex flex-col sm:flex-row justify-center gap-4 mb-6">
         <button 
-          class="bg-[#1E88E6] hover:bg-[#1778CF] text-white text-xl px-12 py-5 rounded-full shadow-2xl shadow-[#1E88E6]/30 hover:shadow-[#1E88E6]/40 transition-all hover:scale-105 font-bold" 
-          on:click={goToLogin}
+          class="bg-[#1E88E6] hover:bg-[#1778CF] text-white text-base sm:text-xl px-6 sm:px-12 py-3 sm:py-5 rounded-full shadow-2xl shadow-[#1E88E6]/30 hover:shadow-[#1E88E6]/40 transition-all hover:scale-105 font-bold" 
+          on:click={scrollToTrialForm}
         >
-          Start your free trial - 14 days
+          Start your free trial
         </button>
         <button 
-          class="bg-white hover:bg-gray-50 text-[#1E88E6] text-xl px-12 py-5 rounded-full shadow-lg border-2 border-[#1E88E6] transition-all hover:scale-105 font-bold" 
-          on:click={goToLogin}
+          class="bg-white hover:bg-gray-50 text-[#1E88E6] text-base sm:text-xl px-6 sm:px-12 py-3 sm:py-5 rounded-full shadow-lg border-2 border-[#1E88E6] transition-all hover:scale-105 font-bold" 
+          on:click={scrollToTrialForm}
         >
-          Schedule a personalized demo
+          Schedule a demo
         </button>
       </div>
       <p class="text-gray-500 text-sm">Join businesses already managing with artificial intelligence.</p>

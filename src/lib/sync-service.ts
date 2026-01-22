@@ -73,6 +73,30 @@ function isAutoIncrementTable(tableName: string): boolean {
     return AUTO_INCREMENT_TABLES.includes(tableName);
 }
 
+// Tables with special unique constraints (not just 'id')
+// Maps Supabase table name to the conflict columns for upsert
+const TABLE_UNIQUE_CONSTRAINTS: Record<string, string> = {
+    'itbis_summaries': 'store_id,period',      // Unique on store_id + period
+    'ncf_ranges': 'store_id,type,prefix',      // Unique on store_id + type + prefix  
+    'ncf_usage': 'store_id,ncf',               // Unique on store_id + ncf
+    'receipt_settings': 'store_id',            // One per store
+    'cost_consumptions': 'id'                  // UUID primary key (ensure it exists)
+};
+
+// Get the conflict key for a table's upsert operation
+function getConflictKey(supabaseTableName: string, isAutoIncrement: boolean): string {
+    // Check for special unique constraints first
+    if (TABLE_UNIQUE_CONSTRAINTS[supabaseTableName]) {
+        return TABLE_UNIQUE_CONSTRAINTS[supabaseTableName];
+    }
+    // Auto-increment tables use store_id + local_id
+    if (isAutoIncrement) {
+        return 'store_id,local_id';
+    }
+    // Default to id for UUID-based tables
+    return 'id';
+}
+
 // ============================================================
 // FIELD EXCLUSION SYSTEM
 // ============================================================
@@ -459,8 +483,13 @@ class SyncService {
      * Perform a full sync (push + pull)
      */
     async sync(): Promise<SyncResult> {
-        if (!browser || this.isSyncing || !navigator.onLine) {
-            return { success: false, pushed: 0, pulled: 0, errors: ['Sync skipped'] };
+        if (!browser || this.isSyncing) {
+            return { success: false, pushed: 0, pulled: 0, errors: ['Sync skipped - already syncing'] };
+        }
+        
+        if (!navigator.onLine) {
+            console.log('[Sync] Offline - skipping sync');
+            return { success: false, pushed: 0, pulled: 0, errors: ['Offline'] };
         }
         
         const storeId = getStoreId();
@@ -606,7 +635,9 @@ class SyncService {
                 }
                 
                 // Process in batches
-                for (let i = 0; i < changes.length; i += MAX_BATCH_SIZE) {
+                let networkErrorOccurred = false;
+                
+                for (let i = 0; i < changes.length && !networkErrorOccurred; i += MAX_BATCH_SIZE) {
                     const batch = changes.slice(i, i + MAX_BATCH_SIZE);
                     
                     for (const change of batch) {
@@ -622,13 +653,36 @@ class SyncService {
                         } catch (err: unknown) {
                             // Extract detailed error message
                             let errorDetail = 'Unknown error';
+                            let isNetworkError = false;
+                            
                             if (err && typeof err === 'object') {
                                 const e = err as Record<string, unknown>;
                                 errorDetail = e.message as string || e.error as string || JSON.stringify(e);
+                                
+                                // Detect network errors
+                                const errorStr = errorDetail.toLowerCase();
+                                isNetworkError = errorStr.includes('failed to fetch') ||
+                                    errorStr.includes('network') ||
+                                    errorStr.includes('err_name_not_resolved') ||
+                                    errorStr.includes('err_network') ||
+                                    errorStr.includes('typeerror');
                             }
+                            
                             const errorMsg = `Failed to push ${change.action} to ${tableName}: ${errorDetail}`;
-                            console.error(errorMsg, { change, err });
-                            errors.push(errorMsg);
+                            
+                            // Only log network errors once, not for every record
+                            if (isNetworkError) {
+                                if (!errors.some(e => e.includes('network') || e.includes('Network error'))) {
+                                    console.error(`[Sync] Network error - stopping sync`);
+                                    errors.push(`Network error: Unable to connect to Supabase`);
+                                }
+                                // Mark network error to break out of all loops
+                                networkErrorOccurred = true;
+                                break;
+                            } else {
+                                console.error(errorMsg, { change, err });
+                                errors.push(errorMsg);
+                            }
                         }
                         
                         // Update progress
@@ -641,6 +695,11 @@ class SyncService {
                             }
                         }
                     }
+                }
+                
+                // Stop processing other tables if network error occurred
+                if (networkErrorOccurred) {
+                    break;
                 }
             }
             
@@ -758,13 +817,11 @@ class SyncService {
         switch (change.action) {
             case 'insert':
             case 'update': {
-                // For auto-increment tables, use store_id + local_id as conflict key
-                const conflictKey = isAutoIncrement ? 'store_id,local_id' : 'id';
+                // Get the appropriate conflict key for this table
+                const conflictKey = getConflictKey(tableName, isAutoIncrement);
                 
-                console.log(`[Sync] Upserting to ${tableName} with conflict key: ${conflictKey}`, {
-                    local_id: (data as Record<string, unknown>).local_id,
-                    store_id: storeId
-                });
+                // Only log for debugging specific tables or first few records
+                // console.log(`[Sync] Upserting to ${tableName} with conflict key: ${conflictKey}`);
                 
                 const { error, status, statusText } = await supabase
                     .from(tableName as keyof Database['public']['Tables'])
@@ -774,7 +831,16 @@ class SyncService {
                     });
                 
                 if (error) {
-                    // Log detailed error information for debugging
+                    // Check for network-related errors first
+                    const isNetworkError = !status || status === 0 || 
+                        error.message?.includes('Failed to fetch') ||
+                        error.message?.includes('NetworkError');
+                    
+                    if (isNetworkError) {
+                        throw new Error(`Network error: Failed to fetch`);
+                    }
+                    
+                    // Log detailed error information for debugging (only for non-network errors)
                     const dataFields = Object.keys(data);
                     console.error(`[Sync] Upsert error for ${tableName}:`, { 
                         error: {
